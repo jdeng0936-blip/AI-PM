@@ -37,6 +37,7 @@ class UserCreate(BaseModel):
     wechat_userid: str = Field(..., max_length=64)
     phone: Optional[str] = Field(None, max_length=20)
     department: str = Field("", max_length=64)
+    job_title: str = Field("", max_length=50, description="岗位：技术部长/研发工程师/采购经理 等")
     role: str = Field("employee", description="employee / manager / admin")
     password: str = Field("aipm2026", min_length=6, max_length=64,
                           description="初始密码，默认 aipm2026")
@@ -47,6 +48,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=32)
     phone: Optional[str] = Field(None, max_length=20)
     department: Optional[str] = Field(None, max_length=64)
+    job_title: Optional[str] = Field(None, max_length=50)
     role: Optional[str] = Field(None, description="employee / manager / admin")
     is_active: Optional[bool] = None
 
@@ -58,9 +60,12 @@ class UserOut(BaseModel):
     wechat_userid: str
     phone: Optional[str] = None
     department: str
+    job_title: str = ""
     role: str
     is_active: bool
+    must_change_password: bool = True
     created_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

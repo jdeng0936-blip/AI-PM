@@ -4,13 +4,15 @@ POST /auth/login    — 登录
 GET  /auth/me       — 当前用户信息
 POST /auth/change-password — 修改密码
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
 from app.database import get_db
 from app.models.user import User, UserRole
+from app.models.audit_log import AuditLog
 from app.schemas.user import (
     LoginRequest, LoginResponse, ChangePasswordRequest, UserOut,
 )
@@ -34,7 +36,11 @@ def hash_password(plain: str) -> str:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    req: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     """
     用户名+密码登录。
     支持 wechat_userid / phone / name 匹配。
@@ -68,6 +74,20 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="密码错误",
         )
 
+    # 更新最近登录时间
+    user.last_login_at = datetime.utcnow()
+
+    # 写入审计日志
+    client_ip = request.client.host if request.client else "unknown"
+    audit = AuditLog(
+        user_id=user.id,
+        action="login",
+        ip_address=client_ip,
+        detail={"username": req.username},
+    )
+    db.add(audit)
+    await db.commit()
+
     token = create_access_token(str(user.id), role=user.role.value)
 
     return LoginResponse(
@@ -78,9 +98,12 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
             wechat_userid=user.wechat_userid,
             phone=user.phone,
             department=user.department,
+            job_title=user.job_title,
             role=user.role.value,
             is_active=user.is_active,
+            must_change_password=user.must_change_password,
             created_at=user.created_at,
+            last_login_at=user.last_login_at,
         ),
     )
 
@@ -94,15 +117,19 @@ async def get_me(current_user: User = Depends(get_current_user)):
         wechat_userid=current_user.wechat_userid,
         phone=current_user.phone,
         department=current_user.department,
+        job_title=current_user.job_title,
         role=current_user.role.value,
         is_active=current_user.is_active,
+        must_change_password=current_user.must_change_password,
         created_at=current_user.created_at,
+        last_login_at=current_user.last_login_at,
     )
 
 
 @router.post("/change-password")
 async def change_password(
     req: ChangePasswordRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -116,5 +143,15 @@ async def change_password(
             )
 
     current_user.hashed_password = hash_password(req.new_password)
+    current_user.must_change_password = False  # 改密后清除强制标记
+
+    # 审计日志
+    client_ip = request.client.host if request.client else "unknown"
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action="change_password",
+        ip_address=client_ip,
+    ))
     await db.commit()
     return {"message": "密码修改成功"}
+

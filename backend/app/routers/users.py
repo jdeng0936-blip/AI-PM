@@ -58,9 +58,10 @@ async def list_users(
         items=[
             UserOut(
                 id=str(u.id), name=u.name, wechat_userid=u.wechat_userid,
-                phone=u.phone, department=u.department,
+                phone=u.phone, department=u.department, job_title=u.job_title,
                 role=u.role.value, is_active=u.is_active,
-                created_at=u.created_at,
+                must_change_password=u.must_change_password,
+                created_at=u.created_at, last_login_at=u.last_login_at,
             )
             for u in users
         ],
@@ -103,6 +104,7 @@ async def create_user(
         wechat_userid=req.wechat_userid,
         phone=req.phone,
         department=req.department,
+        job_title=req.job_title,
         role=UserRole(req.role),
         hashed_password=hash_password(req.password),
         is_active=True,
@@ -113,9 +115,10 @@ async def create_user(
 
     return UserOut(
         id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, department=user.department,
+        phone=user.phone, department=user.department, job_title=user.job_title,
         role=user.role.value, is_active=user.is_active,
-        created_at=user.created_at,
+        must_change_password=user.must_change_password,
+        created_at=user.created_at, last_login_at=user.last_login_at,
     )
 
 
@@ -138,6 +141,8 @@ async def update_user(
         user.phone = req.phone
     if req.department is not None:
         user.department = req.department
+    if req.job_title is not None:
+        user.job_title = req.job_title
     if req.role is not None:
         user.role = UserRole(req.role)
     if req.is_active is not None:
@@ -148,9 +153,10 @@ async def update_user(
 
     return UserOut(
         id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, department=user.department,
+        phone=user.phone, department=user.department, job_title=user.job_title,
         role=user.role.value, is_active=user.is_active,
-        created_at=user.created_at,
+        must_change_password=user.must_change_password,
+        created_at=user.created_at, last_login_at=user.last_login_at,
     )
 
 

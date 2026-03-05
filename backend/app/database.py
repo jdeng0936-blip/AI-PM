@@ -46,5 +46,5 @@ async def init_db():
     生产环境应使用 Alembic migrate，而非此函数。
     """
     async with engine.begin() as conn:
-        from app.models import user, daily_report, risk_alert, usage_log  # noqa: F401
+        from app.models import user, daily_report, risk_alert, usage_log, audit_log  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)

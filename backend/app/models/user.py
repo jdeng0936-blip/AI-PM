@@ -43,6 +43,18 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, comment="是否启用"
     )
+    # ── 新增字段（Phase 1 增强）─────────────────────────
+    job_title: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="",
+        comment="岗位：技术部长/研发工程师/采购经理/仓管 等"
+    )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+        comment="首次登录强制改密"
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, comment="最近登录时间"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
