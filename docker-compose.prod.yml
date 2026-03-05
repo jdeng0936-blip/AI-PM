@@ -1,0 +1,100 @@
+# ════════════════════════════════════════════════════════════════
+# 徽远成 AI-PM — 全栈生产环境 Docker Compose
+# 服务：PostgreSQL 15 / Redis 7 / FastAPI 后端 / Vue 前端(Nginx)
+#
+# 使用方法：
+#   1. cp backend/.env.example backend/.env  → 填写真实配置
+#   2. bash scripts/deploy.sh                → 一键构建 & 启动
+#   或: docker compose -f docker-compose.prod.yml up -d --build
+# ════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── PostgreSQL 15 数据库 ──────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: aipm-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: aipm_db
+      POSTGRES_USER: aipm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      LANG: zh_CN.UTF-8
+      LC_ALL: zh_CN.UTF-8
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U aipm -d aipm_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis 7 缓存 ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: aipm-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI 后端 ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
+    container_name: aipm-backend
+    restart: always
+    env_file:
+      - ./backend/.env
+    environment:
+      AIPM_ENV: prod
+      DATABASE_URL: postgresql+asyncpg://aipm:${POSTGRES_PASSWORD}@postgres:5432/aipm_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Vue 前端（Nginx 反代 + SPA）──────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: aipm-frontend
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
