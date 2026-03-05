@@ -742,7 +742,7 @@ CREATE TABLE departments (
 
 ---
 
-## 完整实施路线（10 周）
+## 完整实施路线（13 周）
 
 ```
 === 关键功能（第1-5周） ===
@@ -757,6 +757,258 @@ Phase 6 (第6周):  ⑩ 部门分组     → 总经理查看基础能力
 Phase 7 (第7周):  ⑨ KPI 目标     → 评分体系锚点
 Phase 8 (第8周):  ⑦ 历史趋势     → 数据可视化
 Phase 9 (第9周):  ⑧ 数据导出     → Excel/PDF 汇报
-Phase 10(第10周): ⑥ AI 对话查询  → Tool Calling，最复杂，放最后
+Phase 10(第10周): ⑥ AI 对话查询  → Tool Calling
+
+=== 战略增强（第11-13周） ===
+Phase 11(第11周): ⑪ OKR 战略对齐  → 目标管理基础设施
+Phase 12(第12周): ⑫ 资源负载预判  → 故事点负载池 + 水位可视化
+Phase 13(第13周): ⑬ AI 自动复盘   → 知识资产沉淀（依赖前面所有数据积累）
 ```
+
+---
+
+## 11. OKR 战略对齐
+
+### 数据库模型
+
+```sql
+CREATE TABLE okr_cycles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,             -- '2026 Q1', '2026 H1'
+    period VARCHAR(20) NOT NULL,            -- 'quarterly' | 'half_yearly'
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE objectives (
+    id SERIAL PRIMARY KEY,
+    cycle_id INT REFERENCES okr_cycles(id),
+    title TEXT NOT NULL,                     -- '206样机具备行业参展能力'
+    owner_id INT REFERENCES users(id),       -- 负责人（总经理或部门负责人）
+    progress FLOAT DEFAULT 0,                -- 0-100，由 KR 自动计算
+    status VARCHAR(20) DEFAULT 'on_track',   -- 'on_track' | 'at_risk' | 'behind'
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE key_results (
+    id SERIAL PRIMARY KEY,
+    objective_id INT REFERENCES objectives(id),
+    title TEXT NOT NULL,                      -- '大模型推理延迟降低至500ms内'
+    metric_type VARCHAR(20),                  -- 'number' | 'percentage' | 'boolean'
+    target_value FLOAT,                       -- 500 (ms)
+    current_value FLOAT DEFAULT 0,            -- AI 从日报自动更新
+    unit VARCHAR(20),                         -- 'ms' | '%' | '个'
+    progress FLOAT DEFAULT 0,
+    owner_id INT REFERENCES users(id)
+);
+
+CREATE TABLE kr_task_links (
+    id SERIAL PRIMARY KEY,
+    kr_id INT REFERENCES key_results(id),
+    task_id INT REFERENCES tasks(id),         -- Sprint任务绑定KR
+    contribution_weight FLOAT DEFAULT 1.0     -- 该任务对KR的贡献权重
+);
+
+CREATE TABLE kr_progress_logs (
+    id SERIAL PRIMARY KEY,
+    kr_id INT REFERENCES key_results(id),
+    report_id INT REFERENCES daily_reports(id),
+    previous_value FLOAT,
+    new_value FLOAT,
+    ai_extracted BOOLEAN DEFAULT TRUE,        -- AI从日报自动提取
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### AI 自动更新 KR 进度
+
+```python
+async def auto_update_kr_from_report(report: DailyReport):
+    """日报入库后，AI 自动检测是否更新了某个 KR 的进度"""
+    linked_krs = await db.get_krs_linked_to_user_tasks(report.user_id)
+    if not linked_krs:
+        return
+
+    prompt = f"""
+    以下是员工日报内容：{report.raw_text}
+    该员工当前关联的 KR：{json.dumps([kr.dict() for kr in linked_krs])}
+    请判断日报中是否包含某个 KR 的进度更新数据，返回 JSON：
+    [{{"kr_id": 1, "new_value": 450, "reason": "推理延迟从800ms降至450ms"}}]
+    如果没有进度更新，返回空数组 []
+    """
+    response = await client.chat.completions.create(
+        model="gemini-2.5-flash",  # 🟢 FAST 场景
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2, max_tokens=1024,
+    )
+    updates = json.loads(response.choices[0].message.content)
+    for u in updates:
+        await db.update_kr_progress(u["kr_id"], u["new_value"], report.id)
+```
+
+### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/okr/cycles` | OKR 周期列表 |
+| POST | `/api/admin/okr/objectives` | 创建 Objective |
+| POST | `/api/admin/okr/key-results` | 创建 KR |
+| POST | `/api/okr/link-task` | 绑定任务到 KR |
+| GET | `/api/okr/dashboard` | OKR 进度仪表盘 |
+
+---
+
+## 12. 资源负载水位与瓶颈预判
+
+### 数据库模型
+
+```sql
+-- tasks 表增加故事点字段
+ALTER TABLE tasks ADD COLUMN story_points INT DEFAULT 0;
+
+-- 成员产能基线
+CREATE TABLE capacity_baselines (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) UNIQUE,
+    points_per_sprint INT DEFAULT 20,        -- 正常负荷基线
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### 负载水位计算
+
+```python
+async def calculate_workload(sprint_id: int) -> list[dict]:
+    members = await db.get_sprint_members(sprint_id)
+    results = []
+    for m in members:
+        assigned = await db.get_assigned_points(m.user_id, sprint_id)
+        baseline = await db.get_capacity_baseline(m.user_id)
+
+        # 跨项目总负载
+        cross_project = await db.get_cross_project_points(m.user_id, sprint_id)
+
+        load_pct = (assigned / baseline.points_per_sprint) * 100
+        results.append({
+            "user": m.username,
+            "assigned_points": assigned,
+            "baseline": baseline.points_per_sprint,
+            "load_percentage": round(load_pct),
+            "cross_project_total": cross_project,
+            "status": "overloaded" if load_pct > 150
+                      else "full" if load_pct > 100
+                      else "normal"
+        })
+    return results
+
+# Sprint 规划时自动检查
+async def check_sprint_feasibility(sprint_id: int):
+    workloads = await calculate_workload(sprint_id)
+    overloaded = [w for w in workloads if w["status"] == "overloaded"]
+    if overloaded:
+        advice = await client.chat.completions.create(
+            model="gemini-3-flash-preview",  # 🟡 MEDIUM
+            messages=[{
+                "role": "user",
+                "content": f"以下成员过载：{json.dumps(overloaded)}，请建议调配方案"
+            }],
+            temperature=0.5, max_tokens=2048,
+        )
+        await send_notification(ADMIN_USER_ID, "wecom", advice)
+```
+
+### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/capacity/sprint/{id}` | Sprint 负载水位 |
+| GET | `/api/capacity/overview` | 全员水位概览 |
+| POST | `/api/admin/capacity/baseline` | 设置产能基线 |
+| GET | `/api/capacity/conflicts` | 跨项目冲突检测 |
+
+---
+
+## 13. AI 驱动自动化复盘
+
+### 核心代码
+
+```python
+async def generate_retrospective(scope: str, scope_id: int) -> dict:
+    """
+    scope: 'sprint' | 'milestone' | 'project'
+    自动生成阶段复盘报告
+    """
+    # 1. 收集该阶段全部数据
+    reports = await db.get_reports_in_scope(scope, scope_id)
+    blockers = await db.get_blockers_in_scope(scope, scope_id)
+    scores = await db.get_scores_in_scope(scope, scope_id)
+    workloads = await db.get_workloads_in_scope(scope, scope_id)
+
+    context = f"""
+    日报数量: {len(reports)}
+    卡点记录: {json.dumps(blockers, ensure_ascii=False)}
+    评分统计: 平均{scores['avg']}, 最低{scores['min']}, 最高{scores['max']}
+    负载情况: {json.dumps(workloads, ensure_ascii=False)}
+    """
+
+    # 2. LLM 生成复盘报告
+    response = await client.chat.completions.create(
+        model="gemini-2.5-pro",  # 🔴 HEAVY 场景
+        messages=[{
+            "role": "system",
+            "content": """你是项目复盘分析师。请基于以下数据生成结构化复盘报告，包含：
+            1. 📊 关键数据摘要
+            2. 🔥 卡点热力图（哪个环节踩坑最多）
+            3. ⚡ 效率瓶颈分析
+            4. 💡 改进建议（具体可执行）
+            5. ⭐ 最佳实践提炼
+            输出 JSON 格式。"""
+        }, {
+            "role": "user", "content": context
+        }],
+        temperature=0.5, max_tokens=4096,
+    )
+    report = json.loads(response.choices[0].message.content)
+
+    # 3. 自动沉淀知识资产
+    await save_to_knowledge_base(report["best_practices"], type="practice")
+    await save_to_knowledge_base(report["improvement_suggestions"], type="faq")
+
+    return report
+```
+
+### 数据库模型
+
+```sql
+CREATE TABLE retrospective_reports (
+    id SERIAL PRIMARY KEY,
+    scope VARCHAR(20) NOT NULL,       -- 'sprint' | 'milestone' | 'project'
+    scope_id INT NOT NULL,
+    report_content JSONB NOT NULL,     -- AI 生成的完整报告
+    generated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE knowledge_assets (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(20) NOT NULL,        -- 'faq' | 'risk_playbook' | 'best_practice'
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_retro_id INT REFERENCES retrospective_reports(id),
+    tags JSONB,                       -- ['电源选型', '供应商', '采购']
+    embedding Vector(1536),           -- pgvector，支持语义检索
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/admin/retro/generate` | 触发生成复盘报告 |
+| GET | `/api/retro/{scope}/{id}` | 查看复盘报告 |
+| GET | `/api/knowledge/search?q=` | 语义搜索知识资产 |
+| GET | `/api/knowledge/recommend?blocker=` | AI 推荐相似问题解决方案 |
 
