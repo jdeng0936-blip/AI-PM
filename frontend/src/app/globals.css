@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════
+ * 徽远成 AI-PM — 全局设计 Token（暗色主题）
+ * 与原 Vue 版本保持视觉一致性
+ * ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* Background */
+  --color-bg-primary: #0f1117;
+  --color-bg-secondary: #1a1d27;
+  --color-bg-card: #1e2030;
+  --color-bg-hover: #262940;
+
+  /* Text */
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Borders */
+  --color-border-subtle: #2d3148;
+  --color-border-strong: #3d4260;
+
+  /* Brand */
+  --color-brand-blue: #3b82f6;
+  --color-brand-purple: #a855f7;
+  --color-brand-indigo: #6366f1;
+
+  /* Status */
+  --color-status-green: #22c55e;
+  --color-status-yellow: #eab308;
+  --color-status-red: #ef4444;
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-glow-blue: 0 8px 32px rgba(59, 130, 246, 0.15);
+}
+
+/* ── Body defaults ───────────────────────────────────── */
+body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+}
+
+/* ── Common component classes ─────────────────────────── */
+.stat-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 16px;
+  padding: 20px 24px;
+  transition: all 0.2s ease;
+}
+.stat-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-container {
+  padding: 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ── Entrance animation ──────────────────────────────── */
+@keyframes animate-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-in {
+  animation: animate-in 0.4s ease-out both;
+}
+
+/* ── Gradient hero ───────────────────────────────────── */
+.gradient-hero {
+  background: linear-gradient(135deg, #0f1117 0%, #1a1d27 40%, #1e2030 100%);
+}

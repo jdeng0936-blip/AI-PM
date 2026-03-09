@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+/* ── 全局 Design Tokens ── */
+:root {
+  --bg-primary: #0a0e1a;
+  --bg-card: #111827;
+  --bg-card-hover: #1a2332;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --accent-blue: #3b82f6;
+  --accent-green: #22c55e;
+  --accent-yellow: #eab308;
+  --accent-red: #ef4444;
+  --accent-purple: #a855f7;
+  --gradient-hero: linear-gradient(135deg, #1e3a5f 0%, #0a0e1a 100%);
+}
+
+/* ── 全局基底 ── */
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Element Plus 暗色覆盖 ── */
+.el-menu {
+  border-right: none !important;
+}
+
+/* ── 统计卡片 ── */
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.3s ease;
+}
+.stat-card:hover {
+  background: var(--bg-card-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+.stat-card .number {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat-card .label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+/* ── 甘特图 ── */
+.gantt-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gantt-bar {
+  height: 28px;
+  border-radius: 6px;
+  position: relative;
+  transition: all 0.3s ease;
+}
+.gantt-bar.green  { background: linear-gradient(90deg, #22c55e, #16a34a); }
+.gantt-bar.locked { background: linear-gradient(90deg, #374151, #4b5563); opacity: 0.5; }
+.gantt-bar.yellow { background: linear-gradient(90deg, #eab308, #ca8a04); }
+.gantt-bar.red    { background: linear-gradient(90deg, #ef4444, #dc2626); }
+.gantt-bar:hover  { filter: brightness(1.15); transform: scaleY(1.1); }
+
+/* ── 风险卡片 ── */
+.risk-card {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-left: 4px solid var(--accent-red);
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+.risk-card:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* ── AI 评分徽章 ── */
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.score-badge.high   { background: rgba(34,197,94,0.15); color: #22c55e; border: 2px solid #22c55e; }
+.score-badge.medium { background: rgba(234,179,8,0.15);  color: #eab308; border: 2px solid #eab308; }
+.score-badge.low    { background: rgba(239,68,68,0.15);  color: #ef4444; border: 2px solid #ef4444; }
+
+/* ── 布局 ── */
+.page-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: '';
+  width: 4px;
+  height: 18px;
+  background: var(--accent-blue);
+  border-radius: 2px;
+}
+
+/* ── 微动画 ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  animation: fadeInUp 0.4s ease forwards;
+}

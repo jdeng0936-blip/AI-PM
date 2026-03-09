@@ -1,0 +1,76 @@
+# ════════════════════════════════════════════════════════════════
+# 徽远成 AI-PM — LLM 模型注册表 (Rule 01-Stack-AI-Routing)
+#
+# 所有 LLM 模型配置统一在此维护。
+# 业务代码严禁硬编码物理模型名，必须通过 LLMSelector 按任务类型选择。
+#
+# 层级说明：
+#   fast   — 低延迟、高频调用场景（日报解析、质检）
+#   medium — 中等复杂度场景（晨报生成、总经理对话）
+#   heavy  — 深度推理场景（周报撰写、项目复盘、交付预测）
+# ════════════════════════════════════════════════════════════════
+
+models:
+  # ── 日报解析（Chat-to-Form）──
+  report_parse:
+    name: "gemini-2.5-flash"
+    tier: "fast"
+    temperature: 0.1
+    max_tokens: 1024
+    description: "解析自然语言日报为结构化 JSON"
+
+  # ── 日报质检 ──
+  report_check:
+    name: "gemini-2.5-flash"
+    tier: "fast"
+    temperature: 0.1
+    max_tokens: 1024
+    description: "逻辑漏洞检测、规范校验"
+
+  # ── 管理层晨报 ──
+  morning_briefing:
+    name: "gemini-3-flash-preview"
+    tier: "medium"
+    temperature: 0.3
+    max_tokens: 600
+    description: "生成管理层每日晨报摘要"
+
+  # ── 总经理 AI 对话 ──
+  admin_chat:
+    name: "gemini-3-flash-preview"
+    tier: "medium"
+    temperature: 0.3
+    max_tokens: 2048
+    description: "总经理自然语言查询 (Tool Calling)"
+
+  # ── 深度分析 / 周报 / 复盘 ──
+  deep_analysis:
+    name: "gemini-2.5-pro"
+    tier: "heavy"
+    temperature: 0.5
+    max_tokens: 4096
+    description: "周报撰写、项目复盘、交付预测"
+
+  # ── 缺勤摘要 ──
+  absence_summary:
+    name: "gemini-2.5-flash"
+    tier: "fast"
+    temperature: 0.3
+    max_tokens: 512
+    description: "生成未提交日报缺勤摘要"
+
+  # ── KR 进度自动提取 ──
+  kr_progress:
+    name: "gemini-2.5-flash"
+    tier: "fast"
+    temperature: 0.2
+    max_tokens: 1024
+    description: "从日报中提取 KR 进度更新"
+
+  # ── Sprint 规划资源检查 ──
+  capacity_check:
+    name: "gemini-3-flash-preview"
+    tier: "medium"
+    temperature: 0.5
+    max_tokens: 2048
+    description: "Sprint 负载检查与人员调配建议"
