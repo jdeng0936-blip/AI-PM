@@ -182,24 +182,39 @@ async def mock_parse_report(
 
     elif score < 60:
         pass_check = False
-        missing = []
+        # 计算还差多少分
+        gap = 60 - score
+        # 核心不足（描述太简短是最常见原因）
+        core_issues = []
+        if len(raw_text.strip()) < 80:
+            core_issues.append("描述不够详细（建议50字以上，说清做了什么、怎么做的）")
+        if progress == 50:  # 默认值，说明没有明确提及进度
+            core_issues.append("未提及具体进度（如"完成80%"或"刚启动20%"）")
+        
+        # 加分建议（非必填，但可以帮助达标）
+        bonus_tips = []
         if not acceptance:
-            missing.append("验收标准")
+            bonus_tips.append("验收标准（+8分）：什么条件算完成")
         if not deliverable:
-            missing.append("成果/交付物")
+            bonus_tips.append("成果/交付物（+5分）：可展示的产出")
         if not git:
-            missing.append("Git版本号")
-        if progress == 50:  # 默认值，说明没有明确提及
-            missing.append("明确进度")
-        reject_reason = f"评分 {score} 分（低于60分达标线），缺失关键字段：{'、'.join(missing) if missing else '内容不够具体'}"
-        suggested_guidance = (
-            "请补充以下内容以达标：\n"
-            + ("• 验收标准：明确什么条件算完成\n" if not acceptance else "")
-            + ("• 成果/交付物：可展示的产出是什么\n" if not deliverable else "")
-            + ("• Git版本号：代码提交了哪个版本\n" if not git else "")
-            + ("• 进度数值：当前完成百分比\n" if progress == 50 else "")
-            + "• 建议使用模板或语音详细描述"
-        )
+            bonus_tips.append("Git版本号（+5分）：如有代码提交")
+        
+        if core_issues:
+            reject_reason = f"评分 {score} 分（差 {gap} 分达标），主要问题：{'；'.join(core_issues)}"
+        else:
+            reject_reason = f"评分 {score} 分（差 {gap} 分达标），信息量不足"
+        
+        suggested_guidance = "📌 快速达标方法（补充任意几项即可，无需全部填写）：\n"
+        if len(raw_text.strip()) < 80:
+            suggested_guidance += "• 【核心】把工作内容描述得更具体（做了什么、用了什么方法、结果如何）\n"
+        if progress == 50:
+            suggested_guidance += "• 【核心】补充明确进度数字，如"进度80%"\n"
+        if bonus_tips:
+            suggested_guidance += "• 以下为加分项（非必填）：\n"
+            for tip in bonus_tips:
+                suggested_guidance += f"  - {tip}\n"
+        suggested_guidance += "💡 提示：Git版本号仅适用于有代码提交的项目，非研发岗位可忽略"
 
     elif progress < 50 and not blocker:
         pass_check = False
