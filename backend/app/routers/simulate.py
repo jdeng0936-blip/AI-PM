@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +18,6 @@ from app.models.risk_alert import RiskAlert
 from app.models.user import User
 from app.services.ai_engine_mock import mock_parse_report
 from app.services.token_guard import log_token_usage
-from app.middleware.rbac import get_current_user
 
 router = APIRouter(prefix="/api/v1/simulate", tags=["DEV Simulation"])
 
@@ -114,8 +113,8 @@ class WebReportRequest(BaseModel):
 @router.post("/web-submit")
 async def web_submit_daily_report(
     req: WebReportRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """
     Web 端提交日报（通过 JWT 自动识别用户）：
@@ -124,6 +123,14 @@ async def web_submit_daily_report(
     3. 落库到 daily_reports + risk_alerts
     4. 返回 AI 结果
     """
+    # ── 获取当前用户（延迟导入以规避循环引用） ──
+    from app.middleware.rbac import get_current_user
+    from fastapi.security import HTTPBearer
+    
+    security = HTTPBearer()
+    credentials = await security(request)
+    current_user = await get_current_user(credentials=credentials, db=db)
+
     # ── Mock AI 解析 ──
     ai_result, p_tokens, c_tokens = await mock_parse_report(req.raw_text)
 
