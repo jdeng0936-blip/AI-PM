@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const request = axios.create({
     baseURL: '/api/v1',   // Vite proxy → http://127.0.0.1:8001/api/v1
-    timeout: 15000,
+    timeout: 120_000,  // Gemini thinking model 需要 20-60s
     headers: { 'Content-Type': 'application/json' },
 })
 
