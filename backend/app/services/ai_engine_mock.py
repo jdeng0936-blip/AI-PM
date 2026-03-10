@@ -187,9 +187,9 @@ async def mock_parse_report(
         # 核心不足（描述太简短是最常见原因）
         core_issues = []
         if len(raw_text.strip()) < 80:
-            core_issues.append("描述不够详细（建议50字以上，说清做了什么、怎么做的）")
+            core_issues.append('描述不够详细（建议50字以上，说清做了什么、怎么做的）')
         if progress == 50:  # 默认值，说明没有明确提及进度
-            core_issues.append("未提及具体进度（如"完成80%"或"刚启动20%"）")
+            core_issues.append('未提及具体进度（如"完成80%"或"刚启动20%"）')
         
         # 加分建议（非必填，但可以帮助达标）
         bonus_tips = []
@@ -209,7 +209,7 @@ async def mock_parse_report(
         if len(raw_text.strip()) < 80:
             suggested_guidance += "• 【核心】把工作内容描述得更具体（做了什么、用了什么方法、结果如何）\n"
         if progress == 50:
-            suggested_guidance += "• 【核心】补充明确进度数字，如"进度80%"\n"
+            suggested_guidance += '• 【核心】补充明确进度数字，如"进度80%"\n'
         if bonus_tips:
             suggested_guidance += "• 以下为加分项（非必填）：\n"
             for tip in bonus_tips:
