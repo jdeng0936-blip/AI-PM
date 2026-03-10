@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models.daily_report import DailyReport
 from app.models.risk_alert import RiskAlert
 from app.models.user import User
-from app.services.ai_engine_mock import mock_parse_report
+from app.services.ai_engine import parse_report_with_ai
 from app.services.token_guard import log_token_usage
 
 router = APIRouter(prefix="/api/v1/simulate", tags=["DEV Simulation"])
@@ -51,8 +51,10 @@ async def simulate_daily_report(
     if not user:
         return {"error": f"用户 {req.wechat_userid} 不存在，请先注册"}
 
-    # ── Mock AI 解析 ──
-    ai_result, p_tokens, c_tokens = await mock_parse_report(req.raw_text)
+    # ── AI 解析（Gemini 或自动降级 Mock）──
+    ai_result, p_tokens, c_tokens = await parse_report_with_ai(
+        req.raw_text, [], job_title=user.job_title, department=user.department
+    )
 
     # ── 记录 Token 用量 ──
     await log_token_usage(db, str(user.id), p_tokens, c_tokens)
@@ -131,8 +133,10 @@ async def web_submit_daily_report(
     credentials = await security(request)
     current_user = await get_current_user(credentials=credentials, db=db)
 
-    # ── Mock AI 解析 ──
-    ai_result, p_tokens, c_tokens = await mock_parse_report(req.raw_text)
+    # ── AI 解析（Gemini 或自动降级 Mock）──
+    ai_result, p_tokens, c_tokens = await parse_report_with_ai(
+        req.raw_text, [], job_title=current_user.job_title, department=current_user.department
+    )
 
     # ── 记录 Token 用量（无论是否通过都记录）──
     await log_token_usage(db, str(current_user.id), p_tokens, c_tokens)

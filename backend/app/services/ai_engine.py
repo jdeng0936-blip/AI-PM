@@ -8,13 +8,19 @@ app/services/ai_engine.py — 大模型多模态处理引擎
 ⚠️ Rule 01-Stack-AI-Routing: 严禁硬编码物理模型名。
    所有模型选择通过 LLMSelector.get_model_for_task() 完成。
 """
+import json
+import re
+import logging
+
 import httpx
 from app.config import settings
 from app.schemas.report import AIParseResult
 from app.services.llm_selector import LLMSelector
 
+logger = logging.getLogger("aipm.ai_engine")
+
 # ─────────────────────────────────────────────────────────────────────────────
-# System Prompt — 严格对齐徽远成日报表所有字段
+# System Prompt — 严格对齐徽远成日报表所有字段 + 累加评分制
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """\
 你现在是徽远成科技的"AI 项目经理"。
@@ -26,17 +32,39 @@ SYSTEM_PROMPT = """\
 - acceptance_criteria → 验收标准
 - support_needed   → 所需支持
 - progress         → 完成进度（0-100 整数，若未提及则根据语义推算）
+- deliverable      → 成果演示/交付物
 - reviewer         → 验收人（若未提及留 null）
 - git_version      → 代码归档 Git 版本号（研发同学才有，否则留 null）
 - blocker          → 核心卡点
 - next_step        → 解决方案
 - eta              → 预计解决时间（YYYY-MM-DD 格式，若未提及留 null）
 
-【质检红线 — 违反任意一条则 pass_check 为 false】
-1. progress < 100 且 blocker 为 null 或空字符串 → 必须要求说明卡点
-2. 成果图片内容与文字进度明显矛盾 → 图文不符，拒绝通过
-3. tasks 与 acceptance_criteria 完全不对应 → 提示补充验收标准
-4. 汇报内容极度模糊（如"今天做了一些事"）→ 要求具体化
+【评分规则 — 0~100 累加制】
+基础分 50 分，以下各项满足则加分：
+  +10 — 任务描述详尽（50字以上，说清做了什么、怎么做的、结果如何）
+  +8  — 有验收标准（注明什么条件算完成）
+  +5  — 有明确进度数字（如"完成80%"或"刚启动20%"）
+  +5  — 有成果/交付物描述
+  +5  — 有 Git 版本号（仅研发岗需要，非研发岗不因此扣分）
+  +5  — 有卡点说明（说明当前遇到什么问题）
+  +5  — 有解决方案（针对卡点的应对措施）
+  +3  — 包含具体数字或量化信息
+  +4  — 任务描述超过 200 字
+
+扣分项：
+  -10 — 进度 < 100% 且没有卡点说明（必须在 ai_comment 中提醒补充）
+  -5  — 进度 < 50% 且没有卡点（可能存在遗漏）
+  -5  — 汇报内容极度模糊（如"今天做了一些事"）
+
+判断规则：
+  总分 ≥ 60 → pass_check = true
+  总分 < 60 → pass_check = false，给出 reject_reason 和 suggested_guidance
+
+【质检红线 — 以下情况必须在 ai_comment 中严肃提醒】
+1. progress < 100 且 blocker 为 null 或空字符串 → 扣分并提醒补充卡点
+2. tasks 与 acceptance_criteria 完全不对应 → 提示补充验收标准
+3. 汇报内容极度模糊（如"今天做了一些事"）→ 要求具体化
+4. 成果图片内容与文字进度明显矛盾 → 图文不符，拒绝通过
 
 【输出 JSON Schema — 必须严格遵守，字段名不能改变】
 {
@@ -45,6 +73,7 @@ SYSTEM_PROMPT = """\
     "acceptance_criteria": "字符串或null",
     "support_needed": "字符串或null",
     "progress": 整数0-100,
+    "deliverable": "字符串或null",
     "reviewer": "字符串或null",
     "git_version": "字符串或null",
     "blocker": "字符串或null",
@@ -96,27 +125,56 @@ JOB_TITLE_PROMPT_SUFFIX: dict[str, str] = {
 }
 
 
-def _get_prompt_for_job(job_title: str) -> str:
+def _get_prompt_for_job(job_title: str, department: str = "") -> str:
     """根据岗位返回定制化 System Prompt"""
     suffix = ""
     for key, val in JOB_TITLE_PROMPT_SUFFIX.items():
         if key in job_title:
             suffix = val
             break
-    return SYSTEM_PROMPT + suffix
+
+    # 动态注入用户上下文
+    context = ""
+    if job_title or department:
+        context = f"\n【当前用户信息】\n- 岗位：{job_title or '未知'}\n- 部门：{department or '未知'}\n"
+
+    return SYSTEM_PROMPT + context + suffix
+
+
+def _strip_json_fences(raw: str) -> str:
+    """
+    Gemini 有时会返回 ```json ... ``` 包裹的 JSON，
+    必须 strip 掉才能被 Pydantic 正常解析。
+    """
+    stripped = raw.strip()
+    # 移除 ```json 开头和 ``` 结尾
+    if stripped.startswith("```"):
+        # 去掉第一行 ```json 或 ```
+        stripped = re.sub(r"^```(?:json)?\s*\n?", "", stripped)
+        stripped = re.sub(r"\n?```\s*$", "", stripped)
+    return stripped.strip()
 
 
 async def parse_report_with_ai(
     raw_text: str,
     media_urls: list[str],
     job_title: str = "",
+    department: str = "",
 ) -> tuple[AIParseResult, int, int]:
     """
     调用 NewApi 解析员工日报（支持文字 + 图片多模态）。
 
+    当 settings.new_api_key 为空时，自动降级到 Mock 引擎。
+
     Returns:
         (AIParseResult, prompt_tokens, completion_tokens)
     """
+    # ── 自动降级：无 API Key 时回退 Mock ──
+    if not settings.new_api_key:
+        logger.warning("⚠️ NEW_API_KEY 未配置，降级到 Mock 引擎")
+        from app.services.ai_engine_mock import mock_parse_report
+        return await mock_parse_report(raw_text, media_urls)
+
     # 通过 LLMSelector 获取模型配置（Rule 01-Stack-AI-Routing）
     model_config = LLMSelector.get_model_for_task("report_parse")
 
@@ -135,7 +193,7 @@ async def parse_report_with_ai(
     payload = {
         "model": model_config["name"],
         "messages": [
-            {"role": "system", "content": _get_prompt_for_job(job_title)},
+            {"role": "system", "content": _get_prompt_for_job(job_title, department)},
             {"role": "user",   "content": content_parts},
         ],
         "response_format": {"type": "json_object"},
@@ -143,29 +201,54 @@ async def parse_report_with_ai(
         "max_tokens": model_config.get("max_tokens", 1024),
     }
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        resp = await client.post(
-            f"{settings.new_api_base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.new_api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(
+                f"{settings.new_api_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.new_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        raw_json: str | None = data["choices"][0]["message"]["content"]
+        usage: dict = data.get("usage", {})
+
+        # Gemini 2.5 thinking model: content 可能为 null（所有 tokens 用于推理）
+        if not raw_json:
+            logger.error(
+                f"❌ Gemini 返回 content=null (reasoning_tokens 用尽 max_tokens)，降级到 Mock | "
+                f"usage={usage}"
+            )
+            from app.services.ai_engine_mock import mock_parse_report
+            return await mock_parse_report(raw_text, media_urls)
+
+        # Gemini 容错：strip ```json ``` 代码块包裹
+        cleaned_json = _strip_json_fences(raw_json)
+
+        # Pydantic V2 强校验 — 任何字段缺失或类型错误都会抛出 ValidationError
+        result = AIParseResult.model_validate_json(cleaned_json)
+
+        logger.info(
+            f"✅ Gemini 解析成功 | model={model_config['name']} "
+            f"score={result.ai_score} pass={result.pass_check} "
+            f"tokens={usage.get('prompt_tokens', 0)}+{usage.get('completion_tokens', 0)}"
         )
-        resp.raise_for_status()
-        data = resp.json()
 
-    raw_json: str = data["choices"][0]["message"]["content"]
-    usage: dict = data.get("usage", {})
+        return (
+            result,
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
 
-    # Pydantic V2 强校验 — 任何字段缺失或类型错误都会抛出 ValidationError
-    result = AIParseResult.model_validate_json(raw_json)
-
-    return (
-        result,
-        usage.get("prompt_tokens", 0),
-        usage.get("completion_tokens", 0),
-    )
+    except Exception as e:
+        # ── 任何异常自动降级到 Mock ──
+        logger.error(f"❌ Gemini API 调用失败，降级到 Mock: {e}")
+        from app.services.ai_engine_mock import mock_parse_report
+        return await mock_parse_report(raw_text, media_urls)
 
 
 async def generate_morning_briefing(reports_summary: str) -> str:
