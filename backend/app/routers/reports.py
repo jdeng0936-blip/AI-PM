@@ -24,43 +24,61 @@ router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 async def list_reports(
     report_date: Optional[date] = Query(None, description="按日期筛选"),
     user_name: Optional[str] = Query(None, description="按姓名模糊搜索"),
-    pass_check: Optional[bool] = Query(None, description="按质检结果筛选"),
+    pass_check: Optional[str] = Query(None, description="按质检结果筛选: true/false"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(UserRole.manager, UserRole.admin)),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    分页查询日报列表（对应 Excel 按条件筛选功能）。
-    支持按日期、姓名、质检结果多条件过滤。
+    分页查询日报列表：
+    - 管理员/经理：查看所有人的日报
+    - 普通员工：只能查看自己的日报
     """
+    from sqlalchemy import func
+
     conditions = []
+    # 员工只能看自己的
+    if current_user.role == UserRole.employee:
+        conditions.append(DailyReport.user_id == current_user.id)
     if report_date:
         conditions.append(DailyReport.report_date == report_date)
-    if pass_check is not None:
-        conditions.append(DailyReport.pass_check == pass_check)
+    if pass_check is not None and pass_check != '':
+        conditions.append(DailyReport.pass_check == (pass_check == 'true'))
 
+    # 基础查询
     stmt = (
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
     )
+    count_stmt = (
+        select(func.count(DailyReport.id))
+        .join(User, DailyReport.user_id == User.id)
+    )
     if user_name:
         stmt = stmt.where(User.name.ilike(f"%{user_name}%"))
+        count_stmt = count_stmt.where(User.name.ilike(f"%{user_name}%"))
     if conditions:
         stmt = stmt.where(and_(*conditions))
+        count_stmt = count_stmt.where(and_(*conditions))
 
+    # 总数
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # 分页数据
     stmt = (
         stmt
-        .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
+        .order_by(DailyReport.report_date.desc(), DailyReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
 
     rows = (await db.execute(stmt)).all()
-    return [
+    items = [
         {
             "id": str(r.DailyReport.id),
             "member": r.name,
+            "user_name": r.name,
             "department": r.department,
             "report_date": r.DailyReport.report_date,
             "pass_check": r.DailyReport.pass_check,
@@ -73,6 +91,7 @@ async def list_reports(
         }
         for r in rows
     ]
+    return {"items": items, "total": total}
 
 
 @router.get("/{report_id}")
