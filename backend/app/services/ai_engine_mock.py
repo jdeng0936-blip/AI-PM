@@ -216,10 +216,8 @@ async def mock_parse_report(
                 suggested_guidance += f"  - {tip}\n"
         suggested_guidance += "💡 提示：Git版本号仅适用于有代码提交的项目，非研发岗位可忽略"
 
-    elif progress < 50 and not blocker:
-        pass_check = False
-        reject_reason = "进度未过半且未说明卡点原因，请补充当前阻碍"
-        suggested_guidance = "请补充：当前进度为什么低于50%？是否有卡点需要协助？"
+    # 注意：progress < 50 且无卡点的情况已在评分中扣分（score -= 10），
+    # 不再作为独立的驳回条件，避免与评分逻辑冲突。
 
     # ── 管理层预警 ──
     management_alert = None
