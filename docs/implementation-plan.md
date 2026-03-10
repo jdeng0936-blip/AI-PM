@@ -1012,3 +1012,48 @@ CREATE TABLE knowledge_assets (
 | GET | `/api/knowledge/search?q=` | 语义搜索知识资产 |
 | GET | `/api/knowledge/recommend?blocker=` | AI 推荐相似问题解决方案 |
 
+---
+
+## 附录：实现进度跟踪（截至 2026-03-10）
+
+### A. 已实现功能
+
+| 功能 | 对应章节 | 状态 | 关键文件 |
+|------|---------|------|---------|
+| JWT 登录 + RBAC 权限 | §1 | ✅ | `backend/app/routers/auth.py`, `middleware/rbac.py` |
+| 快捷登录(10预置用户) | §1 | ✅ | `frontend/src/app/login/page.tsx` |
+| 日报 Web 提交 | §4 | ✅ | `backend/app/routers/simulate.py` |
+| **双模式: ☀️晨规划 / 🌙晚复核** | §4 新增 | ✅ | `frontend/src/app/submit-report/page.tsx` |
+| **结构化表单(6+7字段)** | §4 新增 | ✅ | 同上 |
+| Mock AI 解析+评分 | §4 | ✅ | `backend/app/services/ai_engine_mock.py` |
+| **质检闭环(驳回→修改→重提)** | §4 新增 | ✅ | `simulate.py` + `submit-report/page.tsx` |
+| 日报列表(角色隔离) | §10 | ✅ | `backend/app/routers/reports.py` |
+| 日报详情面板 | §10 | ✅ | `frontend/src/app/reports/page.tsx` |
+| Excel 导出 | §8 | ✅ | `backend/app/routers/export.py` |
+| 管理驾驶舱 | — | ✅ | `backend/app/routers/dashboard.py` |
+| 评分趋势 | §7 | ✅ | `frontend/src/app/trends/page.tsx` |
+
+### B. 待实现功能
+
+| 功能 | 对应章节 | 优先级 | 说明 |
+|------|---------|--------|------|
+| 真实 Gemini API | §4 | P0 | 替换 Mock 引擎 |
+| 企微/钉钉推送 | §3 | P0 | 通知渠道对接 |
+| 催报定时任务 | §2 | P1 | APScheduler 已就绪 |
+| 附件上传(OSS) | §5 | P1 | |
+| AI 对话查询 | §6 | P2 | Tool Calling |
+| OKR 战略对齐 | §11 | P2 | 数据模型已设计 |
+| 资源负载预判 | §12 | P3 | |
+| AI 自动复盘 | §13 | P3 | |
+
+### C. 开发过程中的关键决策
+
+| 决策 | 原因 |
+|------|------|
+| 结构化表单 > 纯自由文本 | 引导用户填写关键字段，提高质检通过率 |
+| 累加评分制(≥60通过) | 比硬编码规则更灵活，非必填字段不影响通过 |
+| 晨规划/晚复核双模式 | 早晨描述计划，晚上汇报结果，符合实际工作节奏 |
+| 员工可查看个人日报 | 原来仅manager可见，改为员工可看自己的 |
+| Git版本号标注"非必填" | 非代码项目不需要，避免误导 |
+| 未通过不入库 | 保证 daily_reports 数据质量 |
+
