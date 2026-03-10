@@ -17,9 +17,10 @@ from app.middleware.rbac import require_role, get_current_user
 from app.models.daily_report import DailyReport
 from app.models.user import User, UserRole
 
-router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
+router = APIRouter(prefix="/api/v1/reports", tags=["Reports"], redirect_slashes=False)
 
 
+@router.get("")
 @router.get("/")
 async def list_reports(
     report_date: Optional[date] = Query(None, description="按日期筛选"),
