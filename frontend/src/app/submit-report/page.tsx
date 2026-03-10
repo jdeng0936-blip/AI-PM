@@ -82,6 +82,7 @@ export default function SubmitReportPage() {
 
   // ─── 提交 ──────────────────────────────────────────
   const handleSubmit = async () => {
+    if (result?.status === 'ok') { setError('该内容已成功提交，请勿重复提交'); return }
     const text = getRawText()
     if (!text.trim()) { setError('请填写内容'); return }
     setSubmitting(true); setError(''); setResult(null)
@@ -91,7 +92,13 @@ export default function SubmitReportPage() {
       })
       setResult(res)
     } catch (err: any) {
-      setError(err.response?.data?.detail || '提交失败')
+      const status = err.response?.status
+      const detail = err.response?.data?.detail
+      if (status === 409) {
+        setError(detail || '该内容今天已经提交过，请勿重复提交')
+      } else {
+        setError(detail || '提交失败')
+      }
     } finally { setSubmitting(false) }
   }
 
@@ -191,11 +198,13 @@ export default function SubmitReportPage() {
 
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
-            <button onClick={handleSubmit} disabled={submitting}
-              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:bg-gray-600 disabled:cursor-not-allowed ${
-                mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
+            <button onClick={handleSubmit} disabled={submitting || result?.status === 'ok'}
+              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${
+                result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
               }`}>
-              {submitting ? (
+              {result?.status === 'ok' ? (
+                <>{mode === 'plan' ? '✅ 计划已提交' : '✅ 复核已提交'}</>
+              ) : submitting ? (
                 <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> AI 分析中...</>
               ) : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
             </button>
@@ -228,11 +237,12 @@ export default function SubmitReportPage() {
           />
           <div className="flex items-center justify-between mt-4">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
-            <button onClick={handleSubmit} disabled={submitting || !freeText.trim()}
-              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:bg-gray-600 disabled:cursor-not-allowed ${
-                mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
+            <button onClick={handleSubmit} disabled={submitting || !freeText.trim() || result?.status === 'ok'}
+              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${
+                result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
               }`}>
-              {submitting ? 'AI 分析中...' : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
+              {result?.status === 'ok' ? (mode === 'plan' ? '✅ 计划已提交' : '✅ 复核已提交') :
+               submitting ? 'AI 分析中...' : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
             </button>
           </div>
         </div>

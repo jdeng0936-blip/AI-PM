@@ -133,6 +133,25 @@ async def web_submit_daily_report(
     credentials = await security(request)
     current_user = await get_current_user(credentials=credentials, db=db)
 
+    # ── 防重复提交：同一用户 + 同一天 + 相同原始文本 → 拒绝 ──
+    report_date = req.report_date or date.today()
+    from sqlalchemy import select, and_, func
+    dup_check = await db.execute(
+        select(DailyReport.id).where(
+            and_(
+                DailyReport.user_id == current_user.id,
+                DailyReport.report_date == report_date,
+                DailyReport.raw_input_text == req.raw_text,
+            )
+        ).limit(1)
+    )
+    if dup_check.scalar():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=409,
+            detail="该内容今天已经提交过，请勿重复提交。如需修改，请更新内容后再提交。",
+        )
+
     # ── AI 解析（Gemini 或自动降级 Mock）──
     ai_result, p_tokens, c_tokens = await parse_report_with_ai(
         req.raw_text, [], job_title=current_user.job_title, department=current_user.department
