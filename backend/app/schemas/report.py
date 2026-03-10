@@ -19,6 +19,12 @@ class ParsedContent(BaseModel):
     对应 Excel 日报表的所有业务字段。
     每个字段均有中文注释，方便在 System Prompt 中引用。
     """
+    # ── 汇报类型 ───────────────────────────────────────────────
+    report_type: str = Field(
+        "日报",
+        description="汇报类型：晨规划 / 日报 / 晚复盘 / 其他"
+    )
+
     # ── 核心任务信息 ───────────────────────────────────────────
     tasks: str = Field(..., description="今日任务（对应 Excel '今日任务' 列）")
     acceptance_criteria: Optional[str] = Field(

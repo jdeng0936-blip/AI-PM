@@ -240,7 +240,15 @@ async def mock_parse_report(
     if not support and blocker and '需要' in raw_text:
         support = blocker
 
+    # ── 汇报类型识别 ──
+    report_type = "日报"
+    if any(k in raw_text for k in ['晨规划', '计划', '目标', '预期', '打算']):
+        report_type = "晨规划"
+    elif any(k in raw_text for k in ['总结', '复盘', '反思', '教训']):
+        report_type = "晚复盘"
+
     parsed = ParsedContent(
+        report_type=report_type,
         tasks=tasks,
         acceptance_criteria=acceptance,
         support_needed=support,

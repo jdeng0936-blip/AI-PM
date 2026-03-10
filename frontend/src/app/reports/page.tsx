@@ -137,17 +137,30 @@ export default function ReportsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-              {['日期', '姓名', '部门', 'AI 评分', '今日进展', 'AI 评语', '状态'].map((h) => (
+              {['日期', '类型', '姓名', '部门', 'AI 评分', '今日进展', 'AI 评语', '状态'].map((h) => (
                 <th key={h} className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {reports.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
+              <tr><td colSpan={8} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
             ) : reports.map((r: any) => (
               <tr key={r.id} className="cursor-pointer transition-colors hover:bg-white/[0.02]" onClick={() => handleRowClick(r)} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                 <td className="py-3 px-3 text-xs">{r.report_date}</td>
+                <td className="py-3 px-3">
+                  {(() => {
+                    const rt = r.parsed_content?.report_type || '日报'
+                    const colorMap: Record<string, { bg: string; text: string }> = {
+                      '晨规划': { bg: 'rgba(59,130,246,0.15)', text: '#3b82f6' },
+                      '日报': { bg: 'rgba(34,197,94,0.15)', text: '#22c55e' },
+                      '晚复盘': { bg: 'rgba(168,85,247,0.15)', text: '#a855f7' },
+                      '其他': { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' },
+                    }
+                    const c = colorMap[rt] || colorMap['其他']
+                    return <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: c.bg, color: c.text }}>{rt}</span>
+                  })()}
+                </td>
                 <td className="py-3 px-3 text-xs">{r.member || r.user_name}</td>
                 <td className="py-3 px-3 text-xs">{r.department}</td>
                 <td className="py-3 px-3 text-center">
@@ -193,6 +206,12 @@ export default function ReportsPage() {
                       </span>
                     </div>
                     <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>{detail.department} · {detail.report_date}</div>
+                    {pc?.report_type && (
+                      <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{
+                        background: pc.report_type === '晨规划' ? 'rgba(59,130,246,0.15)' : pc.report_type === '晚复盘' ? 'rgba(168,85,247,0.15)' : 'rgba(34,197,94,0.15)',
+                        color: pc.report_type === '晨规划' ? '#3b82f6' : pc.report_type === '晚复盘' ? '#a855f7' : '#22c55e'
+                      }}>{pc.report_type}</span>
+                    )}
                   </div>
                   <button onClick={() => setDrawerOpen(false)} className="p-1"><X size={20} style={{ color: 'var(--color-text-secondary)' }} /></button>
                 </div>
