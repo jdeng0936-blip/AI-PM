@@ -180,7 +180,28 @@ async def mock_parse_report(
         )
         score = max(score, 30)
 
-    if progress < 50 and not blocker:
+    elif score < 60:
+        pass_check = False
+        missing = []
+        if not acceptance:
+            missing.append("验收标准")
+        if not deliverable:
+            missing.append("成果/交付物")
+        if not git:
+            missing.append("Git版本号")
+        if progress == 50:  # 默认值，说明没有明确提及
+            missing.append("明确进度")
+        reject_reason = f"评分 {score} 分（低于60分达标线），缺失关键字段：{'、'.join(missing) if missing else '内容不够具体'}"
+        suggested_guidance = (
+            "请补充以下内容以达标：\n"
+            + ("• 验收标准：明确什么条件算完成\n" if not acceptance else "")
+            + ("• 成果/交付物：可展示的产出是什么\n" if not deliverable else "")
+            + ("• Git版本号：代码提交了哪个版本\n" if not git else "")
+            + ("• 进度数值：当前完成百分比\n" if progress == 50 else "")
+            + "• 建议使用模板或语音详细描述"
+        )
+
+    elif progress < 50 and not blocker:
         pass_check = False
         reject_reason = "进度未过半且未说明卡点原因，请补充当前阻碍"
         suggested_guidance = "请补充：当前进度为什么低于50%？是否有卡点需要协助？"

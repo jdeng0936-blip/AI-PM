@@ -60,10 +60,10 @@ export default function SubmitReportPage() {
     if (!rawText.trim()) { setError('请输入内容'); return }
     setSubmitting(true); setError(''); setResult(null)
     try {
-      const res = await request.post('/api/v1/simulate/web-submit', {
+      const res = await request.post('/simulate/web-submit', {
         raw_text: `[${mode === 'plan' ? '晨规划' : '晚复核'}] ${rawText}`,
       })
-      setResult(res.data)
+      setResult(res)
     } catch (err: any) {
       setError(err.response?.data?.detail || '提交失败，请稍后重试')
     } finally { setSubmitting(false) }
@@ -251,22 +251,87 @@ export default function SubmitReportPage() {
         </div>
       )}
 
-      {/* AI 解析结果 */}
-      {result && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-6 space-y-4">
+      {/* ═══ AI 质检结果 ═══ */}
+      {result && !result.pass_check && (
+        <div className="bg-red-950/40 rounded-xl border-2 border-red-700 p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-red-400">🚫 质检未通过 — 请修改后重新提交</h2>
+            <span className="text-2xl font-bold text-red-400">{result.ai_score}分</span>
+          </div>
+
+          {/* 驳回原因 */}
+          <div className="bg-red-900/30 rounded-lg p-4 border border-red-800">
+            <div className="text-sm text-red-300 font-medium mb-1">❌ 驳回原因</div>
+            <div className="text-red-200">{result.reject_reason}</div>
+          </div>
+
+          {/* 修改建议 */}
+          {result.suggested_guidance && (
+            <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+              <div className="text-sm text-amber-400 font-medium mb-2">📝 修改建议</div>
+              <div className="text-gray-300 whitespace-pre-line text-sm">{result.suggested_guidance}</div>
+            </div>
+          )}
+
+          {/* AI 点评 */}
+          <div className="bg-gray-900/50 rounded-lg p-4">
+            <div className="text-sm text-gray-400 mb-1">💬 AI 点评</div>
+            <div className="text-gray-200">{result.ai_comment}</div>
+          </div>
+
+          {/* AI 已提取的字段预览 */}
+          {result.parsed_content && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition-colors">
+                📋 查看 AI 已提取的字段（供修改参考）
+              </summary>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                {[
+                  { label: '📌 任务', value: result.parsed_content.tasks },
+                  { label: '📊 进度', value: result.parsed_content.progress != null ? `${result.parsed_content.progress}%` : null },
+                  { label: '🔖 Git', value: result.parsed_content.git_version },
+                  { label: '✅ 验收', value: result.parsed_content.acceptance_criteria },
+                ].map((f, i) => (
+                  <div key={i} className="bg-gray-900/30 rounded p-2">
+                    <span className="text-gray-500 text-xs">{f.label}: </span>
+                    <span className={f.value ? 'text-gray-300' : 'text-red-500'}>
+                      {f.value || '缺失 ⚠️'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* 重新提交按钮 */}
+          <button
+            onClick={() => {
+              setResult(null)
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
+            className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-medium transition-colors text-center"
+          >
+            ✏️ 修改内容后重新提交（当前内容保留在输入框中）
+          </button>
+
+          <div className="text-xs text-gray-600 text-right">
+            Token 消耗: prompt {result.tokens_used?.prompt} + completion {result.tokens_used?.completion} · 此次提交未入库
+          </div>
+        </div>
+      )}
+
+      {/* ═══ 质检通过 ═══ */}
+      {result && result.pass_check && (
+        <div className="bg-gray-800/50 rounded-xl border-2 border-green-700 p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white">
-              {mode === 'plan' ? '📋 计划分析结果' : '📊 复核解析结果'}
+              {mode === 'plan' ? '📋 计划已提交' : '📊 复核已提交'}
             </h2>
             <div className="flex items-center gap-3">
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                result.pass_check
-                  ? 'bg-green-900/50 text-green-400 border border-green-700'
-                  : 'bg-red-900/50 text-red-400 border border-red-700'
-              }`}>
-                {result.pass_check ? '✅ 质检通过' : '❌ 需补充'}
+              <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-900/50 text-green-400 border border-green-700">
+                ✅ 质检通过 · 已入库
               </span>
-              <span className="text-2xl font-bold text-indigo-400">{result.ai_score}分</span>
+              <span className="text-2xl font-bold text-green-400">{result.ai_score}分</span>
             </div>
           </div>
 

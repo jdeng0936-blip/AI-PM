@@ -134,10 +134,27 @@ async def web_submit_daily_report(
     # ── Mock AI 解析 ──
     ai_result, p_tokens, c_tokens = await mock_parse_report(req.raw_text)
 
-    # ── 记录 Token 用量 ──
+    # ── 记录 Token 用量（无论是否通过都记录）──
     await log_token_usage(db, str(current_user.id), p_tokens, c_tokens)
 
-    # ── 落库 ──
+    # ── 质检未通过 → 不入库，返回修改建议 ──
+    if not ai_result.pass_check:
+        await db.commit()  # 仅提交 token 用量
+        return {
+            "status": "rejected",
+            "user_name": current_user.name,
+            "department": current_user.department,
+            "ai_score": ai_result.ai_score,
+            "pass_check": False,
+            "ai_comment": ai_result.ai_comment,
+            "reject_reason": ai_result.reject_reason,
+            "suggested_guidance": ai_result.suggested_guidance,
+            "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
+            "management_alert": ai_result.management_alert,
+            "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
+        }
+
+    # ── 质检通过 → 落库 ──
     report = DailyReport(
         user_id=current_user.id,
         report_date=req.report_date or date.today(),
@@ -172,7 +189,7 @@ async def web_submit_daily_report(
         "user_name": current_user.name,
         "department": current_user.department,
         "ai_score": ai_result.ai_score,
-        "pass_check": ai_result.pass_check,
+        "pass_check": True,
         "ai_comment": ai_result.ai_comment,
         "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
         "management_alert": ai_result.management_alert,
