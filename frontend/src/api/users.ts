@@ -1,7 +1,7 @@
 /**
  * API 模块 — 用户 & 认证 (1:1 port from Vue api/users.ts)
  */
-import request from '@/lib/axios'
+import request from '@/api/request'
 
 // ── 认证 API ────────────────────────────────────────────
 export const login = (username: string, password: string) =>

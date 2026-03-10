@@ -1,7 +1,7 @@
 /**
- * API 模块 — 日报 (1:1 port from Vue api/reports.ts)
+ * API 模块 — 日报
  */
-import request from '@/lib/axios'
+import request from '@/api/request'
 
 export const getReports = (params?: any) => request.get('/reports/', { params })
 export const getReportDetail = (id: string) => request.get(`/reports/${id}`)

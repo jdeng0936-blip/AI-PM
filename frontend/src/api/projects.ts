@@ -1,7 +1,7 @@
 /**
  * API 模块 — 项目 (1:1 port from Vue api/projects.ts)
  */
-import request from '@/lib/axios'
+import request from '@/api/request'
 
 export const getProjectsOverview = () => request.get('/projects/overview')
 export const getProject = (id: string) => request.get(`/projects/${id}`)
