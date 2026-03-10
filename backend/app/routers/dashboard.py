@@ -12,36 +12,30 @@ from sqlalchemy import select, func, and_, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role
+from app.middleware.rbac import require_role, get_current_user
 from app.models.daily_report import DailyReport
 from app.models.risk_alert import RiskAlert
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
-# 管理层才能访问
+# 管理层才能访问的端点依然用这个
 _mgr_or_admin = require_role(UserRole.manager, UserRole.admin)
 
 
 @router.get("/morning-briefing")
 async def get_morning_briefing(
-    report_date: date = Query(default=None, description="查询日期，不传则为昨日"),
+    report_date: date = Query(default=None, description="查询日期，不传则为今日"),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_mgr_or_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    晨报总览接口（对应 Excel 全部行数据的汇总仪表盘）。
-
-    返回：
-    - 汇报人数 / 通过率 / 平均分
-    - 未通过成员列表（含 reject_reason）
-    - 未汇报成员列表（对比 users 表）
-    - 所有预警摘要（management_alert）
-    - 各成员详细摘要行
+    晨报总览：
+    - 管理层看全部人的汇报
+    - 员工只看自己的汇报
     """
-    # 默认查询昨日（因为晨报看的是昨天的汇报）
     if report_date is None:
-        report_date = date.today() - timedelta(days=1)
+        report_date = date.today()
 
     # 拉取当日所有日报
     stmt = (
@@ -50,6 +44,9 @@ async def get_morning_briefing(
         .where(DailyReport.report_date == report_date)
         .order_by(DailyReport.ai_score.desc().nulls_last())
     )
+    # 员工只看自己的
+    if current_user.role == UserRole.employee:
+        stmt = stmt.where(DailyReport.user_id == current_user.id)
     rows = (await db.execute(stmt)).all()
 
     # 所有员工（用于识别未汇报人员）
@@ -114,7 +111,7 @@ async def get_morning_briefing(
 async def get_risk_alerts(
     status: Optional[str] = Query(default="unresolved"),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_mgr_or_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
     卡点预警墙（按未解决天数降序排列，最严重的排最前）

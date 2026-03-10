@@ -19,7 +19,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role
+from app.middleware.rbac import require_role, get_current_user
 from app.models.project import Project, ProjectStatus
 from app.models.project_member import ProjectMember
 from app.models.project_stage import ProjectStage, STAGE_DEFINITIONS
@@ -104,7 +104,7 @@ async def projects_overview(
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_mgr),
+    _user=Depends(get_current_user),
 ):
     """
     管理层宏观视图：所有活跃项目的健康矩阵。
@@ -184,7 +184,7 @@ async def projects_overview(
 async def get_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_mgr),
+    _user=Depends(get_current_user),
 ):
     result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()

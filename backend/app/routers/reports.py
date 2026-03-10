@@ -95,6 +95,49 @@ async def list_reports(
     return {"items": items, "total": total}
 
 
+@router.get("/today-plan")
+async def get_today_plan(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取当前用户今日的晨规划记录（最近一条）。
+    用于晚复核时展示对应的计划内容作为参考。
+    """
+    from sqlalchemy import func
+
+    today = date.today()
+    result = await db.execute(
+        select(DailyReport)
+        .where(
+            and_(
+                DailyReport.user_id == current_user.id,
+                DailyReport.report_date == today,
+                DailyReport.raw_input_text.like("[晨规划]%"),
+                DailyReport.pass_check == True,
+            )
+        )
+        .order_by(DailyReport.created_at.desc())
+        .limit(1)
+    )
+    plan = result.scalar_one_or_none()
+
+    if not plan:
+        return {"plan": None}
+
+    return {
+        "plan": {
+            "id": str(plan.id),
+            "report_date": plan.report_date,
+            "parsed_content": plan.parsed_content,
+            "raw_input_text": plan.raw_input_text,
+            "ai_score": plan.ai_score,
+            "ai_comment": plan.ai_comment,
+            "created_at": plan.created_at.isoformat() if plan.created_at else None,
+        }
+    }
+
+
 @router.get("/{report_id}")
 async def get_report_detail(
     report_id: uuid.UUID,
@@ -134,3 +177,5 @@ async def get_report_detail(
         "management_alert": row.DailyReport.management_alert,
         "created_at": row.DailyReport.created_at.isoformat() if row.DailyReport.created_at else None,
     }
+
+

@@ -16,22 +16,24 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <link
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body className="antialiased">
-        <QueryProvider>
-          <AuthGuard>
-            <AppShell>
-              {children}
-            </AppShell>
-          </AuthGuard>
-        </QueryProvider>
-        <Toaster position="top-center" richColors />
+      <body suppressHydrationWarning>
+        <div className="antialiased">
+          <QueryProvider>
+            <AuthGuard>
+              <AppShell>
+                {children}
+              </AppShell>
+            </AuthGuard>
+          </QueryProvider>
+          <Toaster position="top-center" richColors />
+        </div>
       </body>
     </html>
   )

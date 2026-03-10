@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import request from '@/api/request'
+import { getTodayPlan } from '@/api/reports'
 import { useAuthStore } from '@/stores/use-auth-store'
 
 type ReportMode = 'plan' | 'review'
@@ -40,6 +41,21 @@ export default function SubmitReportPage() {
   const [error, setError] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const recognitionRef = useRef<any>(null)
+  const [morningPlan, setMorningPlan] = useState<any>(null)
+  const [planLoading, setPlanLoading] = useState(false)
+
+  // ─── 晚复核模式自动拉取今日晨规划 ─────────────────
+  useEffect(() => {
+    if (mode === 'review') {
+      setPlanLoading(true)
+      getTodayPlan()
+        .then((res: any) => setMorningPlan(res.plan))
+        .catch(() => setMorningPlan(null))
+        .finally(() => setPlanLoading(false))
+    } else {
+      setMorningPlan(null)
+    }
+  }, [mode])
 
   // ─── 表单 → 结构化文本 ─────────────────────────────
   const formToText = (): string => {
@@ -80,9 +96,18 @@ export default function SubmitReportPage() {
   }
   const stopVoiceInput = () => { recognitionRef.current?.stop(); setIsRecording(false) }
 
+  // ─── 表单字段变更时自动重置提交状态 ──────────────────
+  const updateField = (key: string, value: string) => {
+    setFormData(prev => ({ ...prev, [key]: value }))
+    if (result) { setResult(null); setError('') }
+  }
+  const updateFreeText = (value: string) => {
+    setFreeText(value)
+    if (result) { setResult(null); setError('') }
+  }
+
   // ─── 提交 ──────────────────────────────────────────
   const handleSubmit = async () => {
-    if (result?.status === 'ok') { setError('该内容已成功提交，请勿重复提交'); return }
     const text = getRawText()
     if (!text.trim()) { setError('请填写内容'); return }
     setSubmitting(true); setError(''); setResult(null)
@@ -114,15 +139,13 @@ export default function SubmitReportPage() {
       {/* 顶部: 模式切换 + 输入方式切换 */}
       <div className="flex items-center gap-4 flex-wrap">
         <button onClick={() => switchMode('plan')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${
-            mode === 'plan' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-          }`}>
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${mode === 'plan' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}>
           ☀️ 晨规划 {defaultMode === 'plan' && <span className="text-xs opacity-70">(当前)</span>}
         </button>
         <button onClick={() => switchMode('review')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${
-            mode === 'review' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-          }`}>
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${mode === 'review' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}>
           🌙 晚复核 {defaultMode === 'review' && <span className="text-xs opacity-70">(当前)</span>}
         </button>
         <div className="flex-1" />
@@ -130,15 +153,13 @@ export default function SubmitReportPage() {
         {/* 输入方式切换 */}
         <div className="flex items-center bg-gray-800 rounded-lg p-0.5">
           <button onClick={() => setInputStyle('form')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              inputStyle === 'form' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-300'
-            }`}>
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${inputStyle === 'form' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-300'
+              }`}>
             📋 结构化填写
           </button>
           <button onClick={() => setInputStyle('free')}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              inputStyle === 'free' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-300'
-            }`}>
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${inputStyle === 'free' ? 'bg-gray-600 text-white' : 'text-gray-400 hover:text-gray-300'
+              }`}>
             ✏️ 自由输入
           </button>
         </div>
@@ -160,11 +181,48 @@ export default function SubmitReportPage() {
         </p>
       </div>
 
+      {/* ═══ 晨规划参考卡片（晚复核模式下显示） ═══ */}
+      {mode === 'review' && (
+        <div className="bg-amber-950/20 rounded-xl border border-amber-800/40 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-amber-400 font-medium text-sm">📋 今日晨规划参考</span>
+            {planLoading && <span className="text-xs text-gray-500 animate-pulse">加载中...</span>}
+          </div>
+          {!planLoading && !morningPlan && (
+            <div className="text-sm text-gray-500 py-2">今日暂无已通过的晨规划记录</div>
+          )}
+          {morningPlan && morningPlan.parsed_content && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[
+                  { label: '🎯 计划任务', value: morningPlan.parsed_content.tasks },
+                  { label: '📊 进度预期', value: morningPlan.parsed_content.progress != null ? `${morningPlan.parsed_content.progress}%` : null },
+                  { label: '✅ 验收标准', value: morningPlan.parsed_content.acceptance_criteria },
+                  { label: '📦 预期交付', value: morningPlan.parsed_content.deliverable },
+                  { label: '🔧 所需支持', value: morningPlan.parsed_content.support_needed },
+                ].filter(f => f.value).map((field, i) => (
+                  <div key={i} className="bg-amber-900/20 rounded-lg p-3">
+                    <div className="text-xs text-amber-400/70">{field.label}</div>
+                    <div className="text-sm text-gray-300 mt-1">{field.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-gray-600">
+                  提交于 {morningPlan.created_at ? new Date(morningPlan.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                </span>
+                <span className="text-xs text-amber-400/60">AI 评分: {morningPlan.ai_score ?? '-'}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+
       {/* ═══ 结构化表单 ═══ */}
       {inputStyle === 'form' && (
-        <div className={`bg-gray-800/50 rounded-xl border p-6 space-y-4 ${
-          mode === 'plan' ? 'border-amber-800/50' : 'border-indigo-800/50'
-        }`}>
+        <div className={`bg-gray-800/50 rounded-xl border p-6 space-y-4 ${mode === 'plan' ? 'border-amber-800/50' : 'border-indigo-800/50'
+          }`}>
           {fields.map((f) => (
             <div key={f.key}>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">
@@ -175,22 +233,20 @@ export default function SubmitReportPage() {
               {f.key === 'tasks' || f.key === 'goal' ? (
                 <textarea
                   value={formData[f.key] || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  onChange={e => updateField(f.key, e.target.value)}
                   placeholder={f.placeholder}
                   rows={2}
-                  className={`w-full bg-gray-900/50 border rounded-lg p-3 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-2 resize-none text-sm ${
-                    mode === 'plan' ? 'border-amber-900/30 focus:ring-amber-500' : 'border-indigo-900/30 focus:ring-indigo-500'
-                  }`}
+                  className={`w-full bg-gray-900/50 border rounded-lg p-3 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-2 resize-none text-sm ${mode === 'plan' ? 'border-amber-900/30 focus:ring-amber-500' : 'border-indigo-900/30 focus:ring-indigo-500'
+                    }`}
                 />
               ) : (
                 <input
                   type="text"
                   value={formData[f.key] || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  onChange={e => updateField(f.key, e.target.value)}
                   placeholder={f.placeholder}
-                  className={`w-full bg-gray-900/50 border rounded-lg p-3 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-2 text-sm ${
-                    mode === 'plan' ? 'border-amber-900/30 focus:ring-amber-500' : 'border-indigo-900/30 focus:ring-indigo-500'
-                  }`}
+                  className={`w-full bg-gray-900/50 border rounded-lg p-3 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-2 text-sm ${mode === 'plan' ? 'border-amber-900/30 focus:ring-amber-500' : 'border-indigo-900/30 focus:ring-indigo-500'
+                    }`}
                 />
               )}
             </div>
@@ -199,13 +255,12 @@ export default function SubmitReportPage() {
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
             <button onClick={handleSubmit} disabled={submitting || result?.status === 'ok'}
-              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${
-                result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
-              }`}>
+              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
+                }`}>
               {result?.status === 'ok' ? (
                 <>{mode === 'plan' ? '✅ 计划已提交' : '✅ 复核已提交'}</>
               ) : submitting ? (
-                <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> AI 分析中...</>
+                <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> AI 分析中...</>
               ) : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
             </button>
           </div>
@@ -214,35 +269,31 @@ export default function SubmitReportPage() {
 
       {/* ═══ 自由文本输入 ═══ */}
       {inputStyle === 'free' && (
-        <div className={`bg-gray-800/50 rounded-xl border p-6 ${
-          mode === 'plan' ? 'border-amber-800/50' : 'border-indigo-800/50'
-        }`}>
+        <div className={`bg-gray-800/50 rounded-xl border p-6 ${mode === 'plan' ? 'border-amber-800/50' : 'border-indigo-800/50'
+          }`}>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-300">自由描述</label>
             <button onClick={isRecording ? stopVoiceInput : startVoiceInput}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                isRecording ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-              }`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${isRecording ? 'bg-red-600 hover:bg-red-500 text-white animate-pulse' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}>
               {isRecording ? (
                 <><span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-400"></span></span>录音中… 点击停止</>
               ) : '🎤 语音输入'}
             </button>
           </div>
-          <textarea value={freeText} onChange={e => setFreeText(e.target.value)}
+          <textarea value={freeText} onChange={e => updateFreeText(e.target.value)}
             placeholder="像跟同事说话一样，描述今天的工作内容…也可以点击🎤语音输入"
             rows={6}
-            className={`w-full bg-gray-900/50 border rounded-lg p-4 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 resize-none ${
-              mode === 'plan' ? 'border-amber-900/50 focus:ring-amber-500' : 'border-indigo-900/50 focus:ring-indigo-500'
-            }`}
+            className={`w-full bg-gray-900/50 border rounded-lg p-4 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 resize-none ${mode === 'plan' ? 'border-amber-900/50 focus:ring-amber-500' : 'border-indigo-900/50 focus:ring-indigo-500'
+              }`}
           />
           <div className="flex items-center justify-between mt-4">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
             <button onClick={handleSubmit} disabled={submitting || !freeText.trim() || result?.status === 'ok'}
-              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${
-                result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
-              }`}>
+              className={`px-6 py-2.5 text-white rounded-lg font-medium transition-colors flex items-center gap-2 disabled:cursor-not-allowed ${result?.status === 'ok' ? 'bg-emerald-700' : submitting ? 'bg-gray-600' : mode === 'plan' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'
+                }`}>
               {result?.status === 'ok' ? (mode === 'plan' ? '✅ 计划已提交' : '✅ 复核已提交') :
-               submitting ? 'AI 分析中...' : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
+                submitting ? 'AI 分析中...' : mode === 'plan' ? '📋 提交计划' : '🚀 提交复核'}
             </button>
           </div>
         </div>
