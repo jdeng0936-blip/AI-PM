@@ -23,6 +23,7 @@ import {
   PenLine,
   Target,
   RotateCw,
+  Flame,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: '/submit-report', label: '提交日报', icon: PenLine },
   { href: '/projects', label: '项目列表', icon: FolderKanban },
   { href: '/project/default', label: 'IPD 看板', icon: Kanban },
+  { href: '/sprints', label: 'Sprint 燃尽', icon: Flame },
   { href: '/okr', label: 'OKR 战略', icon: Target },
   { href: '/retro', label: 'AI 复盘库', icon: RotateCw },
   { href: '/reports', label: 'AI 日报流', icon: FileText },
