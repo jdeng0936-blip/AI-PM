@@ -12,7 +12,10 @@ from app.models.usage_log import TenantUsageLog
 from app.models.project import Project
 from app.models.project_stage import ProjectStage
 from app.models.gate_review import GateReview
-from app.models.sprint import Sprint
+from app.models.sprint import Sprint, SprintStatus
+from app.models.sprint_task import (
+    SprintTask, BurndownSnapshot, TaskStatus, TaskPriority,
+)
 from app.models.project_member import ProjectMember
 
 # --- OKR 战略对齐模型 ---
@@ -34,7 +37,9 @@ from app.models.attachment import Attachment, AttachmentKind
 
 __all__ = [
     "User", "DailyReport", "RiskAlert", "TenantUsageLog",
-    "Project", "ProjectStage", "GateReview", "Sprint", "ProjectMember",
+    "Project", "ProjectStage", "GateReview", "Sprint", "SprintStatus",
+    "SprintTask", "BurndownSnapshot", "TaskStatus", "TaskPriority",
+    "ProjectMember",
     "OKRCycle", "Objective", "KeyResult", "KRProgressLog", "KRProgressSource",
     "OKRCycleType", "OKRStatus",
     "KnowledgeItem", "KnowledgeCategory", "RetroScope",

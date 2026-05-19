@@ -55,5 +55,11 @@ class DailyReport(BaseMixin, Base):
     # 跨部门卡点 / 管理层预警（送往 risk_alerts 表的摘要）
     management_alert: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Sprint 任务关联(Week 7):AI 或手工指定该日报推进了哪些 task
+    mentioned_task_ids: Mapped[Optional[list]] = mapped_column(
+        ARRAY(String), default=list,
+        comment="该日报关联的 SprintTask UUID 列表(字符串形式)",
+    )
+
     def __repr__(self) -> str:
         return f"<DailyReport user_id={self.user_id} date={self.report_date} score={self.ai_score}>"
