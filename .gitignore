@@ -43,3 +43,4 @@ npm-debug.log*
 .next/
 __pycache__/
 *.pyc
+backend/.venv311/

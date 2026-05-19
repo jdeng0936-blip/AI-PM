@@ -57,14 +57,23 @@ async def remind_unreported_friendly() -> None:
         return
 
     try:
-        from app.services.wechat_api import send_text_message
-        for user in unreported:
-            if user.wechat_userid:
-                await send_text_message(
-                    user.wechat_userid,
-                    f"🔔 {user.name}，今天的日报还没交哦，别忘了～\n"
-                    f"截止时间：22:00",
+        from app.models.notification import NotificationChannel, NotificationTemplate
+        from app.services.notification_service import notify_safe
+
+        async with AsyncSessionLocal() as db:
+            for user in unreported:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.reminder_soft,
+                    context={"name": user.name},
+                    user=user,
+                    channels=[
+                        NotificationChannel.wechat,
+                        NotificationChannel.dingtalk,
+                        NotificationChannel.in_app,
+                    ],
                 )
+            await db.commit()
         logger.info("   已提醒 %d 人", len(unreported))
     except Exception as e:
         logger.error("   催报推送失败: %s", e)
@@ -78,13 +87,23 @@ async def remind_unreported_urgent() -> None:
         return
 
     try:
-        from app.services.wechat_api import send_text_message
-        for user in unreported:
-            if user.wechat_userid:
-                await send_text_message(
-                    user.wechat_userid,
-                    f"⚠️ {user.name}，日报截止时间快到了（22:00），请尽快提交！",
+        from app.models.notification import NotificationChannel, NotificationTemplate
+        from app.services.notification_service import notify_safe
+
+        async with AsyncSessionLocal() as db:
+            for user in unreported:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.reminder_hard,
+                    context={"name": user.name},
+                    user=user,
+                    channels=[
+                        NotificationChannel.wechat,
+                        NotificationChannel.dingtalk,
+                        NotificationChannel.in_app,
+                    ],
                 )
+            await db.commit()
         logger.info("   已催促 %d 人", len(unreported))
     except Exception as e:
         logger.error("   催报推送失败: %s", e)
@@ -102,31 +121,32 @@ async def remind_unreported_deadline() -> None:
     logger.warning("   未提交日报: %s", ", ".join(names))
 
     try:
-        from app.services.wechat_api import send_text_message
+        from app.models.notification import NotificationChannel, NotificationTemplate
+        from app.services.notification_service import notify_safe
 
-        # 通知总经理（admin 角色）
+        absent_list = "\n".join(f"- {n}" for n in names)
+        
         async with AsyncSessionLocal() as db:
             admins_result = await db.execute(
                 select(User).where(
-                    and_(User.role == "admin", User.is_active == True)
+                    and_(User.role.in_(["admin", "manager"]), User.is_active == True)
                 )
             )
             admins = admins_result.scalars().all()
 
-        absent_list = "\n".join(f"  · {n}" for n in names)
-        summary = (
-            f"📋 今日日报缺勤报告\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"日期：{date.today()}\n"
-            f"未提交人数：{len(names)}\n"
-            f"名单：\n{absent_list}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"请关注以上人员的工作状态。"
-        )
-
-        for admin in admins:
-            if admin.wechat_userid:
-                await send_text_message(admin.wechat_userid, summary)
+            for admin in admins:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.reminder_missed,
+                    context={"date": date.today().isoformat(), "missing_list": absent_list},
+                    user=admin,
+                    channels=[
+                        NotificationChannel.wechat_bot,
+                        NotificationChannel.dingtalk_bot,
+                        NotificationChannel.in_app,
+                    ],
+                )
+            await db.commit()
 
         logger.info("   已通知 %d 位管理员", len(admins))
     except Exception as e:
