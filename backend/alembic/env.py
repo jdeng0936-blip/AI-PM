@@ -9,14 +9,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-# 引入应用配置和所有模型
+# 引入应用配置 + 触发所有模型注册到 Base.metadata
+import os
 from app.config import settings
 from app.database import Base
-from app.models import (  # noqa: F401
-    user, daily_report, risk_alert, usage_log, audit_log,
-    project, project_stage, gate_review, sprint, project_member,
-    base_mixin,
-)
+import app.models  # noqa: F401  ← 走 __init__.py,把全部 20 张表纳入 metadata
 
 config = context.config
 
@@ -25,8 +22,11 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# 从 settings 中覆盖数据库 URL（支持多环境）
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# 数据库 URL 优先级:环境变量 DATABASE_URL > settings(便于部署 / 测试库覆盖)
+config.set_main_option(
+    "sqlalchemy.url",
+    os.getenv("DATABASE_URL") or settings.database_url,
+)
 
 
 def run_migrations_offline() -> None:
