@@ -44,3 +44,7 @@ npm-debug.log*
 __pycache__/
 *.pyc
 backend/.venv311/
+
+# OSS 本地降级目录(Week 3)
+backend/uploads/
+tsconfig.tsbuildinfo

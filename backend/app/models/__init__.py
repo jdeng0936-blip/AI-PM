@@ -26,10 +26,14 @@ from app.models.notification import (
     Notification, NotificationChannel, NotificationStatus, NotificationTemplate,
 )
 
+# --- 附件模型 ---
+from app.models.attachment import Attachment, AttachmentKind
+
 __all__ = [
     "User", "DailyReport", "RiskAlert", "TenantUsageLog",
     "Project", "ProjectStage", "GateReview", "Sprint", "ProjectMember",
     "OKRCycle", "Objective", "KeyResult",
     "KnowledgeItem",
     "Notification", "NotificationChannel", "NotificationStatus", "NotificationTemplate",
+    "Attachment", "AttachmentKind",
 ]

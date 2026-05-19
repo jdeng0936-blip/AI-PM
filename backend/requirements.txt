@@ -24,3 +24,6 @@ langfuse>=2.0.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 apscheduler>=3.10
+# ── 附件 + 语音 ASR (Week 3) ──
+oss2>=2.19
+websockets>=12.0

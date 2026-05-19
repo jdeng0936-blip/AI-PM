@@ -84,11 +84,44 @@ class Settings(BaseSettings):
     # Token 限流阈值（每日最大 Token 消耗）
     daily_token_limit: int = 500_000
 
-    # OSS 对象存储
-    oss_endpoint: str = ""
-    oss_bucket: str = ""
-    oss_access_key: str = ""
-    oss_secret_key: str = ""
+    # OSS 对象存储(兼容 OSS_ACCESS_KEY_ID/OSS_BUCKET_NAME 等别名)
+    oss_endpoint: str = Field(
+        default="", validation_alias=AliasChoices("OSS_ENDPOINT")
+    )
+    oss_bucket: str = Field(
+        default="",
+        validation_alias=AliasChoices("OSS_BUCKET", "OSS_BUCKET_NAME"),
+    )
+    oss_access_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OSS_ACCESS_KEY", "OSS_ACCESS_KEY_ID"),
+    )
+    oss_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("OSS_SECRET_KEY", "OSS_ACCESS_KEY_SECRET"),
+    )
+    # OSS 公网 URL 前缀(可选,默认从 endpoint+bucket 推导)
+    oss_public_url_base: str = Field(
+        default="", validation_alias=AliasChoices("OSS_PUBLIC_URL_BASE")
+    )
+    # 本地降级模式:OSS 未配置时把文件存到该目录(开发期使用)
+    local_upload_dir: str = Field(
+        default="./uploads", validation_alias=AliasChoices("LOCAL_UPLOAD_DIR")
+    )
+
+    # 讯飞 ASR
+    xunfei_app_id: str = Field(
+        default="", validation_alias=AliasChoices("XUNFEI_APP_ID")
+    )
+    xunfei_api_key: str = Field(
+        default="", validation_alias=AliasChoices("XUNFEI_API_KEY")
+    )
+    xunfei_api_secret: str = Field(
+        default="", validation_alias=AliasChoices("XUNFEI_API_SECRET")
+    )
+    asr_provider: str = Field(
+        default="xunfei", validation_alias=AliasChoices("ASR_PROVIDER")
+    )
 
     # 安全
     jwt_secret_key: str
