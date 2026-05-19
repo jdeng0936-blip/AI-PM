@@ -9,6 +9,7 @@ app/services/scheduler.py — APScheduler 定时任务调度中心
   - 09:00      晨报 AI 生成 + 推送
   - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
   - 每日 18:00 Sprint 燃尽快照(Week 7)
+  - 周一 08:30 资源水位刷新 + 过载预警(Week 8)
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ def start_scheduler() -> None:
         run_quarterly_okr_summary,
     )
     from app.services.sprint_aggregator import run_daily_burndown_snapshots
+    from app.services.capacity_engine import run_weekly_capacity_refresh
 
     # ── 催报机制（三级） ──────────────────────────────────────────
     scheduler.add_job(
@@ -99,6 +101,15 @@ def start_scheduler() -> None:
         CronTrigger(hour=18, minute=0),
         id="sprint_burndown_snapshot",
         name="Sprint燃尽快照",
+        replace_existing=True,
+    )
+
+    # ── 周一 08:30 资源水位刷新 + 过载预警(Week 8)──────────────
+    scheduler.add_job(
+        run_weekly_capacity_refresh,
+        CronTrigger(day_of_week="mon", hour=8, minute=30),
+        id="weekly_capacity_refresh",
+        name="资源水位刷新",
         replace_existing=True,
     )
 
