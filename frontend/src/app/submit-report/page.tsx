@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from 'react'
 import request from '@/api/request'
 import { getTodayPlan } from '@/api/reports'
 import { useAuthStore } from '@/stores/use-auth-store'
+import AttachmentsPanel from '@/components/attachments-panel'
+import type { Attachment } from '@/api/attachments'
 
 type ReportMode = 'plan' | 'review'
 type InputStyle = 'form' | 'free'
@@ -43,6 +45,7 @@ export default function SubmitReportPage() {
   const recognitionRef = useRef<any>(null)
   const [morningPlan, setMorningPlan] = useState<any>(null)
   const [planLoading, setPlanLoading] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
 
   // ─── 晚复核模式自动拉取今日晨规划 ─────────────────
   useEffect(() => {
@@ -252,6 +255,9 @@ export default function SubmitReportPage() {
             </div>
           ))}
 
+          {/* 附件上传(仓管拍照/采购合同/语音备注) */}
+          <AttachmentsPanel onChange={setAttachments} />
+
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
             <button onClick={handleSubmit} disabled={submitting || result?.status === 'ok'}
@@ -287,6 +293,13 @@ export default function SubmitReportPage() {
             className={`w-full bg-gray-900/50 border rounded-lg p-4 text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 resize-none ${mode === 'plan' ? 'border-amber-900/50 focus:ring-amber-500' : 'border-indigo-900/50 focus:ring-indigo-500'
               }`}
           />
+          {/* 附件 & 服务端 ASR(浏览器原生 SpeechRecognition 之外的补充选项) */}
+          <div className="mt-4">
+            <AttachmentsPanel
+              onChange={setAttachments}
+              onTranscribed={(text) => updateFreeText((freeText ? freeText + ' ' : '') + text)}
+            />
+          </div>
           <div className="flex items-center justify-between mt-4">
             <span className="text-xs text-gray-500">当前用户: {userName || '未登录'}</span>
             <button onClick={handleSubmit} disabled={submitting || !freeText.trim() || result?.status === 'ok'}
