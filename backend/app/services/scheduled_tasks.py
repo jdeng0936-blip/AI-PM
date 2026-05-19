@@ -378,6 +378,14 @@ async def run_quarterly_okr_summary() -> None:
             # 归档 cycle
             cycle.status = _Status.completed
 
+            # 触发 AI 复盘生成(沉淀到知识库)— 失败不影响归档
+            from app.services.retro import generate_retrospective_safe
+            retro_result = await generate_retrospective_safe(
+                db, scope="okr_cycle",
+                target_id=str(cycle.id),
+                persist=True,
+            )
+
             # 推送给管理层
             admins = (
                 await db.execute(
@@ -387,11 +395,21 @@ async def run_quarterly_okr_summary() -> None:
                     )
                 )
             ).scalars().all()
+
+            # 推送内容:简短的达成总结 + 复盘报告链接提示
+            push_content = summary_md
+            if retro_result and retro_result.knowledge_item_id:
+                push_content += (
+                    f"\n\n📖 **AI 复盘报告已沉淀到知识库**\n"
+                    f"标题:{retro_result.title}\n"
+                    f"前往「AI 复盘库」查看完整复盘"
+                )
+
             for admin in admins:
                 await notify_safe(
                     db,
                     template=NotificationTemplate.weekly_report,  # 复用周报模板槽位
-                    context={"weekly_summary": summary_md},
+                    context={"weekly_summary": push_content},
                     user=admin,
                     channels=[
                         NotificationChannel.wechat,
@@ -403,8 +421,9 @@ async def run_quarterly_okr_summary() -> None:
             await db.commit()
 
         logger.info(
-            "   %s 已归档,推送 %d 位管理层 (objs=%d, krs=%d)",
+            "   %s 已归档,推送 %d 位管理层 (objs=%d, krs=%d, retro=%s)",
             cycle.name, len(admins), len(objs), len(krs),
+            "yes" if retro_result and retro_result.knowledge_item_id else "no",
         )
 
     except Exception as e:
