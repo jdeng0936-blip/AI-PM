@@ -236,7 +236,7 @@
 | ① 登录角色 | 3 级 RBAC + 10 预置快捷登录 | `auth.py`, `middleware/rbac.py`, `login/page.tsx` |
 | ② 岗位入口 | Web + 附件 OSS + 双引擎 ASR(Gemini/讯飞) | Week 3:`attachments.py`, `asr.py` |
 | ③ 双模式录入 | 晨规划 + 晚复核 + 晨规划参考 + AI 自动更新 KR 进度 | Week 5:`kr_progress_extractor.py` 接入 |
-| ④ AI 中枢 | 真实 Gemini + 多模型路由 + Function Calling(**24 Tool**) | `chat_tools/{reports,projects,people,weekly_report,okr,retro,sprints}` |
+| ④ AI 中枢 | 真实 Gemini + 多模型路由 + Function Calling(**29 Tool**) | `chat_tools/{reports,projects,people,weekly_report,okr,retro,sprints,capacity}` |
 | ⑤ 五大闭环 | 录入→质检→驳回→重提→入库 | `simulate.py` |
 | ⑥ 数据沉淀 | 17 个 model(含 Attachment + Notification + KRProgressLog) | `models/*.py` |
 | ⑦ 短周期管理 | 三色看板 + 趋势图 + 导出 + **Sprint 燃尽图** | `dashboard.py`, `trends.py`, `export.py`, `app/sprints/page.tsx` |
@@ -245,13 +245,13 @@
 | ⑪ 决策层 | 17 个 Tool + Function Calling + 自动周报 | Week 4:`chat.py`, `chat/page.tsx` |
 | **⑫ OKR 战略对齐** | **Week 5**:O/KR 树 + AI 自动提取进度 + 变更日志 + 4 OKR Tool | `routers/okr.py`, `app/okr/page.tsx` |
 | **⑬ AI 自动复盘** | **Week 6**:4 种 scope(OKR/项目/月度/事故)+ 季度自动触发 + 3 复盘 Tool | `services/retro/`, `app/retro/page.tsx` |
+| **⑭ 资源负载水位** | **Week 8**:CapacitySnapshot + 智能调配 + 部门聚合 + 5 Tool + 周一过载预警 | `services/capacity_engine.py`, `app/capacity/page.tsx` |
 
-### 🔄 待开发 (V2.0 剩余)
+### 🎉 V2.0 大主线完结!剩余 P3 优化项
 
 | 层 | 待开发内容 | 优先级 |
 |----|-----------|--------|
-| ⑤ 数据沉淀 | DailyReport → Task 自动关联(AI 抽取) | P2 |
-| ⑨ 战略层 | 资源负载水位预判(§7.2,依赖 Sprint 数据已就绪) | P2 |
+| 数据沉淀 | DailyReport → Task 自动关联(AI 抽取) | P3 |
 | 移动端适配 | 响应式 + PWA | P3 |
 | 知识库语义检索 | 复盘 embedding + pgvector HNSW | P3 |
 | 燃尽预警 | actual > ideal 时自动推送项目负责人 | P3 |
@@ -266,7 +266,8 @@ Week 4: ⑪ 总经理 AI 对话 (P2)       ✅ 13 Tool + Function Calling + 自�
 Week 5: ⑫ OKR 战略对齐 (P2)         ✅ 完整 CRUD + AI 提取 + 4 Tool + 前端看板 + 季度归档
 Week 6: ⑬ AI 自动复盘 (P2)          ✅ 4 scope collectors + 3 复盘 Tool + 季度自动触发 + 前端复盘库
 Week 7: ⑦/⑧ Sprint 燃尽 + 关键路径 ✅ SprintTask + 燃尽快照 + CPM 算法 + 4 Tool + 前端燃尽看板
-Week 8+: 资源水位预判 → 知识库语义检索 → 移动端
+Week 8: ⑭ 资源负载水位预判 ✅ CapacitySnapshot + 智能调配 + 5 Tool + 周一过载预警  🎉 V2.0 主线收官!
+Week 9+: 知识库语义检索 → 移动端 PWA → 体验打磨
 ```
 
 ---

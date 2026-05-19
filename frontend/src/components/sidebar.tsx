@@ -24,6 +24,7 @@ import {
   Target,
   RotateCw,
   Flame,
+  ThermometerSun,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { href: '/projects', label: '项目列表', icon: FolderKanban },
   { href: '/project/default', label: 'IPD 看板', icon: Kanban },
   { href: '/sprints', label: 'Sprint 燃尽', icon: Flame },
+  { href: '/capacity', label: '资源水位', icon: ThermometerSun },
   { href: '/okr', label: 'OKR 战略', icon: Target },
   { href: '/retro', label: 'AI 复盘库', icon: RotateCw },
   { href: '/reports', label: 'AI 日报流', icon: FileText },
