@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Download,
   PenLine,
+  Target,
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: '/submit-report', label: '提交日报', icon: PenLine },
   { href: '/projects', label: '项目列表', icon: FolderKanban },
   { href: '/project/default', label: 'IPD 看板', icon: Kanban },
+  { href: '/okr', label: 'OKR 战略', icon: Target },
   { href: '/reports', label: 'AI 日报流', icon: FileText },
   { href: '/trends', label: '评分趋势', icon: TrendingUp },
 ]
