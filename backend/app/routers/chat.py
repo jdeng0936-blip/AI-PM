@@ -1,41 +1,167 @@
 """
-app/routers/chat.py — 总经理 AI 对话查询
+app/routers/chat.py — 总经理 AI 对话查询(Function Calling 多轮编排)
 
-支持自然语言提问，AI 通过 SQL 聚合 + LLM 推理回答。
-示例问题:
-  - "本周谁延期最多？"
-  - "采购部进度怎么样？"
-  - "帮我生成本周的管理周报"
+工作流:
+  Step 0: 用户提问 → 拼装 system + user 消息
+  Step 1: LLM 决策:回答 or 调用 Tool
+  Step 2: 若 Tool 调用,执行 → 把结果以 tool message 喂回 LLM → 回到 Step 1
+  Step 3: LLM 给出最终自然语言回答 + 引用源
+
+设计要点:
+- 最多 5 轮 Tool 调用,防止 LLM 无限循环
+- 所有 Tool 失败都返回 {"error": ...} 而不是抛异常,LLM 自主决策
+- 记录每次调用 trace(tool_name + args + result_summary),前端可展开"思考过程"
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+import json
+import logging
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.middleware.rbac import require_role
-from app.models.daily_report import DailyReport
-from app.models.risk_alert import RiskAlert
-from app.models.project import Project
-from app.models.user import User, UserRole
+from app.models.user import UserRole
+from app.services.chat_tools import registry
+from app.services.llm_selector import LLMSelector
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Admin AI Chat"])
 
+logger = logging.getLogger("aipm.chat")
+
 _admin_only = require_role(UserRole.admin)
+
+MAX_TOOL_ROUNDS = 5
+
+
+SYSTEM_PROMPT = """你是徽远成科技的 AI 战情助手,服务总经理(admin 角色)。
+
+【你的能力】
+- 你拥有一组业务数据查询 Tool,可以查询日报、风险预警、项目状态、人员表现等
+- 你必须通过 Tool 获取数据,严禁凭印象编造数字/姓名/项目名
+
+【回答规则】
+1. 优先用最匹配的 Tool 取数据,需要多维度信息时可连续调用多个 Tool
+2. 拿到数据后用简洁的中文回答总经理,关键数字用粗体或列表呈现
+3. 答案末尾用一行『📊 数据来源: 调用了 X 次 Tool,基于 Y 条记录』标注引用
+4. 数据不足时坦诚说明,不要假装知道
+5. 时间相关问题默认窗口是「近 7 天」,除非用户明确指定
+
+【风格】
+- 简洁专业,像给 CEO 汇报
+- 避免冗长,关键结论先行,细节按需补充
+- 中文回答
+"""
+
+
+# ────────────────────────────────────────────────────────────────
+# Schemas
+# ────────────────────────────────────────────────────────────────
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=2, max_length=500, description="自然语言问题")
+    question: str = Field(..., min_length=2, max_length=500)
+    # 可选:限定本次对话只暴露这些 tool(测试/隔离用)
+    allowed_tools: Optional[list[str]] = None
+
+
+class ToolCallTrace(BaseModel):
+    tool: str
+    arguments: dict[str, Any]
+    result_preview: str
+    error: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
     question: str
     answer: str
-    data_context: dict = {}
+    tool_calls: list[ToolCallTrace] = []
+    rounds: int
+    model: str
+
+
+# ────────────────────────────────────────────────────────────────
+# LLM 调用
+# ────────────────────────────────────────────────────────────────
+
+
+async def _call_llm(
+    *,
+    model_config: dict[str, Any],
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    timeout: float = 90.0,
+) -> dict[str, Any]:
+    """单次调用 LLM,返回完整 response.message 对象(含可能的 tool_calls)"""
+    payload = {
+        "model": model_config["name"],
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": model_config.get("temperature", 0.3),
+        "max_tokens": model_config.get("max_tokens", 2048),
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            f"{settings.new_api_base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.new_api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return data["choices"][0]["message"]
+
+
+def _result_preview(result: dict[str, Any], max_len: int = 280) -> str:
+    """把 tool 结果压缩为单行预览,供前端展示"""
+    try:
+        text = json.dumps(result, ensure_ascii=False, default=str)
+    except Exception:
+        text = str(result)
+    if len(text) > max_len:
+        text = text[: max_len - 3] + "..."
+    return text
+
+
+# ────────────────────────────────────────────────────────────────
+# Endpoint
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/tools")
+async def list_tools(_user=Depends(_admin_only)) -> dict:
+    """暴露当前所有可用 Tool 列表(管理员调试用)"""
+    return {
+        "count": len(registry.all()),
+        "tools": [
+            {"name": t.name, "description": t.description}
+            for t in registry.all()
+        ],
+    }
+
+
+class WeeklyReportRequest(BaseModel):
+    scope: str = Field(default="last_week", description="last_week | this_week")
+
+
+@router.post("/weekly-report")
+async def trigger_weekly_report(
+    req: WeeklyReportRequest,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_admin_only),
+):
+    """手工触发周报生成(管理员从前端按钮调用,不走 LLM tool calling)"""
+    from app.services.chat_tools.weekly_report import generate_weekly_report
+    result = await generate_weekly_report(db, scope=req.scope)
+    return result
 
 
 @router.post("/ask", response_model=ChatResponse)
@@ -44,108 +170,96 @@ async def admin_ai_chat(
     db: AsyncSession = Depends(get_db),
     _user=Depends(_admin_only),
 ):
-    """
-    总经理自然语言对话查询。
-    Step 1: 根据问题关键词预检索相关数据
-    Step 2: 将数据 + 问题发给 LLM 做推理回答
-    """
+    """总经理自然语言对话查询(基于 Function Calling)"""
     question = req.question.strip()
-    context_data = {}
+    model_config = LLMSelector.get_model_for_task("admin_chat")
 
-    # ── Step 1: 根据关键词预检索数据 ─────────────────────────────
-    end = date.today()
-    start = end - timedelta(days=7)
+    tools = registry.openai_schemas(only=req.allowed_tools)
+    if not tools:
+        raise HTTPException(503, "未注册任何对话 Tool")
 
-    # 近 7 天全员日报摘要
-    reports_stmt = (
-        select(User.name, User.department, DailyReport.report_date,
-               DailyReport.ai_score, DailyReport.pass_check)
-        .join(User, DailyReport.user_id == User.id)
-        .where(DailyReport.report_date >= start)
-        .order_by(DailyReport.report_date.desc())
-        .limit(100)
-    )
-    reports = (await db.execute(reports_stmt)).all()
-    context_data["recent_reports"] = [
-        f"{r.name}({r.department}) {r.report_date} 评分{r.ai_score} {'✅' if r.pass_check else '❌'}"
-        for r in reports
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
     ]
+    traces: list[ToolCallTrace] = []
+    final_answer: str = ""
 
-    # 未解决风险
-    risks_stmt = (
-        select(RiskAlert.description, RiskAlert.days_unresolved, User.name)
-        .join(User, RiskAlert.user_id == User.id)
-        .where(RiskAlert.status == "unresolved")
-        .order_by(RiskAlert.days_unresolved.desc())
-        .limit(20)
-    )
-    risks = (await db.execute(risks_stmt)).all()
-    context_data["unresolved_risks"] = [
-        f"{r.name}: {r.description} (已{r.days_unresolved}天)"
-        for r in risks
-    ]
-
-    # 项目概况
-    projects_stmt = select(
-        Project.name, Project.health_status, Project.health_score
-    ).limit(20)
-    projects = (await db.execute(projects_stmt)).all()
-    context_data["projects"] = [
-        f"{p.name} 健康{p.health_status} 评分{p.health_score}"
-        for p in projects
-    ]
-
-    # ── Step 2: 调 LLM 推理 ──────────────────────────────────────
-    data_summary = (
-        f"【近7天日报】\n" + "\n".join(context_data["recent_reports"][:30]) + "\n\n"
-        f"【未解决风险】\n" + "\n".join(context_data["unresolved_risks"][:10]) + "\n\n"
-        f"【项目概况】\n" + "\n".join(context_data["projects"][:10])
-    )
-
-    try:
-        import httpx
-        from app.config import settings
-        from app.services.llm_selector import LLMSelector
-
-        model_config = LLMSelector.get_model_for_task("admin_chat")
-        payload = {
-            "model": model_config["name"],
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是徽远成科技的AI管理助手。根据以下业务数据回答总经理的提问。"
-                        "回答要简洁、专业、有数据支撑。使用中文回答。"
-                        "如果数据不足以回答，请坦诚说明。"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"业务数据：\n{data_summary}\n\n总经理提问：{question}",
-                },
-            ],
-            "temperature": model_config.get("temperature", 0.3),
-            "max_tokens": model_config.get("max_tokens", 800),
-        }
-
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{settings.new_api_base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.new_api_key}"},
-                json=payload,
+    for round_idx in range(MAX_TOOL_ROUNDS):
+        try:
+            assistant_msg = await _call_llm(
+                model_config=model_config, messages=messages, tools=tools,
             )
-            resp.raise_for_status()
-            answer = resp.json()["choices"][0]["message"]["content"]
+        except httpx.HTTPError as exc:
+            logger.exception("LLM call failed at round %d", round_idx)
+            raise HTTPException(502, f"LLM 调用失败: {exc}")
 
-    except Exception as e:
-        answer = f"AI 回答生成失败：{str(e)[:200]}\n\n已检索到 {len(reports)} 条日报、{len(risks)} 条风险。"
+        tool_calls = assistant_msg.get("tool_calls") or []
+
+        # LLM 给出了最终答案 → 收尾
+        if not tool_calls:
+            final_answer = assistant_msg.get("content") or ""
+            break
+
+        # 把 assistant 消息(含 tool_calls)塞回历史
+        messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_msg.get("content") or "",
+                "tool_calls": tool_calls,
+            }
+        )
+
+        # 逐个执行 tool_calls
+        for tc in tool_calls:
+            tc_id = tc.get("id") or ""
+            fn = tc.get("function") or {}
+            tool_name = fn.get("name") or ""
+            raw_args = fn.get("arguments") or "{}"
+            try:
+                args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+            except json.JSONDecodeError:
+                args = {}
+
+            result = await registry.dispatch(tool_name, db, args)
+            traces.append(
+                ToolCallTrace(
+                    tool=tool_name,
+                    arguments=args,
+                    result_preview=_result_preview(result),
+                    error=result.get("error") if isinstance(result, dict) else None,
+                )
+            )
+
+            # 喂回 tool message
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": tool_name,
+                    "content": json.dumps(result, ensure_ascii=False, default=str),
+                }
+            )
+    else:
+        # 5 轮内未收敛 → 强制让 LLM 总结
+        messages.append(
+            {
+                "role": "user",
+                "content": "已达到工具调用上限,请基于现有信息直接给出最终回答,不要再调用工具。",
+            }
+        )
+        try:
+            final_msg = await _call_llm(
+                model_config=model_config, messages=messages, tools=[],
+            )
+            final_answer = final_msg.get("content") or "无法在限定轮数内得到答案。"
+        except Exception:
+            final_answer = "AI 在限定轮数内未能完成查询。"
 
     return ChatResponse(
         question=question,
-        answer=answer,
-        data_context={
-            "reports_count": len(reports),
-            "risks_count": len(risks),
-            "projects_count": len(projects),
-        },
+        answer=final_answer.strip(),
+        tool_calls=traces,
+        rounds=len(traces) and (round_idx + 1) or 1,
+        model=model_config["name"],
     )
