@@ -29,6 +29,7 @@ def start_scheduler() -> None:
         run_health_refresh_all,
         run_morning_briefing,
         run_weekly_report,
+        run_quarterly_okr_summary,
     )
 
     # ── 催报机制（三级） ──────────────────────────────────────────
@@ -78,6 +79,15 @@ def start_scheduler() -> None:
         CronTrigger(day_of_week="mon", hour=9, minute=0),
         id="weekly_report_monday",
         name="周一周报AI生成",
+        replace_existing=True,
+    )
+
+    # ── 每月 1 日 09:30 检查季度末 OKR 归档(只在季度首日触发) ──
+    scheduler.add_job(
+        run_quarterly_okr_summary,
+        CronTrigger(day=1, hour=9, minute=30),
+        id="quarterly_okr_summary",
+        name="季度OKR汇总归档",
         replace_existing=True,
     )
 

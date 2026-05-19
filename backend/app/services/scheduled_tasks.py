@@ -293,3 +293,124 @@ async def run_weekly_report() -> None:
 
     except Exception as e:
         logger.error("   周报生成失败: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 季度 OKR 汇总 + 自动归档
+# ═══════════════════════════════════════════════════════════════════
+
+async def run_quarterly_okr_summary() -> None:
+    """
+    每月 1 日 09:30 检查:如果昨天是季度末(3.31 / 6.30 / 9.30 / 12.31),
+    则把刚结束的 active 季度 cycle 转为 completed,生成达成摘要并推送管理层。
+    """
+    from datetime import date as _date, timedelta
+
+    yesterday = _date.today() - timedelta(days=1)
+    if not _is_quarter_end(yesterday):
+        logger.info("⏰ 今天不是季度首日,跳过 OKR 季度汇总")
+        return
+
+    logger.info("⏰ 季度末 OKR 汇总:%s", yesterday)
+
+    from sqlalchemy import select as _select
+    from app.models.notification import NotificationChannel, NotificationTemplate
+    from app.models.okr import (
+        KeyResult as _KR, OKRCycle as _Cycle,
+        OKRCycleType as _CT, OKRStatus as _Status, Objective as _Obj,
+    )
+    from app.services.notification_service import notify_safe
+
+    try:
+        async with AsyncSessionLocal() as db:
+            # 找上一个季度的 active cycle
+            cycle = (
+                await db.execute(
+                    _select(_Cycle)
+                    .where(
+                        _Cycle.cycle_type == _CT.quarterly,
+                        _Cycle.status == _Status.active,
+                        _Cycle.end_date <= yesterday,
+                    )
+                    .order_by(_Cycle.end_date.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if not cycle:
+                logger.info("   未找到需要归档的季度 cycle")
+                return
+
+            # 聚合该 cycle 的统计
+            objs = (
+                await db.execute(
+                    _select(_Obj).where(_Obj.cycle_id == cycle.id)
+                )
+            ).scalars().all()
+            obj_ids = [o.id for o in objs]
+            krs = []
+            if obj_ids:
+                krs = (
+                    await db.execute(
+                        _select(_KR).where(_KR.objective_id.in_(obj_ids))
+                    )
+                ).scalars().all()
+
+            avg_obj_progress = (
+                round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
+            )
+            kr_progresses = [k.progress for k in krs]
+            achieved = sum(1 for p in kr_progresses if p >= 70)
+            on_track = sum(1 for p in kr_progresses if 40 <= p < 70)
+            behind = sum(1 for p in kr_progresses if p < 40)
+
+            summary_md = (
+                f"### 📊 {cycle.name} OKR 达成总结\n\n"
+                f"**周期**: {cycle.start_date} → {cycle.end_date}\n\n"
+                f"- 目标数: **{len(objs)}**\n"
+                f"- 关键结果数: **{len(krs)}**\n"
+                f"- 平均 O 进度: **{avg_obj_progress}%**\n\n"
+                f"**KR 达成分布**:\n"
+                f"- ✅ 已达成(≥70%): {achieved}\n"
+                f"- 🟡 进行中(40-70%): {on_track}\n"
+                f"- 🔴 滞后(<40%): {behind}\n"
+            )
+
+            # 归档 cycle
+            cycle.status = _Status.completed
+
+            # 推送给管理层
+            admins = (
+                await db.execute(
+                    _select(User).where(
+                        User.role.in_(["admin", "manager"]),
+                        User.is_active == True,
+                    )
+                )
+            ).scalars().all()
+            for admin in admins:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.weekly_report,  # 复用周报模板槽位
+                    context={"weekly_summary": summary_md},
+                    user=admin,
+                    channels=[
+                        NotificationChannel.wechat,
+                        NotificationChannel.dingtalk,
+                        NotificationChannel.in_app,
+                    ],
+                )
+
+            await db.commit()
+
+        logger.info(
+            "   %s 已归档,推送 %d 位管理层 (objs=%d, krs=%d)",
+            cycle.name, len(admins), len(objs), len(krs),
+        )
+
+    except Exception as e:
+        logger.exception("   季度 OKR 汇总失败: %s", e)
+
+
+def _is_quarter_end(d) -> bool:
+    """判断某天是否是季度最后一天(3.31 / 6.30 / 9.30 / 12.31)"""
+    return (d.month, d.day) in {(3, 31), (6, 30), (9, 30), (12, 31)}
