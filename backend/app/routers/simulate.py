@@ -258,6 +258,12 @@ async def web_submit_daily_report(
         related_id=str(report.id),
     )
 
+    # ── AI 自动提取 KR 进度更新(失败不影响主流程) ──
+    from app.services.kr_progress_extractor import extract_and_update_kr_progress_safe
+    kr_updates = await extract_and_update_kr_progress_safe(
+        db, report=report, raw_text=req.raw_text,
+    )
+
     await db.commit()
 
     return {
@@ -271,4 +277,5 @@ async def web_submit_daily_report(
         "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
         "management_alert": ai_result.management_alert,
         "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
+        "kr_updates": kr_updates,
     }

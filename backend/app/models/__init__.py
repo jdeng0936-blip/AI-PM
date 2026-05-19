@@ -16,7 +16,10 @@ from app.models.sprint import Sprint
 from app.models.project_member import ProjectMember
 
 # --- OKR 战略对齐模型 ---
-from app.models.okr import OKRCycle, Objective, KeyResult
+from app.models.okr import (
+    OKRCycle, Objective, KeyResult, KRProgressLog, KRProgressSource,
+    OKRCycleType, OKRStatus,
+)
 
 # --- 知识库模型 ---
 from app.models.knowledge import KnowledgeItem
@@ -32,7 +35,8 @@ from app.models.attachment import Attachment, AttachmentKind
 __all__ = [
     "User", "DailyReport", "RiskAlert", "TenantUsageLog",
     "Project", "ProjectStage", "GateReview", "Sprint", "ProjectMember",
-    "OKRCycle", "Objective", "KeyResult",
+    "OKRCycle", "Objective", "KeyResult", "KRProgressLog", "KRProgressSource",
+    "OKRCycleType", "OKRStatus",
     "KnowledgeItem",
     "Notification", "NotificationChannel", "NotificationStatus", "NotificationTemplate",
     "Attachment", "AttachmentKind",
