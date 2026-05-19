@@ -8,6 +8,7 @@ app/services/scheduler.py — APScheduler 定时任务调度中心
   - 00:30      跨日健康度全量重算
   - 09:00      晨报 AI 生成 + 推送
   - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
+  - 每日 18:00 Sprint 燃尽快照(Week 7)
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ def start_scheduler() -> None:
         run_weekly_report,
         run_quarterly_okr_summary,
     )
+    from app.services.sprint_aggregator import run_daily_burndown_snapshots
 
     # ── 催报机制（三级） ──────────────────────────────────────────
     scheduler.add_job(
@@ -88,6 +90,15 @@ def start_scheduler() -> None:
         CronTrigger(day=1, hour=9, minute=30),
         id="quarterly_okr_summary",
         name="季度OKR汇总归档",
+        replace_existing=True,
+    )
+
+    # ── 每日 18:00 Sprint 燃尽快照(Week 7)───────────────────────
+    scheduler.add_job(
+        run_daily_burndown_snapshots,
+        CronTrigger(hour=18, minute=0),
+        id="sprint_burndown_snapshot",
+        name="Sprint燃尽快照",
         replace_existing=True,
     )
 
