@@ -266,7 +266,10 @@ def tool(
 
 def _autoload() -> None:
     from importlib import import_module
-    for mod in ("reports", "projects", "people", "weekly_report", "okr", "retro", "sprints"):
+    for mod in (
+        "reports", "projects", "people", "weekly_report",
+        "okr", "retro", "sprints", "capacity",
+    ):
         try:
             import_module(f"app.services.chat_tools.{mod}")
         except ImportError as exc:  # pragma: no cover

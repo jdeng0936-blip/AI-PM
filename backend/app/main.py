@@ -97,6 +97,9 @@ app.include_router(notifications_router.router)
 # ── AI 复盘库(Week 6)──────────────────────────
 from app.routers import retro as retro_router
 app.include_router(retro_router.router)
+# ── 资源水位(Week 8)──────────────────────────
+from app.routers import capacity as capacity_router
+app.include_router(capacity_router.router)
 # ── 附件 + 语音 ASR ──────────────────────────────
 from app.routers import attachments as attachments_router
 from app.routers import asr as asr_router

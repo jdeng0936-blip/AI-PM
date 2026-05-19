@@ -16,6 +16,7 @@ from app.models.sprint import Sprint, SprintStatus
 from app.models.sprint_task import (
     SprintTask, BurndownSnapshot, TaskStatus, TaskPriority,
 )
+from app.models.capacity import CapacitySnapshot, CapacityLevel
 from app.models.project_member import ProjectMember
 
 # --- OKR 战略对齐模型 ---
@@ -39,6 +40,7 @@ __all__ = [
     "User", "DailyReport", "RiskAlert", "TenantUsageLog",
     "Project", "ProjectStage", "GateReview", "Sprint", "SprintStatus",
     "SprintTask", "BurndownSnapshot", "TaskStatus", "TaskPriority",
+    "CapacitySnapshot", "CapacityLevel",
     "ProjectMember",
     "OKRCycle", "Objective", "KeyResult", "KRProgressLog", "KRProgressSource",
     "OKRCycleType", "OKRStatus",
