@@ -16,15 +16,15 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning style={{ backgroundColor: '#0f1117' }}>
       <head>
         <link
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body suppressHydrationWarning>
-        <div className="antialiased">
+      <body suppressHydrationWarning style={{ backgroundColor: '#0f1117', margin: 0, padding: 0 }}>
+        <div style={{ backgroundColor: '#0f1117', minHeight: '100vh' }}>
           <QueryProvider>
             <AuthGuard>
               <AppShell>

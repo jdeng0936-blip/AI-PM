@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar />
       <main
         className="flex-1 overflow-y-auto"
-        style={{ background: 'var(--color-bg-primary)' }}
+        style={{ background: '#0f1117' }}
       >
         {children}
       </main>

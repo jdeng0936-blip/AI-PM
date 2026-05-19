@@ -21,9 +21,15 @@ from app.models.okr import OKRCycle, Objective, KeyResult
 # --- 知识库模型 ---
 from app.models.knowledge import KnowledgeItem
 
+# --- 通知推送模型 ---
+from app.models.notification import (
+    Notification, NotificationChannel, NotificationStatus, NotificationTemplate,
+)
+
 __all__ = [
     "User", "DailyReport", "RiskAlert", "TenantUsageLog",
     "Project", "ProjectStage", "GateReview", "Sprint", "ProjectMember",
     "OKRCycle", "Objective", "KeyResult",
     "KnowledgeItem",
+    "Notification", "NotificationChannel", "NotificationStatus", "NotificationTemplate",
 ]

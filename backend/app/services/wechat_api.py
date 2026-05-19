@@ -122,3 +122,56 @@ async def fetch_media_url(media_id: str) -> Optional[str]:
     token = await _get_access_token()
     # 实际生产：需下载后上传 OSS，并返回 OSS 公网 URL
     return f"{WECHAT_API_BASE}/media/get?access_token={token}&media_id={media_id}"
+
+
+# ────────────────────────────────────────────────────────────────
+# 企微群机器人 Webhook 推送(免开发,适合战情日报/风险预警群推)
+# ────────────────────────────────────────────────────────────────
+
+async def send_bot_text(content: str, mentioned_list: Optional[list[str]] = None) -> dict:
+    """
+    企微群机器人 text 消息。
+    mentioned_list: ['@all'] 或 userid 列表(企微 userid,需机器人在群里)。
+    """
+    if not settings.wechat_bot_webhook:
+        return {"errcode": -1, "errmsg": "wechat bot webhook not configured"}
+
+    payload = {
+        "msgtype": "text",
+        "text": {
+            "content": content,
+            "mentioned_list": mentioned_list or [],
+        },
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(settings.wechat_bot_webhook, json=payload)
+        return resp.json()
+
+
+async def send_bot_markdown(content: str) -> dict:
+    """
+    企微群机器人 markdown 消息。
+    支持的语法见: https://developer.work.weixin.qq.com/document/path/91770
+    """
+    if not settings.wechat_bot_webhook:
+        return {"errcode": -1, "errmsg": "wechat bot webhook not configured"}
+
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {"content": content},
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(settings.wechat_bot_webhook, json=payload)
+        return resp.json()
+
+
+def is_app_configured() -> bool:
+    return bool(
+        settings.wechat_corp_id
+        and settings.wechat_corp_secret
+        and settings.wechat_agent_id
+    )
+
+
+def is_bot_configured() -> bool:
+    return bool(settings.wechat_bot_webhook)

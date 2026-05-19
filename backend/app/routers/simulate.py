@@ -18,6 +18,8 @@ from app.models.risk_alert import RiskAlert
 from app.models.user import User
 from app.services.ai_engine import parse_report_with_ai
 from app.services.token_guard import log_token_usage
+from app.services.notification_service import notify_safe
+from app.models.notification import NotificationTemplate, NotificationChannel
 
 router = APIRouter(prefix="/api/v1/simulate", tags=["DEV Simulation"])
 
@@ -162,7 +164,24 @@ async def web_submit_daily_report(
 
     # ── 质检未通过 → 不入库，返回修改建议 ──
     if not ai_result.pass_check:
-        await db.commit()  # 仅提交 token 用量
+        # 推送质检驳回通知到员工(企微/钉钉/站内)
+        await notify_safe(
+            db,
+            template=NotificationTemplate.report_rejected,
+            context={
+                "name": current_user.name,
+                "reason": ai_result.reject_reason or "",
+                "guidance": ai_result.suggested_guidance or "",
+            },
+            channels=[
+                NotificationChannel.in_app,
+                NotificationChannel.wechat,
+                NotificationChannel.dingtalk,
+            ],
+            user=current_user,
+            related_type="report_rejected",
+        )
+        await db.commit()  # 提交 token 用量 + 通知历史
         return {
             "status": "rejected",
             "user_name": current_user.name,
@@ -194,7 +213,7 @@ async def web_submit_daily_report(
     db.add(report)
     await db.flush()
 
-    # ── 若有预警，写入 risk_alerts ──
+    # ── 若有预警，写入 risk_alerts + 群推预警 ──
     if ai_result.management_alert and ai_result.parsed_content.blocker:
         alert = RiskAlert(
             report_id=report.id,
@@ -203,6 +222,41 @@ async def web_submit_daily_report(
             description=ai_result.management_alert,
         )
         db.add(alert)
+
+        # 风险预警 → 企微/钉钉群推给管理层
+        await notify_safe(
+            db,
+            template=NotificationTemplate.risk_alert,
+            context={
+                "name": current_user.name,
+                "department": current_user.department,
+                "alert_type": "blocker",
+                "description": ai_result.management_alert,
+                "days_unresolved": 1,
+            },
+            channels=[
+                NotificationChannel.wechat_bot,
+                NotificationChannel.dingtalk_bot,
+            ],
+            user=current_user,
+            related_type="risk_alert",
+            related_id=str(report.id),
+        )
+
+    # 通过日报也推一条「评分结果」给员工(可选,默认仅站内)
+    await notify_safe(
+        db,
+        template=NotificationTemplate.report_passed,
+        context={
+            "name": current_user.name,
+            "score": ai_result.ai_score,
+            "comment": ai_result.ai_comment or "",
+        },
+        channels=[NotificationChannel.in_app],
+        user=current_user,
+        related_type="report_passed",
+        related_id=str(report.id),
+    )
 
     await db.commit()
 

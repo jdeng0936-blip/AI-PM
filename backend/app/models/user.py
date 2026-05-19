@@ -40,6 +40,11 @@ class User(Base):
     wechat_userid: Mapped[str] = mapped_column(
         String(64), unique=True, index=True, nullable=False
     )
+    # 钉钉身份唯一标识（用于精准推送，可为空）
+    dingtalk_userid: Mapped[Optional[str]] = mapped_column(
+        String(64), unique=True, index=True, nullable=True,
+        comment="钉钉 userid，精准推送通知用",
+    )
     name: Mapped[str] = mapped_column(String(32), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(
         String(20), unique=True, index=True, nullable=True

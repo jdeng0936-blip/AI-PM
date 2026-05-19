@@ -52,6 +52,7 @@ app = FastAPI(
     description="基于 FastAPI + Gemini 的智能项目管理系统",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,  # 禁止 307 重定向，避免 POST 丢失 Authorization header
 )
 
 # CORS 配置：dev 放行 localhost，prod 仅放行 .env 中配置的域名
@@ -90,6 +91,9 @@ app.include_router(chat.router)
 # ── OKR & 知识库 ─────────────────────────────────
 app.include_router(okr.router)
 app.include_router(knowledge.router)
+# ── 通知推送 ─────────────────────────────────────
+from app.routers import notifications as notifications_router
+app.include_router(notifications_router.router)
 # ── DEV 模拟端点（仅开发环境） ────────────────────
 if settings.aipm_env == "dev":
     from app.routers import simulate

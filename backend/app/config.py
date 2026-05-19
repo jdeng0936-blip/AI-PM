@@ -21,11 +21,53 @@ class Settings(BaseSettings):
     redis_url: str
 
     # 企业微信（env 中为 WECOM_*，此处兼容两种命名）
-    wechat_corp_id: str = ""
-    wechat_corp_secret: str = ""
-    wechat_agent_id: str = ""
-    wechat_token: str = ""
-    wechat_encoding_aes_key: str = ""
+    wechat_corp_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("WECHAT_CORP_ID", "WECOM_CORP_ID"),
+    )
+    wechat_corp_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("WECHAT_CORP_SECRET", "WECOM_SECRET"),
+    )
+    wechat_agent_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("WECHAT_AGENT_ID", "WECOM_AGENT_ID"),
+    )
+    wechat_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("WECHAT_TOKEN", "WECOM_TOKEN"),
+    )
+    wechat_encoding_aes_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "WECHAT_ENCODING_AES_KEY", "WECOM_ENCODING_AES_KEY"
+        ),
+    )
+    # 企微群机器人 Webhook(可选,用于战情日报/风险预警群推)
+    wechat_bot_webhook: str = Field(
+        default="",
+        validation_alias=AliasChoices("WECHAT_BOT_WEBHOOK", "WECOM_BOT_WEBHOOK"),
+    )
+
+    # 钉钉群机器人(Webhook + 加签 secret)
+    dingtalk_bot_webhook: str = Field(
+        default="",
+        validation_alias=AliasChoices("DINGTALK_BOT_WEBHOOK", "DINGTALK_WEBHOOK"),
+    )
+    dingtalk_bot_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("DINGTALK_BOT_SECRET", "DINGTALK_SECRET"),
+    )
+    # 钉钉企业应用(可选,用于精准推送给个人)
+    dingtalk_app_key: str = Field(
+        default="", validation_alias=AliasChoices("DINGTALK_APP_KEY")
+    )
+    dingtalk_app_secret: str = Field(
+        default="", validation_alias=AliasChoices("DINGTALK_APP_SECRET")
+    )
+    dingtalk_agent_id: str = Field(
+        default="", validation_alias=AliasChoices("DINGTALK_AGENT_ID")
+    )
 
     # 大模型网关（兼容 LITELLM_* 和 NEW_API_* 两种命名）
     new_api_base_url: str = Field(

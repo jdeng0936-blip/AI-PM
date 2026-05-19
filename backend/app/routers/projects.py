@@ -40,7 +40,8 @@ _mgr = require_role(UserRole.manager, UserRole.admin)
 
 
 # ── 立项（自动初始化5个 IPD 阶段）────────────────────────────────
-@router.post("/")
+@router.post("/", include_in_schema=True)
+@router.post("", include_in_schema=False)
 async def create_project(
     data: ProjectCreate,
     db: AsyncSession = Depends(get_db),
