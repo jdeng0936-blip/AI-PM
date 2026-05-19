@@ -14,12 +14,24 @@ from pydantic import BaseModel, Field
 # ── 项目创建 ──────────────────────────────────────────────────────
 class ProjectCreate(BaseModel):
     name: str = Field(..., max_length=128, description="项目名称，如'206样机研发及落地'")
-    code: str = Field(..., max_length=16, description="项目编号，如'P2026-001'")
+    code: Optional[str] = Field(None, max_length=16, description="项目编号，如'P2026-001'，如果不填则自动生成")
     description: Optional[str] = Field(None, max_length=512)
     track: str = Field("dual", description="dual / software / hardware")
     planned_launch_date: Optional[date] = None
     budget_total: Optional[Decimal] = Field(None, description="总预算（元）")
     budget_alert_threshold: float = Field(0.8, ge=0.0, le=1.0, description="预算预警阈值")
+
+
+# ── 项目更新（PATCH）──────────────────────────────────────────────
+class ProjectUpdate(BaseModel):
+    """所有字段可选；仅传入的字段会被更新。"""
+    name: Optional[str] = Field(None, max_length=128)
+    description: Optional[str] = Field(None, max_length=512)
+    track: Optional[str] = Field(None, description="dual / software / hardware")
+    planned_launch_date: Optional[date] = None
+    budget_total: Optional[Decimal] = None
+    budget_alert_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+    status: Optional[str] = Field(None, description="active / paused / completed / cancelled")
 
 
 # ── 里程碑节点（JSONB 内元素）────────────────────────────────────

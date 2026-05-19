@@ -42,14 +42,35 @@ class StageHealthStatus(str, enum.Enum):
     locked = "locked"  # 前置关卡未通过，本阶段锁定
 
 
-# IPD 5 阶段定义（name, track, typical_duration_days）
-STAGE_DEFINITIONS = [
-    (1, "概念与立项期",     "both",     14),
-    (2, "计划与设计期",     "both",     21),
-    (3, "双轨并行开发期",   "both",    60),
-    (4, "集成与测试期",     "both",     21),
-    (5, "量产与交付期",     "both",     14),
-]
+# IPD 5 阶段定义（按轨道区分）
+# 格式: (stage_number, stage_name, track, typical_duration_days)
+STAGE_DEFINITIONS_BY_TRACK = {
+    "software": [
+        (1, "需求分析期",       "software",  14),
+        (2, "架构设计期",       "software",  21),
+        (3, "迭代开发期",       "software",  60),
+        (4, "测试验收期",       "software",  21),
+        (5, "上线运维期",       "software",  14),
+    ],
+    "hardware": [
+        (1, "概念与立项期",     "hardware",  14),
+        (2, "方案与设计期",     "hardware",  21),
+        (3, "样机开发期",       "hardware",  60),
+        (4, "测试认证期",       "hardware",  21),
+        (5, "量产与交付期",     "hardware",  14),
+    ],
+    "dual": [
+        (1, "概念与立项期",     "both",      14),
+        (2, "计划与设计期",     "both",      21),
+        (3, "双轨并行开发期",   "both",      60),
+        (4, "集成与测试期",     "both",      21),
+        (5, "量产与交付期",     "both",      14),
+    ],
+}
+
+# 向后兼容：默认使用 dual 定义
+STAGE_DEFINITIONS = STAGE_DEFINITIONS_BY_TRACK["dual"]
+
 
 
 class ProjectStage(BaseMixin, Base):

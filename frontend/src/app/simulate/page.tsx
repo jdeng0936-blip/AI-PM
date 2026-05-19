@@ -27,9 +27,9 @@ export default function SimulatePage() {
     if (!reportText.trim()) { toast.warning('请输入汇报内容'); return }
     setSending(true); setResult(null)
     try {
-      const res: any = await request.post('/simulate/report', {
+      const res: any = await request.post('/simulate/daily-report', {
         wechat_userid: selectedUser,
-        content: reportText,
+        raw_text: reportText,
       })
       setResult(res)
       toast.success('模拟提交成功，AI 已解析')

@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { Shield, Users, User, Loader2, Sparkles, BarChart3, BrainCircuit } from 'lucide-react'
 
 const QUICK_USERS = [
-  { username: 'admin',    label: '管理员',   role: 'admin',    dept: '管理层',     icon: Shield, color: '#ef4444' },
+  { username: 'admin',    label: '总经理',   role: 'admin',    dept: '管理层',     icon: Shield, color: '#ef4444' },
   { username: '张毅',     label: '张毅',     role: 'manager',  dept: '软件研发部', icon: Users,  color: '#3b82f6' },
   { username: '郭震',     label: '郭震',     role: 'employee', dept: '软件研发部', icon: User,   color: '#22c55e' },
   { username: '张维',     label: '张维',     role: 'employee', dept: '软件研发部', icon: User,   color: '#0ea5e9' },

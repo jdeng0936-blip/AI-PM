@@ -22,13 +22,14 @@ from app.database import get_db
 from app.middleware.rbac import require_role, get_current_user
 from app.models.project import Project, ProjectStatus
 from app.models.project_member import ProjectMember
-from app.models.project_stage import ProjectStage, STAGE_DEFINITIONS
+from app.models.project_stage import ProjectStage, STAGE_DEFINITIONS, STAGE_DEFINITIONS_BY_TRACK
 from app.models.user import UserRole
 from app.schemas.project import (
     GanttStage,
     ProjectCreate,
     ProjectMemberAdd,
     ProjectOverviewItem,
+    ProjectUpdate,
     StageUpdate,
 )
 from app.services.health_engine import refresh_project_health
@@ -51,10 +52,26 @@ async def create_project(
     立项并自动展开5个 IPD 阶段节点。
     每个阶段的计划时间从 planned_launch_date 倒推分配。
     """
-    # 防重复编号
-    existing = await db.execute(select(Project).where(Project.code == data.code))
-    if existing.scalar_one_or_none():
-        raise HTTPException(400, f"项目编号 {data.code} 已存在")
+    if not data.code:
+        # 自动生成项目编号: P{YYYY}-{XXX}
+        current_year = date.today().year
+        prefix = f"P{current_year}-"
+        stmt = select(Project.code).where(Project.code.like(f"{prefix}%")).order_by(Project.code.desc()).limit(1)
+        res = await db.execute(stmt)
+        max_code = res.scalar_one_or_none()
+        if max_code:
+            try:
+                num = int(max_code.split("-")[1])
+                data.code = f"{prefix}{num + 1:03d}"
+            except Exception:
+                data.code = f"{prefix}001"
+        else:
+            data.code = f"{prefix}001"
+    else:
+        # 防重复编号
+        existing = await db.execute(select(Project).where(Project.code == data.code))
+        if existing.scalar_one_or_none():
+            raise HTTPException(400, f"项目编号 {data.code} 已存在")
 
     project = Project(
         name=data.name,
@@ -69,16 +86,60 @@ async def create_project(
     db.add(project)
     await db.flush()  # 获取 project.id
 
-    # 自动初始化5个阶段（按典型工期倒推日期）
-    total_days = sum(d for _, _, _, d in STAGE_DEFINITIONS)
+    # ── 各阶段默认里程碑模板（按轨道区分）──────────────────
+    DEFAULT_MILESTONES = {
+        "software": {
+            1: ["需求收集完成", "可行性分析", "立项评审 (G0)"],
+            2: ["技术方案评审", "架构设计完成", "需求评审 (G1)", "设计评审 (G2)"],
+            3: ["核心模块开发完成", "功能联调", "V1.0 内部发布", "中期检查"],
+            4: ["集成测试完成", "Bug 清零", "试产评审 (G3)"],
+            5: ["版本发布", "客户验收", "结项评审 (G4)", "项目归档"],
+        },
+        "hardware": {
+            1: ["需求收集完成", "可行性分析", "立项评审 (G0)"],
+            2: ["原理图评审", "BOM 定版", "需求评审 (G1)", "设计评审 (G2)"],
+            3: ["PCB 打样完成", "贴片组装完成", "硬件调试通过", "中期检查"],
+            4: ["整机测试完成", "认证送检", "试产评审 (G3)"],
+            5: ["量产首批", "客户验收", "结项评审 (G4)", "项目归档"],
+        },
+        "dual": {
+            1: ["需求收集完成", "可行性分析", "立项评审 (G0)"],
+            2: ["技术方案评审", "原理图/架构设计完成", "需求评审 (G1)", "设计评审 (G2)"],
+            3: ["软件V1.0完成", "硬件打样完成", "软硬联调", "中期检查"],
+            4: ["集成测试完成", "问题清零", "试产评审 (G3)"],
+            5: ["量产首批/版本发布", "客户验收", "结项评审 (G4)", "项目归档"],
+        },
+    }
+
+    # 自动初始化5个阶段（按典型工期倒推日期，按轨道选择阶段名称）
+    track_key = data.track if data.track in STAGE_DEFINITIONS_BY_TRACK else "dual"
+    stage_defs = STAGE_DEFINITIONS_BY_TRACK[track_key]
+    total_days = sum(d for _, _, _, d in stage_defs)
     stage_start = (
         data.planned_launch_date - timedelta(days=total_days)
         if data.planned_launch_date
         else date.today()
     )
 
-    for num, name, track_str, duration in STAGE_DEFINITIONS:
+    for num, name, track_str, duration in stage_defs:
         stage_end = stage_start + timedelta(days=duration - 1)
+
+        # 为该阶段生成里程碑（日期均匀分布在阶段时间段内）
+        ms_names = DEFAULT_MILESTONES[track_key].get(num, [])
+        milestones = []
+        for i, ms_name in enumerate(ms_names):
+            if len(ms_names) > 1:
+                offset = int(duration * (i + 1) / (len(ms_names) + 1))
+            else:
+                offset = duration // 2
+            ms_date = stage_start + timedelta(days=offset)
+            milestones.append({
+                "name": ms_name,
+                "planned_date": ms_date.isoformat(),
+                "actual_date": None,
+                "status": "pending",
+            })
+
         stage = ProjectStage(
             project_id=project.id,
             stage_number=num,
@@ -87,13 +148,14 @@ async def create_project(
             planned_start=stage_start,
             planned_end=stage_end,
             health_status="green" if num == 1 else "locked",  # 仅第1阶段解锁
+            milestones=milestones,
         )
         db.add(stage)
         stage_start = stage_end + timedelta(days=1)
 
     await db.commit()
     return {
-        "message": "项目创建成功，已自动初始化5个 IPD 阶段",
+        "message": "项目创建成功，已自动初始化5个 IPD 阶段及里程碑",
         "project_id": str(project.id),
         "code": project.code,
     }
@@ -104,24 +166,52 @@ async def create_project(
 async def projects_overview(
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
+    include_archived: bool = Query(default=False, description="是否包含已归档(cancelled)和已完成(completed)项目"),
+    health_status: Optional[str] = Query(default=None, description="按健康度过滤:green / yellow / red"),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
     """
-    管理层宏观视图：所有活跃项目的健康矩阵。
-    red / yellow / green 一目了然，替代零散的周会汇报。
+    管理层宏观视图：项目健康矩阵。
+    默认展示 active + paused（仍在活跃管理的项目）。
+    传 include_archived=true 可附带 cancelled + completed。
+    可选 health_status 按 green/yellow/red 过滤具体项目列表;
+    三色计数始终基于"当前 status 范围内的全表"统计，不受 health_status 影响。
     """
-    # 先拿总数
     from sqlalchemy import func
-    count_result = await db.execute(
-        select(func.count()).select_from(Project).where(Project.status == ProjectStatus.active)
-    )
-    total = count_result.scalar() or 0
+    from app.models.project import ProjectHealthStatus
 
-    # 分页查询
+    # ── 1. status 过滤(可见范围)──────────────────────────────
+    visible_statuses = [ProjectStatus.active, ProjectStatus.paused]
+    if include_archived:
+        visible_statuses += [ProjectStatus.cancelled, ProjectStatus.completed]
+
+    base_filter = Project.status.in_(visible_statuses)
+
+    # ── 2. 全表三色聚合(GROUP BY health_status)─────────────
+    color_rows = await db.execute(
+        select(Project.health_status, func.count(Project.id))
+        .where(base_filter)
+        .group_by(Project.health_status)
+    )
+    color_map = {str(getattr(k, "value", k)): v for k, v in color_rows.all()}
+    green_count = color_map.get("green", 0)
+    yellow_count = color_map.get("yellow", 0)
+    red_count = color_map.get("red", 0)
+    total = green_count + yellow_count + red_count + sum(
+        v for k, v in color_map.items() if k not in {"green", "yellow", "red"}
+    )
+
+    # ── 3. 列表查询：可选 health_status 过滤 ───────────────────
+    list_filter = base_filter
+    if health_status:
+        if health_status not in {"green", "yellow", "red"}:
+            raise HTTPException(400, "health_status 仅支持 green / yellow / red")
+        list_filter = and_(base_filter, Project.health_status == ProjectHealthStatus(health_status))
+
     offset = (page - 1) * page_size
     result = await db.execute(
-        select(Project).where(Project.status == ProjectStatus.active)
+        select(Project).where(list_filter)
         .order_by(Project.health_score.asc())  # 最差的排最前
         .offset(offset)
         .limit(page_size)
@@ -157,6 +247,7 @@ async def projects_overview(
             "project_id": str(p.id),
             "code": p.code,
             "name": p.name,
+            "description": p.description,
             "current_stage": p.current_stage,
             "stage_name": stage.stage_name if stage else "—",
             "track": p.track,
@@ -165,6 +256,7 @@ async def projects_overview(
             "progress_pct": stage.progress_pct if stage else 0,
             "planned_launch_date": p.planned_launch_date,
             "days_to_deadline": days_to_deadline,
+            "budget_total": str(p.budget_total) if p.budget_total else None,
             "budget_usage_pct": round(budget_pct, 1) if budget_pct else None,
             "status": p.status,
         })
@@ -173,9 +265,9 @@ async def projects_overview(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "red_count":    sum(1 for i in items if i["health_status"] == "red"),
-        "yellow_count": sum(1 for i in items if i["health_status"] == "yellow"),
-        "green_count":  sum(1 for i in items if i["health_status"] == "green"),
+        "red_count": red_count,
+        "yellow_count": yellow_count,
+        "green_count": green_count,
         "projects": items,
     }
 
@@ -233,6 +325,71 @@ async def get_project(
             for s in stages
         ],
     }
+
+
+# ── 项目编辑（改名 / 改预算 / 改日期 / 改状态）─────────────────────
+_VALID_STATUSES = {s.value for s in ProjectStatus}
+_VALID_TRACKS = {"dual", "software", "hardware"}
+
+
+@router.patch("/{project_id}")
+async def update_project(
+    project_id: uuid.UUID,
+    data: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr),
+):
+    """
+    更新项目基础信息。manager+ 权限。
+    只更新传入的字段（部分更新语义）。
+    """
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "项目不存在")
+
+    updates = data.model_dump(exclude_unset=True)
+
+    if "status" in updates and updates["status"] not in _VALID_STATUSES:
+        raise HTTPException(400, f"无效 status，允许值：{sorted(_VALID_STATUSES)}")
+    if "track" in updates and updates["track"] not in _VALID_TRACKS:
+        raise HTTPException(400, f"无效 track，允许值：{sorted(_VALID_TRACKS)}")
+
+    for k, v in updates.items():
+        setattr(project, k, v)
+
+    await db.commit()
+    await db.refresh(project)
+    return {
+        "message": "项目已更新",
+        "project_id": str(project.id),
+        "updated_fields": list(updates.keys()),
+        "status": project.status,
+    }
+
+
+# ── 项目归档（软删除：status → cancelled）─────────────────────────
+@router.delete("/{project_id}")
+async def archive_project(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr),
+):
+    """
+    归档（软删除）项目：将 status 置为 cancelled。
+    保留所有历史数据（阶段、成员、日报关联等）。manager+ 权限。
+    """
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "项目不存在")
+
+    if project.status == ProjectStatus.cancelled:
+        raise HTTPException(400, "项目已归档")
+
+    project.status = ProjectStatus.cancelled
+    await db.commit()
+    return {"message": "项目已归档", "project_id": str(project_id)}
 
 
 # ── 甘特图数据 ───────────────────────────────────────────────────
@@ -340,12 +497,51 @@ async def update_stage(
         stage.progress_pct = data.progress_pct
     if data.milestones is not None:
         stage.milestones = [m.model_dump(mode="json") for m in data.milestones]
+        # 如果没有手动传 progress_pct，则根据里程碑完成状态自动计算
+        if data.progress_pct is None and len(stage.milestones) > 0:
+            done_count = sum(1 for m in stage.milestones if m.get("status") == "done")
+            stage.progress_pct = int((done_count / len(stage.milestones)) * 100)
     if data.actual_start is not None:
         stage.actual_start = data.actual_start
     if data.actual_end is not None:
         stage.actual_end = data.actual_end
 
     await db.commit()
+
+    # 如果阶段达到 100%，自动触发“轻量级敏捷流”：过门禁并解锁下一阶段
+    if stage.progress_pct == 100:
+        project_result = await db.execute(select(Project).where(Project.id == stage.project_id))
+        project = project_result.scalar_one_or_none()
+
+        # 1. 自动写入对应的 GateReview 为 pass (假设门禁号和阶段号对应)
+        from app.models.gate_review import GateReview
+        existing_gate = await db.execute(select(GateReview).where(
+            (GateReview.project_id == stage.project_id) & (GateReview.gate_number == stage.stage_number)
+        ))
+        if not existing_gate.scalar_one_or_none():
+            db.add(GateReview(
+                project_id=stage.project_id,
+                gate_number=stage.stage_number,
+                gate_name=f"G{stage.stage_number} 自动评审",
+                decision="pass",
+                decision_notes="进度达到100%，轻量级敏捷流自动放行",
+                ai_summary="（系统自动流转）",
+            ))
+
+        # 2. 解锁下一阶段 (如果存在)
+        if stage.stage_number < 5:
+            next_stage_result = await db.execute(select(ProjectStage).where(
+                (ProjectStage.project_id == stage.project_id) & (ProjectStage.stage_number == stage.stage_number + 1)
+            ))
+            next_stage = next_stage_result.scalar_one_or_none()
+            if next_stage and next_stage.health_status == "locked":
+                next_stage.health_status = "green"
+        
+        # 3. 如果正在当前阶段，则自动把项目指针推向下一阶段
+        if project and project.current_stage == stage.stage_number and project.current_stage < 5:
+            project.current_stage += 1
+            
+        await db.commit()
 
     # 重算项目整体健康度
     await refresh_project_health(db, stage.project_id)
