@@ -238,3 +238,58 @@ async def run_morning_briefing() -> None:
 
     except Exception as e:
         logger.error("   晨报生成失败: %s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 周一 09:00 — 上周管理周报 AI 生成 + 推送
+# ═══════════════════════════════════════════════════════════════════
+
+async def run_weekly_report() -> None:
+    """周一 09:00 自动生成上周管理周报 → 推送企微/钉钉给 admin/manager"""
+    logger.info("⏰ [周一 09:00] 周报 AI 生成")
+
+    try:
+        from app.models.notification import NotificationChannel, NotificationTemplate
+        from app.services.chat_tools.weekly_report import generate_weekly_report
+        from app.services.notification_service import notify_safe
+
+        async with AsyncSessionLocal() as db:
+            result = await generate_weekly_report(db, scope="last_week")
+
+            md = result.get("markdown") or "(本周无数据,跳过周报)"
+            week = result.get("week_range", {})
+            week_label = f"{week.get('start', '?')} → {week.get('end', '?')}"
+
+            # 拉管理层(admin + manager)
+            admins_result = await db.execute(
+                select(User).where(
+                    User.role.in_(["admin", "manager"]),
+                    User.is_active == True,
+                )
+            )
+            admins = admins_result.scalars().all()
+
+            for admin in admins:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.weekly_report,
+                    context={"weekly_summary": f"**周期: {week_label}**\n\n{md}"},
+                    user=admin,
+                    channels=[
+                        NotificationChannel.wechat,
+                        NotificationChannel.dingtalk,
+                        NotificationChannel.in_app,
+                    ],
+                )
+            await db.commit()
+
+        logger.info(
+            "   周报已生成并推送 %d 位管理层 (range=%s, reports=%d, risks=%d)",
+            len(admins),
+            week_label,
+            result.get("stats", {}).get("report_count", 0),
+            result.get("stats", {}).get("risk_count", 0),
+        )
+
+    except Exception as e:
+        logger.error("   周报生成失败: %s", e)

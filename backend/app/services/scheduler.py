@@ -2,11 +2,12 @@
 app/services/scheduler.py — APScheduler 定时任务调度中心
 
 定时任务列表：
-  - 17:30  催报（友好提醒）
-  - 20:00  催报（二次催促）
-  - 22:00  催报截止（标记未提交 + 通知总经理）
-  - 00:30  跨日健康度全量重算
-  - 09:00  晨报 AI 生成 + 推送
+  - 17:30      催报（友好提醒）
+  - 20:00      催报（二次催促）
+  - 22:00      催报截止（标记未提交 + 通知总经理）
+  - 00:30      跨日健康度全量重算
+  - 09:00      晨报 AI 生成 + 推送
+  - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ def start_scheduler() -> None:
         remind_unreported_deadline,
         run_health_refresh_all,
         run_morning_briefing,
+        run_weekly_report,
     )
 
     # ── 催报机制（三级） ──────────────────────────────────────────
@@ -67,6 +69,15 @@ def start_scheduler() -> None:
         CronTrigger(hour=9, minute=0),
         id="morning_briefing",
         name="晨报AI推送",
+        replace_existing=True,
+    )
+
+    # ── 周一 09:00 自动生成上周管理周报 ───────────────────────────
+    scheduler.add_job(
+        run_weekly_report,
+        CronTrigger(day_of_week="mon", hour=9, minute=0),
+        id="weekly_report_monday",
+        name="周一周报AI生成",
         replace_existing=True,
     )
 
