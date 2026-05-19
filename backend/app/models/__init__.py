@@ -22,7 +22,7 @@ from app.models.okr import (
 )
 
 # --- 知识库模型 ---
-from app.models.knowledge import KnowledgeItem
+from app.models.knowledge import KnowledgeItem, KnowledgeCategory, RetroScope
 
 # --- 通知推送模型 ---
 from app.models.notification import (
@@ -37,7 +37,7 @@ __all__ = [
     "Project", "ProjectStage", "GateReview", "Sprint", "ProjectMember",
     "OKRCycle", "Objective", "KeyResult", "KRProgressLog", "KRProgressSource",
     "OKRCycleType", "OKRStatus",
-    "KnowledgeItem",
+    "KnowledgeItem", "KnowledgeCategory", "RetroScope",
     "Notification", "NotificationChannel", "NotificationStatus", "NotificationTemplate",
     "Attachment", "AttachmentKind",
 ]

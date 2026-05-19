@@ -94,6 +94,9 @@ app.include_router(knowledge.router)
 # ── 通知推送 ─────────────────────────────────────
 from app.routers import notifications as notifications_router
 app.include_router(notifications_router.router)
+# ── AI 复盘库(Week 6)──────────────────────────
+from app.routers import retro as retro_router
+app.include_router(retro_router.router)
 # ── 附件 + 语音 ASR ──────────────────────────────
 from app.routers import attachments as attachments_router
 from app.routers import asr as asr_router

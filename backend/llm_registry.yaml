@@ -51,6 +51,14 @@ models:
     max_tokens: 4096
     description: "周报撰写、项目复盘、交付预测"
 
+  # ── 自动复盘(Week 6)──
+  retrospective:
+    name: "gemini-2.5-pro"
+    tier: "heavy"
+    temperature: 0.55
+    max_tokens: 5500
+    description: "OKR/项目/月度/事故复盘 — 深度归因 + 经验提炼"
+
   # ── 缺勤摘要 ──
   absence_summary:
     name: "gemini-2.5-flash"

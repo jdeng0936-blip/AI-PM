@@ -35,6 +35,15 @@ class KnowledgeCategory:
     LESSON_LEARNED = "lesson_learned" # 经验教训
     TEMPLATE = "template"     # 模板
     WIKI = "wiki"             # Wiki 文档
+    RETROSPECTIVE = "retrospective"  # 复盘报告(Week 6)
+
+
+class RetroScope:
+    """复盘范围常量(用于 KnowledgeItem.tags + source_id 上下文)"""
+    OKR_CYCLE = "okr_cycle"   # OKR 周期复盘
+    PROJECT = "project"       # 项目复盘
+    MONTHLY = "monthly"       # 月度复盘
+    INCIDENT = "incident"     # 事故复盘
 
 
 class KnowledgeItem(BaseMixin, Base):
