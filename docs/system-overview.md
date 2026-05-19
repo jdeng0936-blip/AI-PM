@@ -229,37 +229,38 @@
 
 ## 五、当前实现进度地图
 
-### ✅ 已实现 (V0.5 完成 + V1.0 部分)
+### ✅ 已实现 (V0.5 完成 + V1.0 完成 + V1.1 完成 + V2.0 起步)
 
-| 层 | 完成情况 | 关键文件 |
+| 层 | 完成情况 | 关键文件 / Week |
 |----|---------|---------|
 | ① 登录角色 | 3 级 RBAC + 10 预置快捷登录 | `auth.py`, `middleware/rbac.py`, `login/page.tsx` |
-| ② 岗位入口 | 仅 Web 入口 | `submit-report/page.tsx` |
+| ② 岗位入口 | Web + 附件 OSS + 双引擎 ASR(Gemini/讯飞) | Week 3:`attachments.py`, `asr.py` |
 | ③ 双模式录入 | 晨规划 + 晚复核 + 晨规划参考 | `simulate.py`, `submit-report/page.tsx` |
-| ④ AI 中枢 | 真实 Gemini 接入 + 多模型路由 | `ai_engine.py`, `llm_selector.py` |
+| ④ AI 中枢 | 真实 Gemini + 多模型路由 + Function Calling | `ai_engine.py`, `llm_selector.py`, `chat_tools/` |
 | ⑤ 五大闭环 | 录入→质检→驳回→重提→入库 | `simulate.py` |
-| ⑥ 数据沉淀 | 基础表已建 (14 个 model) | `models/*.py` |
+| ⑥ 数据沉淀 | 16 个 model(含 Attachment + Notification) | `models/*.py` |
 | ⑦ 短周期管理 | 三色看板 + 趋势图 + 导出 | `dashboard.py`, `trends.py`, `export.py` |
-| ⑪ 决策层 | AI 对话基础 + 导出 | `chat.py`, `export.py` |
+| ⑨ 自动化触达 | Week 1+2:多渠道通知 + 三级催报 + 周一周报 | `notification_service.py`, `scheduler.py` |
+| ⑪ 决策层 | **Week 4**:13 个 Tool + Function Calling + 自动周报 | `chat_tools/`, `chat.py`, `chat/page.tsx` |
 
-### 🔄 待开发 (V1.0 收尾 + V2.0)
+### 🔄 待开发 (V2.0 剩余)
 
 | 层 | 待开发内容 | 优先级 |
 |----|-----------|--------|
-| ② 入口 | 企微/钉钉机器人入口 | **P0** |
-| ② 入口 | 语音 ASR / 附件 OSS 上传 | P1 |
-| ⑥ 数据沉淀 | Sprint/里程碑数据自动归集 | P1 |
+| ⑤ 数据沉淀 | Sprint/里程碑数据自动归集 | P2 |
 | ⑧ 长周期跟踪 | 燃尽图 / 关键路径 / AI 交付预测 | P2 |
 | ⑨ 战略层 | OKR 前端 / 资源水位 / AI 自动复盘 | P2-P3 |
-| ⑩ 自动化触达 | NotificationService + 催报机制 | **P0/P1** |
+| 移动端适配 | 响应式 + PWA | P3 |
+| 知识库自动归档 | Sprint 回顾沉淀到 pgvector | P3 |
 
-### 📅 下一步开发顺序
+### 📅 已完成开发顺序
 
 ```
-Week 1: ⑩ 通知推送渠道 (P0)         — 企微/钉钉 Webhook + 统一通知服务
-Week 2: ⑩ 催报机制 (P1)            — APScheduler 触发 + 升级策略
-Week 3: ② 附件上传 + 语音 ASR (P1)  — OSS 直传 + 讯飞集成
-Week 4-: ⑥ Sprint 数据归集 → ⑧ 长周期跟踪 → ⑨ 战略层
+Week 1: ⑨ 通知推送渠道 (P0)         ✅ 企微/钉钉 Webhook + 统一通知服务
+Week 2: ⑨ 催报机制 (P1)            ✅ APScheduler 触发 + 升级策略
+Week 3: ② 附件上传 + 语音 ASR (P1)  ✅ OSS 直传 + Gemini/讯飞双引擎
+Week 4: ⑪ 总经理 AI 对话 (P2)       ✅ 13 Tool + Function Calling + 自动周报
+Week 5+: ⑤/⑧ Sprint 归集 → 长周期跟踪 → ⑨ 战略层
 ```
 
 ---
