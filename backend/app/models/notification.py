@@ -44,6 +44,7 @@ class NotificationTemplate(str, enum.Enum):
     reminder_missed = "reminder_missed"     # 缺勤通知(22:00)
     sprint_review = "sprint_review"         # Sprint 回顾
     weekly_report = "weekly_report"         # 周报
+    erp_resolved = "erp_resolved"           # ERP物料到货自动解卡
 
 
 class Notification(BaseMixin, Base):
@@ -84,6 +85,12 @@ class Notification(BaseMixin, Base):
 
     sent_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # 站内信已读时间(NULL = 未读)。仅 channel=in_app 时使用,其他渠道无需 read_at
+    read_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True,
+        comment="站内信已读时间;NULL 表示未读",
     )
 
     def __repr__(self) -> str:

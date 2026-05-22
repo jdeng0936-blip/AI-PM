@@ -49,6 +49,10 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(
         String(20), unique=True, index=True, nullable=True
     )
+    email: Mapped[Optional[str]] = mapped_column(
+        String(128), unique=True, index=True, nullable=True,
+        comment="员工邮箱，用于邮件通知"
+    )
     department: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole), nullable=False, default=UserRole.employee

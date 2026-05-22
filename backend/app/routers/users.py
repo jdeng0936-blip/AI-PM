@@ -58,10 +58,12 @@ async def list_users(
         items=[
             UserOut(
                 id=str(u.id), name=u.name, wechat_userid=u.wechat_userid,
-                phone=u.phone, department=u.department, job_title=u.job_title,
+                phone=u.phone, email=u.email, department=u.department, job_title=u.job_title,
                 role=u.role.value, is_active=u.is_active,
                 must_change_password=u.must_change_password,
                 created_at=u.created_at, last_login_at=u.last_login_at,
+                status=(u.status.value if hasattr(u.status, "value") else str(u.status)),
+                status_until=u.status_until,
             )
             for u in users
         ],
@@ -115,10 +117,12 @@ async def create_user(
 
     return UserOut(
         id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, department=user.department, job_title=user.job_title,
+        phone=user.phone, email=user.email, department=user.department, job_title=user.job_title,
         role=user.role.value, is_active=user.is_active,
         must_change_password=user.must_change_password,
         created_at=user.created_at, last_login_at=user.last_login_at,
+        status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
+        status_until=user.status_until,
     )
 
 
@@ -153,10 +157,12 @@ async def update_user(
 
     return UserOut(
         id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, department=user.department, job_title=user.job_title,
+        phone=user.phone, email=user.email, department=user.department, job_title=user.job_title,
         role=user.role.value, is_active=user.is_active,
         must_change_password=user.must_change_password,
         created_at=user.created_at, last_login_at=user.last_login_at,
+        status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
+        status_until=user.status_until,
     )
 
 

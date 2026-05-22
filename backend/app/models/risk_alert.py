@@ -36,6 +36,10 @@ class RiskAlert(BaseMixin, Base):
 
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # ERP 联动 v2：精确匹配字段（优先级高于 description 模糊匹配）
+    material_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    po_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
     # 状态：unresolved（待处理）/ resolved（已解决）/ escalated（已升级）
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="unresolved")
 

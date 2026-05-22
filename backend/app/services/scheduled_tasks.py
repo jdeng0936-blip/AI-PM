@@ -15,7 +15,7 @@ from sqlalchemy import select, func, and_
 from app.database import AsyncSessionLocal
 from app.models.daily_report import DailyReport
 from app.models.project import Project, ProjectStatus
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.services.health_engine import refresh_project_health
 
 logger = logging.getLogger("aipm.tasks")
@@ -26,7 +26,12 @@ logger = logging.getLogger("aipm.tasks")
 # ═══════════════════════════════════════════════════════════════════
 
 async def _get_unreported_users(today: Optional[date] = None) -> list:
-    """查询今日未提交日报的活跃用户"""
+    """查询今日未提交日报的「在岗」用户。
+
+    过滤条件:
+      - is_active = True(未被停用)
+      - status = active(未请假/出差/病假)
+    """
     if today is None:
         today = date.today()
 
@@ -39,13 +44,52 @@ async def _get_unreported_users(today: Optional[date] = None) -> list:
         )
         reported_ids = {row[0] for row in reported.all()}
 
-        # 所有活跃用户中未提交的
+        # 在岗且未提交的用户(排除 on_leave/on_travel/sick_leave)
         all_users_result = await db.execute(
-            select(User).where(User.is_active == True)
+            select(User).where(
+                and_(
+                    User.is_active == True,
+                    User.status == UserStatus.active,
+                )
+            )
         )
         all_users = all_users_result.scalars().all()
 
         return [u for u in all_users if u.id not in reported_ids]
+
+
+async def auto_recover_expired_status() -> None:
+    """每日 00:05 — 把 status_until < 今日 的用户自动恢复为 active。
+
+    例:员工请假到 5/22,5/23 早上首次催报前会先被这个任务恢复成 active,
+    然后正常进入催报流程。
+    """
+    logger.info("⏰ [00:05] 请假/出差状态到期检查")
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(User).where(
+                and_(
+                    User.status != UserStatus.active,
+                    User.status_until.is_not(None),
+                    User.status_until < today,
+                )
+            )
+        )
+        expired = result.scalars().all()
+        if not expired:
+            logger.info("   无到期状态需要恢复")
+            return
+
+        for u in expired:
+            logger.info(
+                "   恢复 %s: %s(截止 %s)→ active",
+                u.name, u.status, u.status_until,
+            )
+            u.status = UserStatus.active
+            u.status_until = None
+        await db.commit()
+        logger.info("   已恢复 %d 人", len(expired))
 
 
 async def remind_unreported_friendly() -> None:

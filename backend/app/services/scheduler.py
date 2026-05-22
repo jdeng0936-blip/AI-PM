@@ -2,14 +2,16 @@
 app/services/scheduler.py — APScheduler 定时任务调度中心
 
 定时任务列表：
+  - 00:05      请假/出差到期自动恢复 active
+  - 00:30      跨日健康度全量重算
+  - 09:00      晨报 AI 生成 + 推送
   - 17:30      催报（友好提醒）
   - 20:00      催报（二次催促）
   - 22:00      催报截止（标记未提交 + 通知总经理）
-  - 00:30      跨日健康度全量重算
-  - 09:00      晨报 AI 生成 + 推送
+  - 周一 08:30 资源水位刷新 + 过载预警(Week 8)
   - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
   - 每日 18:00 Sprint 燃尽快照(Week 7)
-  - 周一 08:30 资源水位刷新 + 过载预警(Week 8)
+  - 每月 1 日  季度 OKR 汇总归档
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ def start_scheduler() -> None:
         run_morning_briefing,
         run_weekly_report,
         run_quarterly_okr_summary,
+        auto_recover_expired_status,
     )
     from app.services.sprint_aggregator import run_daily_burndown_snapshots
     from app.services.capacity_engine import run_weekly_capacity_refresh
@@ -56,6 +59,15 @@ def start_scheduler() -> None:
         CronTrigger(hour=22, minute=0),
         id="remind_22_00",
         name="催报-截止标记",
+        replace_existing=True,
+    )
+
+    # ── 每日 00:05 请假/出差状态到期自动恢复 ──────────────────────
+    scheduler.add_job(
+        auto_recover_expired_status,
+        CronTrigger(hour=0, minute=5),
+        id="auto_recover_status",
+        name="请假状态到期恢复",
         replace_existing=True,
     )
 

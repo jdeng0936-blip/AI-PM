@@ -33,7 +33,7 @@ from app.models.notification import (
     NotificationTemplate,
 )
 from app.models.user import User
-from app.services import dingtalk_api, wechat_api
+from app.services import dingtalk_api, wechat_api, email_api
 
 logger = logging.getLogger("aipm.notification")
 
@@ -110,6 +110,17 @@ TEMPLATES: dict[NotificationTemplate, dict[str, str]] = {
         "title": "本周管理周报",
         "body": "### 📑 本周管理周报\n\n{weekly_summary}\n",
     },
+    NotificationTemplate.erp_resolved: {
+        "title": "ERP 联动卡点解除",
+        "body": (
+            "### ⚙️ ERP 联动卡点已自动解除\n\n"
+            "**关联物料**: {material} ({material_code})\n"
+            "**采购单号**: {po_number}\n"
+            "**ERP 单号**: {erp_order_no}\n"
+            "**当前状态**: {erp_status}\n\n"
+            "**已自动解卡**: 已成功将该物料关联的 **{resolved_count}** 个风险卡点状态标记为 `已解决 (resolved)`，并已触发关联项目健康度实时重算。\n"
+        ),
+    },
 }
 
 
@@ -185,8 +196,12 @@ async def _dispatch_one(
             return NotificationStatus.sent, None
 
         if channel == NotificationChannel.email:
-            # 邮件渠道暂未接入
-            return NotificationStatus.skipped, "email channel not implemented"
+            if not email_api.is_configured():
+                return NotificationStatus.skipped, "email channel not configured"
+            if not user or not user.email:
+                return NotificationStatus.skipped, "user has no email"
+            await email_api.send_markdown_email(user.email, title, body)
+            return NotificationStatus.sent, None
 
     except Exception as exc:  # pragma: no cover
         logger.exception("notification dispatch failed: %s", channel)

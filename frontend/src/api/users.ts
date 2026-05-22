@@ -21,6 +21,7 @@ export const createUser = (data: {
   name: string
   wechat_userid: string
   phone?: string
+  email?: string
   department?: string
   role?: string
   password?: string
@@ -29,6 +30,7 @@ export const createUser = (data: {
 export const updateUser = (userId: string, data: {
   name?: string
   phone?: string
+  email?: string
   department?: string
   role?: string
   is_active?: boolean
@@ -39,3 +41,16 @@ export const deleteUser = (userId: string) =>
 
 export const resetPassword = (userId: string) =>
   request.post(`/users/${userId}/reset-password`)
+
+// 请假/出差状态
+export type UserStatus = 'active' | 'on_leave' | 'on_travel' | 'sick_leave'
+
+export const updateUserStatus = (
+  userId: string,
+  status: UserStatus,
+  statusUntil?: string | null,
+) => {
+  const params: Record<string, string> = { status }
+  if (statusUntil) params.status_until = statusUntil
+  return request.patch(`/users/${userId}/status`, null, { params })
+}

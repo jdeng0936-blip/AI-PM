@@ -4,7 +4,7 @@ app/schemas/user.py — 用户认证 & 管理 Pydantic V2 Schemas
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -36,6 +36,7 @@ class UserCreate(BaseModel):
     name: str = Field(..., max_length=32)
     wechat_userid: str = Field(..., max_length=64)
     phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=128)
     department: str = Field("", max_length=64)
     job_title: str = Field("", max_length=50, description="岗位：技术部长/研发工程师/采购经理 等")
     role: str = Field("employee", description="employee / manager / admin")
@@ -47,6 +48,7 @@ class UserUpdate(BaseModel):
     """修改用户信息"""
     name: Optional[str] = Field(None, max_length=32)
     phone: Optional[str] = Field(None, max_length=20)
+    email: Optional[str] = Field(None, max_length=128)
     department: Optional[str] = Field(None, max_length=64)
     job_title: Optional[str] = Field(None, max_length=50)
     role: Optional[str] = Field(None, description="employee / manager / admin")
@@ -59,6 +61,7 @@ class UserOut(BaseModel):
     name: str
     wechat_userid: str
     phone: Optional[str] = None
+    email: Optional[str] = None
     department: str
     job_title: str = ""
     role: str
@@ -66,6 +69,9 @@ class UserOut(BaseModel):
     must_change_password: bool = True
     created_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
+    # 请假/出差状态
+    status: str = "active"
+    status_until: Optional[date] = None
 
     model_config = {"from_attributes": True}
 

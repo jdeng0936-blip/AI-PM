@@ -8,14 +8,15 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/use-auth-store'
+import { NotificationBell } from '@/components/notification-bell'
 import {
   LayoutDashboard,
   Kanban,
   FileText,
   Users,
   BarChart3,
-  Wand2,
   LogOut,
   FolderKanban,
   TrendingUp,
@@ -26,33 +27,67 @@ import {
   RotateCw,
   Flame,
   ThermometerSun,
+  ChevronDown,
+  ChevronRight,
+  type LucideIcon,
 } from 'lucide-react'
 
-const NAV_ITEMS = [
+type NavItem = { href: string; label: string; icon: LucideIcon }
+
+const CORE_ITEMS: NavItem[] = [
   { href: '/dashboard', label: '监控台', icon: LayoutDashboard },
   { href: '/submit-report', label: '提交日报', icon: PenLine },
+  { href: '/reports', label: 'AI 日报流', icon: FileText },
   { href: '/projects', label: '项目列表', icon: FolderKanban },
+  { href: '/trends', label: '评分趋势', icon: TrendingUp },
+]
+
+const ADVANCED_ITEMS: NavItem[] = [
   { href: '/project/default', label: 'IPD 看板', icon: Kanban },
   { href: '/sprints', label: 'Sprint 燃尽', icon: Flame },
   { href: '/capacity', label: '资源水位', icon: ThermometerSun },
   { href: '/okr', label: 'OKR 战略', icon: Target },
   { href: '/retro', label: 'AI 复盘库', icon: RotateCw },
-  { href: '/reports', label: 'AI 日报流', icon: FileText },
-  { href: '/trends', label: '评分趋势', icon: TrendingUp },
 ]
 
-const ADMIN_ITEMS = [
+const ADMIN_ITEMS: NavItem[] = [
   { href: '/chat', label: 'AI 对话', icon: MessageSquare },
   { href: '/users', label: '用户管理', icon: Users },
   { href: '/stats', label: '系统统计', icon: BarChart3 },
   { href: '/export', label: '数据导出', icon: Download },
-  { href: '/simulate', label: '模拟提交', icon: Wand2 },
 ]
+
+const ADVANCED_STORAGE_KEY = 'sidebar.advancedExpanded'
+
+function isPathActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(href + '/')
+}
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { userName, userRole, isAdmin, logout } = useAuthStore()
+
+  const onAdvancedPage = ADVANCED_ITEMS.some((item) => isPathActive(pathname, item.href))
+
+  const [advancedExpanded, setAdvancedExpanded] = useState(false)
+
+  useEffect(() => {
+    if (onAdvancedPage) {
+      setAdvancedExpanded(true)
+      return
+    }
+    const stored = typeof window !== 'undefined' ? localStorage.getItem(ADVANCED_STORAGE_KEY) : null
+    if (stored === 'true') setAdvancedExpanded(true)
+  }, [onAdvancedPage])
+
+  function toggleAdvanced() {
+    const next = !advancedExpanded
+    setAdvancedExpanded(next)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(ADVANCED_STORAGE_KEY, String(next))
+    }
+  }
 
   const roleLabel: Record<string, string> = {
     admin: '管理员',
@@ -65,7 +100,24 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  const allItems = [...NAV_ITEMS, ...(isAdmin ? ADMIN_ITEMS : [])]
+  function renderNavLink(item: NavItem) {
+    const isActive = isPathActive(pathname, item.href)
+    const Icon = item.icon
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors"
+        style={{
+          color: isActive ? '#3b82f6' : '#94a3b8',
+          background: isActive ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+        }}
+      >
+        <Icon size={18} />
+        <span>{item.label}</span>
+      </Link>
+    )
+  }
 
   return (
     <aside
@@ -99,26 +151,34 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 pt-2 px-2 space-y-1">
-        {allItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
-          const Icon = item.icon
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              prefetch={false}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors"
-              style={{
-                color: isActive ? '#3b82f6' : '#94a3b8',
-                background: isActive ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-              }}
+      <nav className="flex-1 pt-2 px-2 space-y-1 overflow-y-auto">
+        {CORE_ITEMS.map(renderNavLink)}
+
+        {/* 高级功能折叠组 */}
+        <button
+          type="button"
+          onClick={toggleAdvanced}
+          className="w-full flex items-center gap-2 px-3 py-2 mt-3 rounded-lg text-xs uppercase tracking-wider transition-colors hover:bg-white/5"
+          style={{ color: 'var(--color-text-secondary)' }}
+          aria-expanded={advancedExpanded}
+        >
+          {advancedExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span>高级功能</span>
+        </button>
+        {advancedExpanded && ADVANCED_ITEMS.map(renderNavLink)}
+
+        {/* 管理分组(仅 admin 可见) */}
+        {isAdmin && (
+          <>
+            <div
+              className="px-3 pt-3 pb-1 text-xs uppercase tracking-wider"
+              style={{ color: 'var(--color-text-secondary)' }}
             >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
-          )
-        })}
+              管理
+            </div>
+            {ADMIN_ITEMS.map(renderNavLink)}
+          </>
+        )}
       </nav>
 
       {/* User area */}
@@ -140,10 +200,12 @@ export function Sidebar() {
             {roleLabel[userRole] || '员工'}
           </div>
         </div>
+        <NotificationBell />
         <button
           onClick={handleLogout}
           className="p-1.5 rounded-md hover:bg-white/5 transition-colors"
           style={{ color: 'var(--color-text-secondary)' }}
+          title="退出登录"
         >
           <LogOut size={16} />
         </button>

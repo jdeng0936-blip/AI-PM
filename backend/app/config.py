@@ -127,9 +127,21 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_expire_hours: int = 24
 
+    # ERP 联动网关 Webhook 签名密钥（HMAC-SHA256）；留空时跳过校验（本地/测试友好）
+    erp_webhook_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("ERP_WEBHOOK_SECRET"),
+    )
+
     # CORS（生产环境前端域名，多个用逗号分隔）
     cors_allowed_origins: list = ["https://your-frontend-domain.com"]
 
+    # SMTP 邮件配置 (Sprint A Task 4)
+    smtp_server: str = Field(default="", validation_alias=AliasChoices("SMTP_SERVER", "MAIL_SERVER"))
+    smtp_port: int = Field(default=465, validation_alias=AliasChoices("SMTP_PORT", "MAIL_PORT"))
+    smtp_user: str = Field(default="", validation_alias=AliasChoices("SMTP_USER", "MAIL_USERNAME"))
+    smtp_password: str = Field(default="", validation_alias=AliasChoices("SMTP_PASSWORD", "MAIL_PASSWORD"))
+    smtp_from_email: str = Field(default="", validation_alias=AliasChoices("SMTP_FROM_EMAIL", "MAIL_FROM"))
 
 # 全局单例，直接从其他模块 import 使用
 settings = Settings()

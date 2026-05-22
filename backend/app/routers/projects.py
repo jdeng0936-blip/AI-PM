@@ -508,8 +508,10 @@ async def update_stage(
 
     await db.commit()
 
-    # 如果阶段达到 100%，自动触发“轻量级敏捷流”：过门禁并解锁下一阶段
+    # 如果阶段达到 100%，自动触发“轻量级敏捷流”：过门禁并解锁下一阶段，并将当前阶段健康状态置为完美绿色
     if stage.progress_pct == 100:
+        stage.health_status = "green"
+        stage.health_score = 100
         project_result = await db.execute(select(Project).where(Project.id == stage.project_id))
         project = project_result.scalar_one_or_none()
 

@@ -85,6 +85,9 @@ async def compute_stage_health(
     基于最近 window_days 天，此阶段内所有成员日报，计算阶段健康度。
     返回 (health_score, health_status)
     """
+    if stage.progress_pct >= 100:
+        return 100, StageHealthStatus.green
+
     since = date.today() - timedelta(days=window_days)
 
     # 找出该项目此阶段的所有成员

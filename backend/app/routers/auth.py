@@ -26,7 +26,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain: str, hashed: str | None) -> bool:
-    """校验密码，hashed 为空时在 dev 模式放行"""
+    """校验密码。dev 模式下:
+    - hashed 为空 → 放行
+    - 万能口令 "dev" → 放行（供前端「开发快捷登录」按钮使用）
+    """
+    if settings.aipm_env == "dev" and plain == "dev":
+        return True
     if not hashed:
         return settings.aipm_env == "dev"
     return pwd_context.verify(plain, hashed)
@@ -98,6 +103,7 @@ async def login(
             name=user.name,
             wechat_userid=user.wechat_userid,
             phone=user.phone,
+            email=user.email,
             department=user.department,
             job_title=user.job_title,
             role=user.role.value,
@@ -105,6 +111,8 @@ async def login(
             must_change_password=user.must_change_password,
             created_at=user.created_at,
             last_login_at=user.last_login_at,
+            status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
+            status_until=user.status_until,
         ),
     )
 
@@ -117,6 +125,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         name=current_user.name,
         wechat_userid=current_user.wechat_userid,
         phone=current_user.phone,
+        email=current_user.email,
         department=current_user.department,
         job_title=current_user.job_title,
         role=current_user.role.value,
@@ -124,6 +133,8 @@ async def get_me(current_user: User = Depends(get_current_user)):
         must_change_password=current_user.must_change_password,
         created_at=current_user.created_at,
         last_login_at=current_user.last_login_at,
+        status=(current_user.status.value if hasattr(current_user.status, "value") else str(current_user.status)),
+        status_until=current_user.status_until,
     )
 
 

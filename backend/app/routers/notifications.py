@@ -3,7 +3,9 @@ app/routers/notifications.py — 通知推送管理
 
 提供:
 - GET    /notifications/                  通知历史(分页+筛选,管理层看全部,员工只看自己)
+- GET    /notifications/unread-count      站内信未读计数(当前用户)
 - GET    /notifications/channels          查询各渠道配置/可用状态
+- POST   /notifications/mark-read         批量标记已读(指定 ids 或 all)
 - POST   /notifications/test              测试发送(admin 专属,用于调通配置)
 - POST   /notifications/{id}/retry        失败重试(admin 专属)
 """
@@ -51,9 +53,22 @@ class NotificationOut(BaseModel):
     error_message: Optional[str]
     retry_count: int
     sent_at: Optional[datetime]
+    read_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MarkReadRequest(BaseModel):
+    ids: Optional[list[UUID]] = Field(
+        default=None,
+        description="要标记已读的通知 id 列表;为空且 all=True 表示标记当前用户所有站内信为已读",
+    )
+    all: bool = Field(default=False, description="true 时标记当前用户全部站内信已读")
+
+
+class UnreadCountResponse(BaseModel):
+    unread: int
 
 
 class NotificationListResponse(BaseModel):
@@ -129,6 +144,55 @@ async def list_notifications(
         total=total,
         items=[NotificationOut.model_validate(n) for n in items],
     )
+
+
+@router.get("/unread-count", response_model=UnreadCountResponse)
+async def unread_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户站内信未读数。仅统计 channel=in_app AND status=sent AND read_at IS NULL。"""
+    query = select(func.count(Notification.id)).where(
+        Notification.user_id == current_user.id,
+        Notification.channel == NotificationChannel.in_app,
+        Notification.status == NotificationStatus.sent,
+        Notification.read_at.is_(None),
+    )
+    total = (await db.execute(query)).scalar_one()
+    return UnreadCountResponse(unread=int(total or 0))
+
+
+@router.post("/mark-read")
+async def mark_read(
+    payload: MarkReadRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """标记当前用户的站内信为已读。
+
+    - 传 ids: 仅标记指定 id(且必须属于当前用户)
+    - 传 all=True: 标记当前用户所有未读站内信
+    """
+    from sqlalchemy import update
+
+    if not payload.ids and not payload.all:
+        raise HTTPException(400, "请提供 ids 或将 all 设为 true")
+
+    stmt = (
+        update(Notification)
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.channel == NotificationChannel.in_app,
+            Notification.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    if payload.ids:
+        stmt = stmt.where(Notification.id.in_(payload.ids))
+
+    result = await db.execute(stmt)
+    await db.commit()
+    return {"updated": result.rowcount or 0}
 
 
 @router.get("/channels", response_model=list[ChannelStatusItem])
