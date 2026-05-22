@@ -7,6 +7,7 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuthStore } from '@/stores/use-auth-store'
 import {
   LayoutDashboard,
@@ -103,9 +104,10 @@ export function Sidebar() {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           const Icon = item.icon
           return (
-            <button
+            <Link
               key={item.href}
-              onClick={() => router.push(item.href)}
+              href={item.href}
+              prefetch={false}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors"
               style={{
                 color: isActive ? '#3b82f6' : '#94a3b8',
@@ -114,7 +116,7 @@ export function Sidebar() {
             >
               <Icon size={18} />
               <span>{item.label}</span>
-            </button>
+            </Link>
           )
         })}
       </nav>
