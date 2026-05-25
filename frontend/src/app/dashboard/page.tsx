@@ -58,6 +58,7 @@ export default function DashboardPage() {
     track: 'dual',
     planned_launch_date: '',
     budget_total: 100000,
+    is_temporary: false, // V2.3 临时工单项目
   })
 
   const healthColor = (status: string) =>
@@ -107,11 +108,36 @@ export default function DashboardPage() {
   }, [fetchAll])
 
   async function handleCreateProject() {
+    if (!projectForm.name) {
+      toast.error('项目名称必填')
+      return
+    }
     setSubmitting(true)
     try {
-      await createProject(projectForm)
-      toast.success(`项目 ${projectForm.code} 立项成功`)
+      // V2.3:临时工单项目只传精简字段,避免后端强校验 budget/launch_date
+      const payload: any = projectForm.is_temporary
+        ? {
+            name: projectForm.name,
+            code: projectForm.code || undefined,
+            is_temporary: true,
+            track: 'software',
+          }
+        : projectForm
+      const created = (await createProject(payload)) as any
+      toast.success(
+        projectForm.is_temporary
+          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功`
+          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功`,
+      )
       setShowCreate(false)
+      setProjectForm({
+        name: '',
+        code: '',
+        track: 'dual',
+        planned_launch_date: '',
+        budget_total: 100000,
+        is_temporary: false,
+      })
       fetchAll()
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '立项失败')
@@ -525,9 +551,35 @@ export default function DashboardPage() {
           >
             <h2 className="text-lg font-semibold mb-5" style={{ color: 'var(--color-text-primary)' }}>新建项目</h2>
             <div className="space-y-4">
+              {/* V2.3 临时工单项目复选框 */}
+              <label
+                className="flex items-start gap-2.5 p-3 rounded-lg cursor-pointer transition-colors"
+                style={{
+                  background: projectForm.is_temporary ? 'rgba(168,85,247,0.12)' : 'var(--color-bg-secondary)',
+                  border: `1px solid ${projectForm.is_temporary ? '#a855f7' : 'var(--color-border-subtle)'}`,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={projectForm.is_temporary}
+                  onChange={(e) => setProjectForm({ ...projectForm, is_temporary: e.target.checked })}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
+                    <Ticket size={14} />
+                    临时工单项目(轻量模式)
+                  </div>
+                  <div className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                    用于承载日常 bug、改价、临时维护类零散工单。<br />
+                    跳过 IPD 5 阶段初始化,不进项目健康矩阵,自动生成 Backlog 占位。
+                  </div>
+                </div>
+              </label>
+
               {[
-                { label: '项目名称', key: 'name', placeholder: '例如：206样机研发及落地', type: 'text' },
-                { label: '项目编号', key: 'code', placeholder: 'P2026-002', type: 'text' },
+                { label: '项目名称', key: 'name', placeholder: projectForm.is_temporary ? '例如:日常支撑与临时工单' : '例如:206样机研发及落地', type: 'text' },
+                { label: '项目编号', key: 'code', placeholder: projectForm.is_temporary ? '留空则自动生成 (如 P2026-T01)' : '留空则自动生成 (如 P2026-002)', type: 'text' },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>{f.label}</label>
@@ -541,6 +593,9 @@ export default function DashboardPage() {
                   />
                 </div>
               ))}
+              {/* 临时项目隐藏:轨道 / 计划交付 / 预算 */}
+              {!projectForm.is_temporary && (
+              <>
               <div>
                 <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>轨道</label>
                 <select
@@ -564,6 +619,8 @@ export default function DashboardPage() {
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
                 />
               </div>
+              </>
+              )}
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
