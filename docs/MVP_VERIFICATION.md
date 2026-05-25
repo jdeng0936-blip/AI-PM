@@ -357,6 +357,83 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 
 ---
 
+## 12. 金路径 #12 — V2.3 临时工单项目化(8 min)
+
+> 验证"用轻量项目承载日常临时工单"全链路:创建临时项目 → 员工日报关联 → 资源水位 → Dashboard 看板。
+> 相关变更:`projects.is_temporary` 字段 + `compute_project_capacity` + `/dashboard/temp-ticket-summary` + `seed_temp_projects()`
+> 前置:跑过 `python -m scripts.seed_demo_data` 或 `--only=temp_projects`,确认 `P2026-T01 日常支撑与临时工单` 已存在
+
+### 操作 A:用管理员账号创建一个临时工单项目
+1. 用 **admin / admin2026** 登录,进 `/projects`
+2. 右上角 **新建项目** → 弹窗顶部勾选 **🎫 临时工单项目(轻量模式)**
+3. 表单应**只剩**:项目名称 + 项目编号(轨道/计划交付/预算都被隐藏)
+4. 输入名称:"测试日常支撑",编号留空 → 点 **立项**
+
+### 预期结果 A ☐
+- [ ] toast 提示 `🎫 临时工单项目 P2026-T02 创建成功`(编号自动 +1,因 seed 已有 T01)
+- [ ] 列表自动开启"显示临时工单"过滤器,新项目带紫色 🎫 临时工单 chip 显示
+- [ ] 副标题显示`🎫 轻量项目 · 无 IPD 阶段 · 仅作日常工单归集`
+- [ ] DB 验证:
+  ```bash
+  docker exec aipm-postgres psql -U aipm -d aipm_db -c \
+    "select code, is_temporary, current_stage from projects where code like 'P2026-T%';"
+  # 应看到 P2026-T01(seed) + P2026-T02(刚建),is_temporary=true
+  docker exec aipm-postgres psql -U aipm -d aipm_db -c \
+    "select count(*) from project_stages where project_id in (select id from projects where is_temporary=true);"
+  # 应 = 0(临时项目不展开 5 阶段)
+  docker exec aipm-postgres psql -U aipm -d aipm_db -c \
+    "select sprint_number, goal, status from sprints where project_id in (select id from projects where is_temporary=true);"
+  # 每个临时项目应有 1 行:sprint_number=0, goal='Backlog (临时工单归集池)', status=active
+  ```
+
+### 操作 B:员工提交日报关联到临时项目
+1. 注销切到 **zhang_yi / aipm2026**,进 `/submit-report` 切到 ☀️ 晨规划
+2. 在 **"🔗 关联项目 / 任务"** 卡片,展开项目下拉 → **临时工单项目应置顶**,选 `🎫 [P2026-T01] 日常支撑与临时工单 · 临时工单`
+3. 选中后下拉**下方应出现紫色提示**:"已选临时工单项目,本日报将自动归入「Backlog 池」,无须挂具体任务"
+4. 右侧任务下拉应 disabled,占位文案"— 临时工单无须选任务 —"
+5. 任意填写晨规划内容,提交
+
+### 预期结果 B ☐
+- [ ] 提交后 JSON 含 `project_id` 指向 P2026-T01,`sprint_task_id` 为 null
+- [ ] `/reports` 列表页新行的"🔗 关联"列只显示 📁 `P2026-T01`(无 📋 任务)
+- [ ] 后端校验未报错(临时项目无 task,sprint_task_id=null 是允许的)
+
+### 操作 C:Dashboard 临时工单看板验证
+1. 注销切回 **admin / admin2026**,进 `/dashboard`
+2. 在"AI 日报明细"和"项目健康矩阵"之间,应出现新的 **🎫 临时工单看板** 区块
+3. 左卡 **本月临时工单工时 TOP N**:看 seed 的 7 条临时日报对应 3 个员工(张毅 / 郭震 / 新雷)的排名
+4. 右卡 **临时 vs 主干 工时占比** 环形图:紫色扇区是临时工单占比、蓝色扇区是主干
+
+### 预期结果 C ☐
+- [ ] TOP 列表显示 3 行:郭震(3 条·12h)、张毅(2-3 条·8-12h)、新雷(2 条·8h),数字可能因刚提交的操作 B 日报有偏移
+- [ ] 环形图:临时占比 ≈ 5-10%,主干占大头(基于 seed 中 daily_reports 总量)
+- [ ] 直接 curl 后端确认:
+  ```bash
+  curl -s 'http://localhost:8000/api/v1/dashboard/temp-ticket-summary?top_n=5' \
+    -H "Cookie: session=..." | python3 -m json.tool
+  # 看 window / ratio / top_members 结构与卡片一致
+  ```
+- [ ] 项目维度聚合也能工作:
+  ```bash
+  PID=$(docker exec aipm-postgres psql -U aipm -d aipm_db -tA -c "select id from projects where code='P2026-T01'")
+  curl -s "http://localhost:8000/api/v1/capacity/project/$PID/summary" | python3 -m json.tool
+  # 返回 is_temporary=true,mode=report_count,members 列表与 TOP N 一致
+  ```
+
+### ❌ 失败排查
+- 弹窗勾选 `is_temporary` 后表单没收缩 → 检查 `frontend/src/app/projects/page.tsx` 是否有 `!projectForm.is_temporary` 条件渲染
+- 创建临时项目报错 500 → 看日志,大概率是 alembic 没跑 `a1f3b7c2d801`,执行 `alembic upgrade head`
+- Dashboard 看板不显示 → 看浏览器 Network,/dashboard/temp-ticket-summary 应返回 200;若 403 说明账号不是 manager+
+- 项目下拉里没有 🎫 临时工单 → `getProjectsOverview(false, null, true)` 第 3 个参数 includeTemporary 漏传,刷新清缓存重试
+- 环形图全紫或全蓝 → ratio.total_hours=0,说明该窗口内没有挂任何 project_id 的日报,跑 `python -m scripts.seed_demo_data --only=temp_projects`
+
+### 已知限制
+- 工时口径是 **mode=report_count**(每条日报记 0.5 工日 = 4h)。当 `daily_reports` 加上 `hours_worked` 字段后,可切到 mode=hours_worked
+- 临时项目固定 health_status=green,不参与红黄绿矩阵(默认 `include_temporary=false` 过滤)
+- 临时项目**不挂 OKR / Gate**,V2.3 不动这条线;若未来要让某条工单影响 KR,需要前端额外提供 KR 关联入口
+
+---
+
 ## 最终判定
 
 ```
@@ -371,18 +448,19 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 ☐ 金路径 #9 — 复盘 / 知识库
 ☐ 金路径 #10 — 多角色权限切换
 ☐ 金路径 #11 — V2.2 项目/任务结构化关联
+☐ 金路径 #12 — V2.3 临时工单项目化
 
-通过数:____ / 11
+通过数:____ / 12
 ```
 
 ### 决策
 
 | 通过数 | 决策 | 下一步 |
 |---|---|---|
-| **11** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
-| **9-10** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
-| **6-8** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
-| **≤ 5** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
+| **12** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
+| **10-11** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
+| **7-9** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
+| **≤ 6** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
 
 ### ❌ 项记录模板
 

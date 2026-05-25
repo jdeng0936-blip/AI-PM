@@ -6,10 +6,12 @@ import request from '@/api/request'
 export const getProjectsOverview = (
   includeArchived = false,
   healthStatus: 'green' | 'yellow' | 'red' | null = null,
+  includeTemporary = false,
 ) =>
   request.get('/projects/overview', {
     params: {
       include_archived: includeArchived,
+      include_temporary: includeTemporary,
       ...(healthStatus ? { health_status: healthStatus } : {}),
     },
   })

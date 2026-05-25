@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.daily_report import DailyReport
+from app.models.project import Project
 from app.models.risk_alert import RiskAlert
 from app.models.user import User, UserRole
 
@@ -153,6 +154,115 @@ async def get_token_usage(
         "limit_tokens": settings.daily_token_limit,
         "usage_pct": round(used / settings.daily_token_limit * 100, 1),
         "is_throttled": used >= settings.daily_token_limit,
+    }
+
+
+# ────────────────────────────────────────────────────────────────
+# V2.3 临时工单看板(月度预聚合)
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/temp-ticket-summary")
+async def get_temp_ticket_summary(
+    month_start: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认 30 天前"),
+    month_end: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认今天"),
+    top_n: int = Query(5, ge=1, le=20, description="TOP N 员工(默认 5)"),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_mgr_or_admin),
+):
+    """
+    V2.3 临时工单 Dashboard 卡片预聚合:
+    - 本月临时工单工时 TOP N 员工
+    - 临时工单工时 vs 主干项目工时 占比
+
+    工时口径与 /api/v1/capacity/project/{id}/summary 一致:
+    每条日报 ≈ 0.5 工日 = 4 小时(mode=report_count)
+    """
+    from datetime import datetime
+
+    HOURS_PER_REPORT = 4
+    today = date.today()
+    end_d = datetime.fromisoformat(month_end).date() if month_end else today
+    start_d = datetime.fromisoformat(month_start).date() if month_start else (end_d - timedelta(days=30))
+
+    # 1) 该窗口内"挂在临时项目下"的日报,按 user 聚合 → TOP N
+    top_rows = (
+        await db.execute(
+            select(
+                DailyReport.user_id,
+                User.name,
+                User.department,
+                func.count(DailyReport.id).label("report_count"),
+            )
+            .join(User, DailyReport.user_id == User.id)
+            .join(Project, DailyReport.project_id == Project.id)
+            .where(
+                and_(
+                    Project.is_temporary.is_(True),
+                    DailyReport.report_date >= start_d,
+                    DailyReport.report_date <= end_d,
+                )
+            )
+            .group_by(DailyReport.user_id, User.name, User.department)
+            .order_by(func.count(DailyReport.id).desc())
+            .limit(top_n)
+        )
+    ).all()
+
+    top_members = [
+        {
+            "user_id": str(uid),
+            "user_name": name,
+            "department": dept,
+            "report_count": int(rc),
+            "hours_estimated": int(rc) * HOURS_PER_REPORT,
+        }
+        for uid, name, dept, rc in top_rows
+    ]
+
+    # 2) 临时 vs 主干 工时占比(基于该窗口内所有挂了项目的日报)
+    ratio_rows = (
+        await db.execute(
+            select(
+                Project.is_temporary,
+                func.count(DailyReport.id).label("report_count"),
+            )
+            .join(Project, DailyReport.project_id == Project.id)
+            .where(
+                and_(
+                    DailyReport.report_date >= start_d,
+                    DailyReport.report_date <= end_d,
+                )
+            )
+            .group_by(Project.is_temporary)
+        )
+    ).all()
+
+    temp_hours = 0
+    main_hours = 0
+    for is_temp, rc in ratio_rows:
+        hours = int(rc) * HOURS_PER_REPORT
+        if is_temp:
+            temp_hours += hours
+        else:
+            main_hours += hours
+
+    total_hours = temp_hours + main_hours
+    temp_pct = round(temp_hours / total_hours * 100, 1) if total_hours > 0 else 0.0
+    main_pct = round(main_hours / total_hours * 100, 1) if total_hours > 0 else 0.0
+
+    return {
+        "window": {"start": start_d.isoformat(), "end": end_d.isoformat()},
+        "mode": "report_count",
+        "hours_per_report": HOURS_PER_REPORT,
+        "top_members": top_members,
+        "ratio": {
+            "temp_hours": temp_hours,
+            "main_hours": main_hours,
+            "total_hours": total_hours,
+            "temp_pct": temp_pct,
+            "main_pct": main_pct,
+        },
     }
 
 

@@ -1559,6 +1559,212 @@ async def seed_daily_reports(db, admin_id):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 11.5 V2.3 临时工单项目示例(P2026-T01 日常支撑与临时工单)
+# ═══════════════════════════════════════════════════════════════════
+
+TEMP_PROJECT_CODE = "P2026-T01"
+TEMP_PROJECT_NAME = "日常支撑与临时工单"
+TEMP_PROJECT_DESC = "承载临时性 bug 修复、ERP 维护、改价工单等日常零散工作的轻量项目"
+
+# 模拟员工挂在临时项目下的日报(覆盖 3 个员工 × 各 2-3 条,共 7 条)
+TEMP_DAILY_REPORTS = [
+    {
+        "user_name": "张毅",
+        "day_offset": -3,
+        "raw": "今天救火处理 ERP 同步异常,排查到是订单状态推送时的字段映射改了,修了。后续把这个映射加上了校验。",
+        "parsed": {
+            "tasks": "ERP 订单同步异常修复 + 字段校验",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "明天值班期间继续观察 24h",
+            "eta": str(TODAY),
+        },
+        "ai_score": 86,
+    },
+    {
+        "user_name": "张毅",
+        "day_offset": -8,
+        "raw": "处理财务部紧急工单:对账单导出时间字段格式问题,临时打了热补丁。",
+        "parsed": {
+            "tasks": "财务对账单导出热补丁",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "下个版本统一时间字段处理",
+            "eta": str(TODAY - timedelta(days=8)),
+        },
+        "ai_score": 81,
+    },
+    {
+        "user_name": "郭震",
+        "day_offset": -2,
+        "raw": "改销售部反馈的价格规则:大客户阶梯折扣门槛从 50W 调到 30W,前后端都改了。",
+        "parsed": {
+            "tasks": "销售大客户阶梯折扣规则调整",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "下周观察一周折扣使用率",
+            "eta": str(TODAY),
+        },
+        "ai_score": 83,
+    },
+    {
+        "user_name": "郭震",
+        "day_offset": -6,
+        "raw": "处理 3 个临时工单:1.批量导出 PDF 报错;2.密码重置邮件英文乱码;3.列表分页参数遗漏。都修了。",
+        "parsed": {
+            "tasks": "批量修复 3 个用户反馈工单",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "无",
+            "eta": str(TODAY - timedelta(days=6)),
+        },
+        "ai_score": 78,
+    },
+    {
+        "user_name": "郭震",
+        "day_offset": -10,
+        "raw": "排查仓库部反馈的扫码慢问题,定位到是网关 nginx 默认超时太短,调整后从 15s 降到 3s。",
+        "parsed": {
+            "tasks": "扫码超时调优(nginx 超时配置)",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "把超时配置写进部署模板",
+            "eta": str(TODAY - timedelta(days=10)),
+        },
+        "ai_score": 88,
+    },
+    {
+        "user_name": "新雷",
+        "day_offset": -4,
+        "raw": "解决数据看板偶尔白屏的问题。发现是 token 过期后没自动刷新,加了一层拦截。",
+        "parsed": {
+            "tasks": "Dashboard token 过期自动刷新",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "看一周线上有没有再现",
+            "eta": str(TODAY - timedelta(days=4)),
+        },
+        "ai_score": 85,
+    },
+    {
+        "user_name": "新雷",
+        "day_offset": -9,
+        "raw": "临时帮采购部跑了一个 SQL 导数:近 90 天供应商交付准时率统计。结果发到他们邮箱了。",
+        "parsed": {
+            "tasks": "采购部一次性数据导出(交付准时率)",
+            "progress": 100,
+            "blocker": "",
+            "next_step": "如果常用就建议加到报表中心",
+            "eta": str(TODAY - timedelta(days=9)),
+        },
+        "ai_score": 76,
+    },
+]
+
+
+async def seed_temp_projects(db, admin_id):
+    """V2.3 临时工单项目示例数据(P2026-T01 + Backlog Sprint + 7 条日报)。
+
+    幂等:按 code 唯一判重,已存在则跳过。
+    支持 --only=temp_projects 单选。
+    """
+    print("\n[11.5/12] 临时工单项目示例(P2026-T01)…")
+
+    # ── 1. 临时项目本体(is_temporary=True) ───────────────────
+    existing = await db.execute(select(Project).where(Project.code == TEMP_PROJECT_CODE))
+    proj = existing.scalar_one_or_none()
+    if proj is None:
+        proj = Project(
+            code=TEMP_PROJECT_CODE,
+            name=TEMP_PROJECT_NAME,
+            description=TEMP_PROJECT_DESC,
+            track=ProjectTrack.software,
+            current_stage=1,  # 临时项目不走 IPD 阶段,但字段必填,给个 1
+            status=ProjectStatus.active,
+            health_status=ProjectHealthStatus.green,
+            health_score=100,
+            planned_launch_date=None,
+            budget_total=None,
+            budget_spent=Decimal("0"),
+            budget_alert_threshold=0.8,
+            is_temporary=True,
+            created_by=admin_id,
+        )
+        db.add(proj)
+        await db.flush()
+        print(f"  ✅ 临时项目 {TEMP_PROJECT_CODE} 已创建")
+    else:
+        print(f"  ⏭️  临时项目 {TEMP_PROJECT_CODE} 已存在,跳过")
+
+    # ── 2. Backlog Sprint(sprint_number=0,作为日报下拉占位) ─
+    existing_sp = await db.execute(
+        select(Sprint).where(
+            Sprint.project_id == proj.id,
+            Sprint.sprint_number == 0,
+        )
+    )
+    backlog = existing_sp.scalar_one_or_none()
+    if backlog is None:
+        backlog = Sprint(
+            project_id=proj.id,
+            stage_id=None,
+            sprint_number=0,
+            goal="Backlog (临时工单归集池)",
+            start_date=TODAY,
+            end_date=TODAY + timedelta(days=365),
+            health_score=100,
+            planned_story_points=0,
+            completed_story_points=0,
+            status=SprintStatus.active,
+            created_by=admin_id,
+        )
+        db.add(backlog)
+        await db.flush()
+        print("  ✅ Backlog Sprint(sprint_number=0)已创建")
+    else:
+        print("  ⏭️  Backlog Sprint 已存在,跳过")
+
+    # ── 3. 临时工单日报(挂 project_id=P2026-T01,sprint_task_id=None) ─
+    added = 0
+    for spec in TEMP_DAILY_REPORTS:
+        uid = await get_user_id_by_name(db, spec["user_name"])
+        if uid is None:
+            print(f"    ⚠️  用户 '{spec['user_name']}' 不存在,跳过该日报")
+            continue
+        report_date = TODAY + timedelta(days=spec["day_offset"])
+        # 幂等:按 (user_id, report_date, project_id) 判重
+        existing_rpt = await db.execute(
+            select(DailyReport).where(
+                DailyReport.user_id == uid,
+                DailyReport.report_date == report_date,
+                DailyReport.project_id == proj.id,
+            )
+        )
+        if existing_rpt.scalar_one_or_none():
+            continue
+        report = DailyReport(
+            user_id=uid,
+            report_date=report_date,
+            raw_input_text=spec["raw"],
+            media_urls=[],
+            parsed_content=spec["parsed"],
+            pass_check=True,
+            ai_score=spec["ai_score"],
+            ai_comment="临时工单(自动 seed)",
+            management_alert=None,
+            mentioned_task_ids=[],
+            project_id=proj.id,
+            sprint_task_id=None,  # 临时工单无任务挂钩
+            created_by=admin_id,
+        )
+        db.add(report)
+        added += 1
+
+    await db.commit()
+    print(f"  ✅ 临时工单日报 +{added}")
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 12. RiskAlert(8 条管理层卡点)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1710,6 +1916,7 @@ ALL_MODULES = [
     ("sprints", seed_sprints_tasks_burndown),
     ("capacity", seed_capacity_snapshots),
     ("daily_reports", seed_daily_reports),
+    ("temp_projects", seed_temp_projects),  # V2.3: 临时工单项目示例
     ("risk_alerts_and_knowledge", seed_risk_alerts),
 ]
 

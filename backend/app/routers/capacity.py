@@ -26,6 +26,7 @@ from app.models.capacity import CapacitySnapshot
 from app.models.sprint import Sprint
 from app.models.user import User, UserRole
 from app.services.capacity_engine import (
+    compute_project_capacity,
     compute_user_capacity,
     department_capacity_summary,
     find_overloaded,
@@ -153,6 +154,29 @@ async def department_summary(
     _user: User = Depends(get_current_user),
 ):
     return await department_capacity_summary(db, sprint_id=sprint_id)
+
+
+# ────────────────────────────────────────────────────────────────
+# V2.3 项目维度聚合(支持临时工单项目,无 Sprint)
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/project/{project_id}/summary")
+async def project_capacity_summary(
+    project_id: uuid.UUID,
+    month_start: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认 30 天前"),
+    month_end: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认今天"),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """
+    按项目维度聚合该项目下所有人员的工时投入(月度)。
+
+    - 直接 GROUP BY daily_reports.project_id + user_id
+    - 主干 / 临时项目共用同一口径,临时工单看板可直接调用
+    - 工时按"每条日报 0.5 工日 = 4 小时"估算(mode=report_count)
+    """
+    return await compute_project_capacity(db, project_id, month_start=month_start, month_end=month_end)
 
 
 @router.get("/users/{user_id}/timeline")

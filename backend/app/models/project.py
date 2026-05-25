@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, Enum, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, Enum, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -51,6 +51,17 @@ class Project(BaseMixin, Base):
     # 生命周期状态
     current_stage: Mapped[int] = mapped_column(Integer, default=1)  # 1-5
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), default=ProjectStatus.active)
+
+    # V2.3 临时工单标识：true 表示这是一个承载日常临时工单的轻量项目
+    # 不进 IPD 5 阶段流程、不进项目健康矩阵、健康度固定 green
+    is_temporary: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+        comment="是否为临时工单项目(V2.3):跳过 5 阶段初始化,不进红黄绿矩阵",
+    )
 
     # 健康度（由 health_engine.py 每日自动更新）
     health_status: Mapped[ProjectHealthStatus] = mapped_column(

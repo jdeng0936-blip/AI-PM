@@ -151,6 +151,14 @@ async def refresh_project_health(
     if not project:
         return
 
+    # V2.3 临时工单项目: 无 IPD 阶段、无预算/健康度概念,固定 green
+    # 否则下面对 ProjectStage 的查询会拿不到 stage 直接 return,健康分永远不会更新
+    if project.is_temporary:
+        project.health_status = ProjectHealthStatus.green
+        project.health_score = 100
+        await db.commit()
+        return
+
     stage_result = await db.execute(
         select(ProjectStage).where(
             and_(

@@ -21,6 +21,8 @@ class ProjectCreate(BaseModel):
     planned_launch_date: Optional[date] = None
     budget_total: Optional[Decimal] = Field(None, description="总预算（元）")
     budget_alert_threshold: float = Field(0.8, ge=0.0, le=1.0, description="预算预警阈值")
+    # V2.3 临时工单项目：勾上后跳过 5 阶段初始化，自动建一个 Backlog 虚拟 Sprint
+    is_temporary: bool = Field(False, description="是否为临时工单项目(V2.3)：跳过 IPD 5 阶段初始化")
 
 
 # ── 项目更新（PATCH）──────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import {
   FolderKanban, Plus, ArrowRight, RefreshCw, Search, Calendar, Wallet,
   MoreVertical, Pencil, PauseCircle, PlayCircle, Archive, ArchiveRestore,
+  Ticket,
 } from 'lucide-react'
 
 const STAGE_LABELS = ['', '概念与立项期', '计划与设计期', '开发与执行期', '验证与试产期', '发布与收尾期']
@@ -60,6 +61,7 @@ export default function ProjectsPage() {
     track: 'dual',
     planned_launch_date: '',
     budget_total: 100000,
+    is_temporary: false, // V2.3 临时工单项目
   })
 
   // 卡片右上角菜单(项目操作)
@@ -90,16 +92,19 @@ export default function ProjectsPage() {
   const healthColor = (s: string) =>
     ({ green: '#22c55e', yellow: '#eab308', red: '#ef4444' }[s] || '#4b5563')
 
+  // 是否在列表中也展示临时工单项目(默认隐藏,避免污染红黄绿矩阵)
+  const [includeTemporary, setIncludeTemporary] = useState(false)
+
   const fetchProjects = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getProjectsOverview(includeArchived, healthFilter) as any
+      const data = await getProjectsOverview(includeArchived, healthFilter, includeTemporary) as any
       setOverview(data)
       setProjects(data.projects || [])
     } finally {
       setLoading(false)
     }
-  }, [includeArchived, healthFilter])
+  }, [includeArchived, healthFilter, includeTemporary])
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
 
@@ -110,10 +115,25 @@ export default function ProjectsPage() {
     }
     setSubmitting(true)
     try {
-      const created = await createProject(projectForm) as any
-      toast.success(`项目 ${created?.code || projectForm.code || projectForm.name} 立项成功`)
+      // 临时工单项目只传精简字段,避免后端强校验 budget/launch_date
+      const payload: any = projectForm.is_temporary
+        ? {
+            name: projectForm.name,
+            code: projectForm.code || undefined,
+            is_temporary: true,
+            track: 'software', // 临时项目固定 software 即可,前端不暴露选择
+          }
+        : projectForm
+      const created = await createProject(payload) as any
+      toast.success(
+        projectForm.is_temporary
+          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功`
+          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功`,
+      )
       setShowCreate(false)
-      setProjectForm({ name: '', code: '', track: 'dual', planned_launch_date: '', budget_total: 100000 })
+      setProjectForm({ name: '', code: '', track: 'dual', planned_launch_date: '', budget_total: 100000, is_temporary: false })
+      // 创建临时项目后,自动开启 includeTemporary 让用户能立即看到
+      if (projectForm.is_temporary) setIncludeTemporary(true)
       fetchProjects()
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '立项失败')
@@ -341,10 +361,24 @@ export default function ProjectsPage() {
             </button>
           )
         })}
+        {/* 显示临时工单项目开关 */}
+        <button
+          onClick={() => setIncludeTemporary((v) => !v)}
+          className="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+          style={{
+            background: includeTemporary ? 'rgba(168,85,247,0.18)' : 'var(--color-bg-card)',
+            color: includeTemporary ? '#e9d5ff' : 'var(--color-text-secondary)',
+            border: `1px solid ${includeTemporary ? '#a855f7' : 'var(--color-border-subtle)'}`,
+          }}
+          title="切换是否显示临时工单项目(V2.3):默认隐藏,避免污染红黄绿矩阵"
+        >
+          <Ticket size={13} />
+          {includeTemporary ? '隐藏临时工单' : '显示临时工单'}
+        </button>
         {/* 显示已归档开关 */}
         <button
           onClick={() => setIncludeArchived((v) => !v)}
-          className="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
           style={{
             background: includeArchived ? 'rgba(156,163,175,0.2)' : 'var(--color-bg-card)',
             color: includeArchived ? '#e5e7eb' : 'var(--color-text-secondary)',
@@ -389,6 +423,17 @@ export default function ProjectsPage() {
                   <span className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
                     {p.code} · {p.name}
                   </span>
+                  {/* V2.3 临时工单项目徽章 */}
+                  {p.is_temporary && (
+                    <span
+                      className="px-2 py-0.5 rounded text-[10px] font-medium shrink-0 flex items-center gap-1"
+                      style={{ background: 'rgba(168,85,247,0.18)', color: '#e9d5ff' }}
+                      title="临时工单项目:承载日常 bug、改价、临时维护类零散工单"
+                    >
+                      <Ticket size={10} />
+                      临时工单
+                    </span>
+                  )}
                   {/* 状态徽章 */}
                   <span
                     className="px-2 py-0.5 rounded text-[10px] font-medium shrink-0"
@@ -398,7 +443,9 @@ export default function ProjectsPage() {
                   </span>
                 </div>
                 <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                  第{p.current_stage}阶段「{p.stage_name}」 · {p.track === 'dual' ? '软硬双轨' : p.track === 'software' ? '纯软件' : p.track === 'hardware' ? '纯硬件' : p.track}
+                  {p.is_temporary
+                    ? '🎫 轻量项目 · 无 IPD 阶段 · 仅作日常工单归集'
+                    : `第${p.current_stage}阶段「${p.stage_name}」 · ${p.track === 'dual' ? '软硬双轨' : p.track === 'software' ? '纯软件' : p.track === 'hardware' ? '纯硬件' : p.track}`}
                 </div>
                 {/* 第二行:计划交付 + 预算 */}
                 <div className="flex items-center gap-4 mt-1.5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -515,9 +562,35 @@ export default function ProjectsPage() {
           >
             <h2 className="text-lg font-semibold mb-5" style={{ color: 'var(--color-text-primary)' }}>新建项目</h2>
             <div className="space-y-4">
+              {/* V2.3 临时工单项目复选框 */}
+              <label
+                className="flex items-start gap-2.5 p-3 rounded-lg cursor-pointer transition-colors"
+                style={{
+                  background: projectForm.is_temporary ? 'rgba(168,85,247,0.12)' : 'var(--color-bg-secondary)',
+                  border: `1px solid ${projectForm.is_temporary ? '#a855f7' : 'var(--color-border-subtle)'}`,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={projectForm.is_temporary}
+                  onChange={(e) => setProjectForm({ ...projectForm, is_temporary: e.target.checked })}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--color-text-primary)' }}>
+                    <Ticket size={14} />
+                    临时工单项目(轻量模式)
+                  </div>
+                  <div className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                    用于承载日常 bug、改价、临时维护类零散工单。<br />
+                    跳过 IPD 5 阶段初始化,不进项目健康矩阵,自动生成 Backlog 占位。
+                  </div>
+                </div>
+              </label>
+
               {[
-                { label: '项目名称', key: 'name', placeholder: '例如：206样机研发及落地', type: 'text' },
-                { label: '项目编号', key: 'code', placeholder: '留空则自动生成 (如 P2026-001)', type: 'text' },
+                { label: '项目名称', key: 'name', placeholder: projectForm.is_temporary ? '例如:日常支撑与临时工单' : '例如:206样机研发及落地', type: 'text' },
+                { label: '项目编号', key: 'code', placeholder: projectForm.is_temporary ? '留空则自动生成 (如 P2026-T01)' : '留空则自动生成 (如 P2026-001)', type: 'text' },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>{f.label}</label>
@@ -531,40 +604,45 @@ export default function ProjectsPage() {
                   />
                 </div>
               ))}
-              <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>轨道</label>
-                <select
-                  value={projectForm.track}
-                  onChange={(e) => setProjectForm({ ...projectForm, track: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-                >
-                  <option value="dual">软硬双轨</option>
-                  <option value="software">纯软件</option>
-                  <option value="hardware">纯硬件</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付</label>
-                <input
-                  type="date"
-                  value={projectForm.planned_launch_date}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={(e) => setProjectForm({ ...projectForm, planned_launch_date: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-                />
-              </div>
-              <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>预算总额(元)</label>
-                <input
-                  type="number"
-                  value={projectForm.budget_total}
-                  onChange={(e) => setProjectForm({ ...projectForm, budget_total: Number(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-                />
-              </div>
+              {/* 临时项目隐藏:轨道 / 计划交付 / 预算 */}
+              {!projectForm.is_temporary && (
+                <>
+                  <div>
+                    <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>轨道</label>
+                    <select
+                      value={projectForm.track}
+                      onChange={(e) => setProjectForm({ ...projectForm, track: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                    >
+                      <option value="dual">软硬双轨</option>
+                      <option value="software">纯软件</option>
+                      <option value="hardware">纯硬件</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付</label>
+                    <input
+                      type="date"
+                      value={projectForm.planned_launch_date}
+                      min={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => setProjectForm({ ...projectForm, planned_launch_date: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>预算总额(元)</label>
+                    <input
+                      type="number"
+                      value={projectForm.budget_total}
+                      onChange={(e) => setProjectForm({ ...projectForm, budget_total: Number(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button

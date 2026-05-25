@@ -13,7 +13,14 @@ type ReportMode = 'plan' | 'review'
 type InputStyle = 'form' | 'free'
 
 // V2.2 — 结构化关联:项目 + Sprint 任务下拉数据形态
-type ProjectOption = { id: string; name: string; code: string; health_status?: string }
+// V2.3 — 增加 is_temporary 标识,临时工单项目下拉置顶 + chip
+type ProjectOption = {
+  id: string
+  name: string
+  code: string
+  health_status?: string
+  is_temporary?: boolean
+}
 type TaskOption = { id: string; title: string; status: string; priority: string; story_points: number }
 
 // ─── 表单字段定义 ─────────────────────────────────────
@@ -60,22 +67,32 @@ export default function SubmitReportPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>('')
   const [tasksLoading, setTasksLoading] = useState(false)
 
-  // 进入页面拉项目列表
+  // 进入页面拉项目列表(含临时工单项目,V2.3)
   useEffect(() => {
-    getProjectsOverview(false)
+    getProjectsOverview(false, null, true) // includeTemporary=true
       .then((res: any) => {
         const items = Array.isArray(res) ? res : res?.items || res?.projects || []
-        setProjects(
-          items.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            code: p.code,
-            health_status: p.health_status,
-          })),
-        )
+        const mapped: ProjectOption[] = items.map((p: any) => ({
+          // 后端返回的是 project_id;兼容 id 字段以防其它接口形态
+          id: p.project_id ?? p.id,
+          name: p.name,
+          code: p.code,
+          health_status: p.health_status,
+          is_temporary: !!p.is_temporary,
+        }))
+        // V2.3:临时工单项目置顶,便于员工快速选择
+        mapped.sort((a, b) => {
+          if (a.is_temporary !== b.is_temporary) return a.is_temporary ? -1 : 1
+          return (a.code || '').localeCompare(b.code || '')
+        })
+        setProjects(mapped)
       })
       .catch(() => setProjects([]))
   }, [])
+
+  // 派生:当前选中的是否为临时工单项目
+  const selectedProject = projects.find((p) => p.id === selectedProjectId)
+  const isTempProjectSelected = !!selectedProject?.is_temporary
 
   // 项目变化 → 联动加载该项目当前 active Sprint 的 task 列表
   useEffect(() => {
@@ -323,11 +340,22 @@ export default function SubmitReportPage() {
               <option value="">— 不挂钩项目 —</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  [{p.code}] {p.name}
-                  {p.health_status === 'yellow' ? ' ⚠️' : p.health_status === 'red' ? ' 🔴' : ''}
+                  {p.is_temporary ? '🎫 ' : ''}[{p.code}] {p.name}
+                  {p.is_temporary
+                    ? ' · 临时工单'
+                    : p.health_status === 'yellow'
+                      ? ' ⚠️'
+                      : p.health_status === 'red'
+                        ? ' 🔴'
+                        : ''}
                 </option>
               ))}
             </select>
+            {isTempProjectSelected && (
+              <div className="mt-1.5 text-[11px] text-purple-300/80">
+                🎫 已选临时工单项目,本日报将自动归入「Backlog 池」,无须挂具体任务
+              </div>
+            )}
           </div>
           {/* 任务下拉(联动) */}
           <div>
@@ -338,17 +366,24 @@ export default function SubmitReportPage() {
             <select
               value={selectedTaskId}
               onChange={(e) => setSelectedTaskId(e.target.value)}
-              disabled={!selectedProjectId || tasksLoading}
+              disabled={!selectedProjectId || tasksLoading || isTempProjectSelected}
               className="w-full bg-gray-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <option value="">
-                {selectedProjectId ? (tasks.length ? '— 仅挂钩项目,不指定任务 —' : '该项目当前无 active Sprint') : '请先选项目'}
+                {!selectedProjectId
+                  ? '请先选项目'
+                  : isTempProjectSelected
+                    ? '— 临时工单无须选任务 —'
+                    : tasks.length
+                      ? '— 仅挂钩项目,不指定任务 —'
+                      : '该项目当前无 active Sprint'}
               </option>
-              {tasks.map((t) => (
-                <option key={t.id} value={t.id}>
-                  [{t.priority.toUpperCase()}·{t.story_points}pt·{t.status}] {t.title}
-                </option>
-              ))}
+              {!isTempProjectSelected &&
+                tasks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    [{t.priority.toUpperCase()}·{t.story_points}pt·{t.status}] {t.title}
+                  </option>
+                ))}
             </select>
           </div>
         </div>

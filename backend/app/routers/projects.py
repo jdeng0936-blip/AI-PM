@@ -21,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
-from app.models.project import Project, ProjectStatus
+from app.models.project import Project, ProjectHealthStatus, ProjectStatus
 from app.models.project_member import ProjectMember
 from app.models.project_stage import STAGE_DEFINITIONS_BY_TRACK, ProjectStage
+from app.models.sprint import Sprint, SprintStatus
 from app.models.user import UserRole
 from app.schemas.project import (
     GanttStage,
@@ -53,20 +54,42 @@ async def create_project(
     每个阶段的计划时间从 planned_launch_date 倒推分配。
     """
     if not data.code:
-        # 自动生成项目编号: P{YYYY}-{XXX}
+        # 自动生成项目编号:
+        #   主干项目: P{YYYY}-001 / P{YYYY}-002 ...
+        #   临时工单项目(V2.3): P{YYYY}-T01 / P{YYYY}-T02 ...
         current_year = date.today().year
-        prefix = f"P{current_year}-"
-        stmt = select(Project.code).where(Project.code.like(f"{prefix}%")).order_by(Project.code.desc()).limit(1)
-        res = await db.execute(stmt)
-        max_code = res.scalar_one_or_none()
-        if max_code:
-            try:
-                num = int(max_code.split("-")[1])
-                data.code = f"{prefix}{num + 1:03d}"
-            except Exception:
-                data.code = f"{prefix}001"
+        if data.is_temporary:
+            prefix = f"P{current_year}-T"
+            stmt = select(Project.code).where(Project.code.like(f"{prefix}%")).order_by(Project.code.desc()).limit(1)
+            res = await db.execute(stmt)
+            max_code = res.scalar_one_or_none()
+            if max_code:
+                try:
+                    num = int(max_code.split("-T")[1])
+                    data.code = f"{prefix}{num + 1:02d}"
+                except Exception:
+                    data.code = f"{prefix}01"
+            else:
+                data.code = f"{prefix}01"
         else:
-            data.code = f"{prefix}001"
+            prefix = f"P{current_year}-"
+            stmt = (
+                select(Project.code)
+                .where(Project.code.like(f"{prefix}%"))
+                .where(~Project.code.like(f"{prefix}T%"))  # 排除临时项目编号
+                .order_by(Project.code.desc())
+                .limit(1)
+            )
+            res = await db.execute(stmt)
+            max_code = res.scalar_one_or_none()
+            if max_code:
+                try:
+                    num = int(max_code.split("-")[1])
+                    data.code = f"{prefix}{num + 1:03d}"
+                except Exception:
+                    data.code = f"{prefix}001"
+            else:
+                data.code = f"{prefix}001"
     else:
         # 防重复编号
         existing = await db.execute(select(Project).where(Project.code == data.code))
@@ -81,10 +104,38 @@ async def create_project(
         planned_launch_date=data.planned_launch_date,
         budget_total=data.budget_total,
         budget_alert_threshold=data.budget_alert_threshold,
+        is_temporary=data.is_temporary,
+        # 健康度默认 green(主干项目首日就是 green;临时项目永远 green)
+        health_status=ProjectHealthStatus.green,
         created_by=creator.id,
     )
     db.add(project)
     await db.flush()  # 获取 project.id
+
+    # ── V2.3 临时工单项目:走轻量路径 ──────────────────────────
+    # 跳过 5 阶段 + 里程碑模板,只建一个 sprint_number=0 的虚拟"Backlog" Sprint
+    # 让日报的 sprint_task_id 也能有归属(虽然实际任务为空)
+    if data.is_temporary:
+        today = date.today()
+        backlog_sprint = Sprint(
+            project_id=project.id,
+            stage_id=None,  # 临时项目无 stage
+            sprint_number=0,
+            goal="Backlog (临时工单归集池)",
+            start_date=today,
+            end_date=today + timedelta(days=365),
+            status=SprintStatus.active,
+            created_by=creator.id,
+        )
+        db.add(backlog_sprint)
+        await db.commit()
+        return {
+            "message": "临时工单项目创建成功(轻量模式,无 IPD 阶段)",
+            "project_id": str(project.id),
+            "code": project.code,
+            "is_temporary": True,
+            "backlog_sprint_id": str(backlog_sprint.id),
+        }
 
     # ── 各阶段默认里程碑模板（按轨道区分）──────────────────
     DEFAULT_MILESTONES = {
@@ -165,20 +216,23 @@ async def projects_overview(
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
     include_archived: bool = Query(default=False, description="是否包含已归档(cancelled)和已完成(completed)项目"),
+    include_temporary: bool = Query(
+        default=False,
+        description="是否包含临时工单项目(V2.3,默认过滤,避免污染红黄绿矩阵)",
+    ),
     health_status: Optional[str] = Query(default=None, description="按健康度过滤:green / yellow / red"),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
     """
     管理层宏观视图：项目健康矩阵。
-    默认展示 active + paused（仍在活跃管理的项目）。
+    默认展示 active + paused（仍在活跃管理的项目），不含临时工单项目。
     传 include_archived=true 可附带 cancelled + completed。
+    传 include_temporary=true 可附带临时工单项目(用于"全部项目"视图,如 submit-report 下拉)。
     可选 health_status 按 green/yellow/red 过滤具体项目列表;
-    三色计数始终基于"当前 status 范围内的全表"统计，不受 health_status 影响。
+    三色计数始终基于"当前可见范围内的全表"统计，不受 health_status 影响。
     """
     from sqlalchemy import func
-
-    from app.models.project import ProjectHealthStatus
 
     # ── 1. status 过滤(可见范围)──────────────────────────────
     visible_statuses = [ProjectStatus.active, ProjectStatus.paused]
@@ -186,6 +240,8 @@ async def projects_overview(
         visible_statuses += [ProjectStatus.cancelled, ProjectStatus.completed]
 
     base_filter = Project.status.in_(visible_statuses)
+    if not include_temporary:
+        base_filter = and_(base_filter, Project.is_temporary.is_(False))
 
     # ── 2. 全表三色聚合(GROUP BY health_status)─────────────
     color_rows = await db.execute(
@@ -253,6 +309,7 @@ async def projects_overview(
                 "budget_total": str(p.budget_total) if p.budget_total else None,
                 "budget_usage_pct": round(budget_pct, 1) if budget_pct else None,
                 "status": p.status,
+                "is_temporary": p.is_temporary,
             }
         )
 
@@ -298,6 +355,7 @@ async def get_project(
             "budget_total": str(project.budget_total) if project.budget_total else None,
             "budget_spent": str(project.budget_spent) if project.budget_spent else None,
             "status": project.status,
+            "is_temporary": project.is_temporary,
         },
         "stages": [
             {

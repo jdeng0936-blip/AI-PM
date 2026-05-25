@@ -565,6 +565,101 @@ async def suggest_rebalance(
 # ────────────────────────────────────────────────────────────────
 
 
+# ────────────────────────────────────────────────────────────────
+# V2.3 项目维度聚合(支持临时工单项目,无 Sprint)
+# ────────────────────────────────────────────────────────────────
+
+
+async def compute_project_capacity(
+    db: AsyncSession,
+    project_id: UUID,
+    *,
+    month_start: Optional[str] = None,
+    month_end: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    按项目维度聚合该项目下所有人员的工时投入。
+
+    - 不走 CapacitySnapshot(因为临时工单项目天然无 Sprint task,
+      Snapshot 是按 sprint task 算的)
+    - 改走 daily_reports.project_id 直接 GROUP BY user_id,
+      按"每条日报 ≈ 0.5 工日 = 4 小时"估算工时(mode=report_count)
+    - 这样主干 / 临时项目共用同一口径,Dashboard 卡片可统一展示
+
+    参数:
+      month_start / month_end: ISO 日期字符串 "YYYY-MM-DD"
+        不传则默认 "今天往前 30 天"
+    """
+    from datetime import date, datetime, timedelta
+
+    from app.models.daily_report import DailyReport
+    from app.models.project import Project
+
+    project = await db.get(Project, project_id)
+    if not project:
+        return {
+            "project_id": str(project_id),
+            "error": "项目不存在",
+            "mode": "report_count",
+            "members": [],
+        }
+
+    today = date.today()
+    end_d = datetime.fromisoformat(month_end).date() if month_end else today
+    start_d = datetime.fromisoformat(month_start).date() if month_start else (end_d - timedelta(days=30))
+
+    HOURS_PER_REPORT = 4  # 每条日报记 0.5 工日
+
+    rows = (
+        await db.execute(
+            select(
+                DailyReport.user_id,
+                User.name,
+                User.department,
+                func.count(DailyReport.id).label("report_count"),
+            )
+            .join(User, DailyReport.user_id == User.id)
+            .where(
+                and_(
+                    DailyReport.project_id == project_id,
+                    DailyReport.report_date >= start_d,
+                    DailyReport.report_date <= end_d,
+                )
+            )
+            .group_by(DailyReport.user_id, User.name, User.department)
+            .order_by(desc(func.count(DailyReport.id)))
+        )
+    ).all()
+
+    members = []
+    total_hours = 0
+    for user_id, name, department, report_count in rows:
+        hours = int(report_count) * HOURS_PER_REPORT
+        total_hours += hours
+        members.append(
+            {
+                "user_id": str(user_id),
+                "user_name": name,
+                "department": department,
+                "report_count": int(report_count),
+                "hours_estimated": hours,
+            }
+        )
+
+    return {
+        "project_id": str(project.id),
+        "project_code": project.code,
+        "project_name": project.name,
+        "is_temporary": project.is_temporary,
+        "window": {"start": start_d.isoformat(), "end": end_d.isoformat()},
+        "mode": "report_count",  # 当 daily_reports 加了 hours_worked 字段后可改 "hours_worked"
+        "hours_per_report": HOURS_PER_REPORT,
+        "member_count": len(members),
+        "total_hours_estimated": total_hours,
+        "members": members,
+    }
+
+
 async def department_capacity_summary(
     db: AsyncSession,
     *,

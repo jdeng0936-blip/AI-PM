@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
-import { getMorningBriefing, getRiskAlerts } from '@/api/dashboard'
+import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
 import { getProjectsOverview, createProject } from '@/api/projects'
 import { toast } from 'sonner'
 import {
@@ -25,6 +25,8 @@ import {
   CheckCircle,
   RefreshCw,
   Plus,
+  Ticket,
+  Trophy,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -44,6 +46,8 @@ export default function DashboardPage() {
   const [morningReports, setMorningReports] = useState<any[]>([])
   const [missingMembers, setMissingMembers] = useState<any[]>([])
   const [morningBriefingDate, setMorningBriefingDate] = useState('')
+  // V2.3 临时工单看板数据
+  const [tempSummary, setTempSummary] = useState<any>(null)
 
   // 新建项目弹窗
   const [showCreate, setShowCreate] = useState(false)
@@ -69,10 +73,11 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [ov, br, ra] = await Promise.allSettled([
+      const [ov, br, ra, tt] = await Promise.allSettled([
         getProjectsOverview(),
         getMorningBriefing(),
         getRiskAlerts(),
+        getTempTicketSummary({ top_n: 5 }),
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
@@ -88,6 +93,9 @@ export default function DashboardPage() {
       }
       if (ra.status === 'fulfilled') {
         setRiskAlerts((ra.value as unknown as any[]).filter((a: any) => a.status === 'unresolved'))
+      }
+      if (tt.status === 'fulfilled') {
+        setTempSummary(tt.value as any)
       }
     } finally {
       setLoading(false)
@@ -281,6 +289,155 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V2.3 临时工单看板(两张卡片:TOP5 + 占比) */}
+      {tempSummary && (
+        <div className="mb-8 animate-in" style={{ animationDelay: '0.42s' }}>
+          <div className="section-title flex items-center gap-2">
+            <Ticket size={16} color="#a855f7" />
+            临时工单看板
+            <span className="text-[10px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
+              （{tempSummary.window?.start} → {tempSummary.window?.end} · 口径:每条日报 ≈ {tempSummary.hours_per_report}h）
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* 左卡:本月工时 TOP N */}
+            <div className="stat-card">
+              <div className="flex items-center gap-2 mb-3">
+                <Trophy size={16} color="#a855f7" />
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                  本月临时工单工时 TOP {tempSummary.top_members?.length || 0}
+                </span>
+              </div>
+              {tempSummary.top_members?.length ? (
+                <div className="space-y-2">
+                  {tempSummary.top_members.map((m: any, i: number) => {
+                    const maxHours = tempSummary.top_members[0]?.hours_estimated || 1
+                    const pct = Math.round((m.hours_estimated / maxHours) * 100)
+                    return (
+                      <div key={m.user_id} className="flex items-center gap-3">
+                        <div
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                          style={{
+                            background:
+                              i === 0
+                                ? '#fbbf24'
+                                : i === 1
+                                  ? '#94a3b8'
+                                  : i === 2
+                                    ? '#d97706'
+                                    : 'var(--color-bg-secondary)',
+                            color: i < 3 ? '#fff' : 'var(--color-text-secondary)',
+                          }}
+                        >
+                          {i + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span style={{ color: 'var(--color-text-primary)' }}>
+                              {m.user_name}
+                              <span className="ml-1.5" style={{ color: 'var(--color-text-secondary)' }}>
+                                · {m.department || '—'}
+                              </span>
+                            </span>
+                            <span style={{ color: '#a855f7', fontWeight: 600 }}>
+                              {m.hours_estimated}h
+                              <span className="ml-1 text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                                ({m.report_count} 条)
+                              </span>
+                            </span>
+                          </div>
+                          <div
+                            className="h-1.5 rounded-full"
+                            style={{ background: 'var(--color-bg-secondary)' }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${pct}%`,
+                                background: 'linear-gradient(90deg, #a855f7, #6366f1)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs py-6 text-center" style={{ color: 'var(--color-text-secondary)' }}>
+                  本月暂无临时工单数据
+                </div>
+              )}
+            </div>
+
+            {/* 右卡:临时 vs 主干 工时占比环形图 */}
+            <div className="stat-card">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                  临时工单 vs 主干项目 · 工时占比
+                </span>
+              </div>
+              {tempSummary.ratio?.total_hours > 0 ? (
+                <div className="flex items-center gap-6">
+                  {/* conic-gradient 环形图 */}
+                  <div
+                    className="w-32 h-32 rounded-full relative shrink-0"
+                    style={{
+                      background: `conic-gradient(#a855f7 0% ${tempSummary.ratio.temp_pct}%, #3b82f6 ${tempSummary.ratio.temp_pct}% 100%)`,
+                    }}
+                  >
+                    <div
+                      className="absolute inset-3 rounded-full flex flex-col items-center justify-center"
+                      style={{ background: 'var(--color-bg-card)' }}
+                    >
+                      <div className="text-lg font-bold" style={{ color: '#a855f7' }}>
+                        {tempSummary.ratio.temp_pct}%
+                      </div>
+                      <div className="text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                        临时占比
+                      </div>
+                    </div>
+                  </div>
+                  {/* 图例 */}
+                  <div className="flex-1 space-y-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
+                        <span className="w-3 h-3 rounded-sm" style={{ background: '#a855f7' }} />
+                        🎫 临时工单
+                      </span>
+                      <span style={{ color: '#a855f7', fontWeight: 600 }}>
+                        {tempSummary.ratio.temp_hours}h
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
+                        <span className="w-3 h-3 rounded-sm" style={{ background: '#3b82f6' }} />
+                        📁 主干项目
+                      </span>
+                      <span style={{ color: '#3b82f6', fontWeight: 600 }}>
+                        {tempSummary.ratio.main_hours}h
+                      </span>
+                    </div>
+                    <div className="pt-2 mt-2 text-[11px]" style={{ borderTop: '1px solid var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}>
+                      合计 <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{tempSummary.ratio.total_hours}h</span>
+                      {tempSummary.ratio.temp_pct > 30 && (
+                        <span className="block mt-1" style={{ color: '#eab308' }}>
+                          ⚠️ 临时工单占比偏高,建议关注主干推进
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs py-6 text-center" style={{ color: 'var(--color-text-secondary)' }}>
+                  本月暂无项目维度的工时数据
+                </div>
+              )}
             </div>
           </div>
         </div>
