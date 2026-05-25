@@ -1,4 +1,22 @@
-"""Alembic migrations script template.
+"""V2.1 schema cleanup: 修复 ORM ↔ DB 之间的列级元数据漂移
+
+背景:
+  V2.0 发版前发现 alembic autogenerate 检测到一批 ORM 模型属性变更但未同步到 DB:
+    - 5 处 column comment 在 ORM 已写但 DB 缺失
+    - users.dingtalk_userid 在 ORM 中改为 `unique=True` 的 Index,DB 中仍是
+      UNIQUE CONSTRAINT — 二者逻辑等价但元数据形式不同
+  本迁移为列级元数据对齐,零业务数据风险。
+
+变更:
+  - 5 列补 comment:daily_reports.mentioned_task_ids、key_results.unit/description、
+    notifications.read_at、users.dingtalk_userid
+  - users.dingtalk_userid:DROP CONSTRAINT users_dingtalk_userid_key →
+    CREATE UNIQUE INDEX ix_users_dingtalk_userid
+    (注:生产大表场景需手动改为 CREATE INDEX CONCURRENTLY)
+
+配套修复:
+  本次 commit 同时补全 app/models/__init__.py 中 AuditLog 注册缺陷,
+  详见 b732ec2 commit message 与 docs/MIGRATION_GUIDE.md。
 
 Revision ID: d2c623c6291a
 Revises: 06f98e0a32e8

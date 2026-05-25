@@ -2,16 +2,43 @@
 app/main.py — FastAPI 应用入口
 注册所有路由、CORS、启动/关闭事件。
 """
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import init_db
-from app.routers import wechat, dashboard, erp, reports, auth, users, export
-from app.routers import projects as projects_router_module
-from app.routers import gates, sprints
 from app.config import settings
+from app.database import init_db
+from app.routers import auth, dashboard, erp, export, gates, reports, sprints, users, wechat
+from app.routers import projects as projects_router_module
+
+# ── Sentry 初始化(必须在 FastAPI app 创建之前 init,才能捕获启动期异常)──
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.sentry_environment,
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+            integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+            send_default_pii=False,  # 不上报用户 PII,合规默认
+        )
+        import logging
+
+        logging.getLogger("aipm").info(
+            "🛰️  Sentry 已启用 env=%s traces_sample_rate=%s",
+            settings.sentry_environment,
+            settings.sentry_traces_sample_rate,
+        )
+    except ImportError:
+        # sentry-sdk 未安装时静默跳过(本地最小依赖场景)
+        import logging
+
+        logging.getLogger("aipm").warning("⚠️  SENTRY_DSN 已配置但 sentry-sdk 未安装,跳过初始化")
 
 
 @asynccontextmanager
@@ -24,9 +51,11 @@ async def lifespan(app: FastAPI):
         docker exec -it aipm-backend alembic upgrade head
     """
     import logging
+
     logger = logging.getLogger("aipm")
 
     import os
+
     env = os.getenv("AIPM_ENV", "dev")
 
     if env == "dev":
@@ -39,6 +68,7 @@ async def lifespan(app: FastAPI):
 
     # ── 启动定时任务调度器 ────────────────────────────────────────
     from app.services.scheduler import start_scheduler, stop_scheduler
+
     start_scheduler()
 
     yield
@@ -85,7 +115,8 @@ app.include_router(projects_router_module.stages_router)
 app.include_router(gates.router)
 app.include_router(sprints.router)
 # ── 趋势分析 & AI 对话 ───────────────────────────
-from app.routers import trends, chat, okr, knowledge
+from app.routers import chat, knowledge, okr, trends
+
 app.include_router(trends.router)
 app.include_router(chat.router)
 # ── OKR & 知识库 ─────────────────────────────────
@@ -93,21 +124,26 @@ app.include_router(okr.router)
 app.include_router(knowledge.router)
 # ── 通知推送 ─────────────────────────────────────
 from app.routers import notifications as notifications_router
+
 app.include_router(notifications_router.router)
 # ── AI 复盘库(Week 6)──────────────────────────
 from app.routers import retro as retro_router
+
 app.include_router(retro_router.router)
 # ── 资源水位(Week 8)──────────────────────────
 from app.routers import capacity as capacity_router
+
 app.include_router(capacity_router.router)
 # ── 附件 + 语音 ASR ──────────────────────────────
-from app.routers import attachments as attachments_router
 from app.routers import asr as asr_router
+from app.routers import attachments as attachments_router
+
 app.include_router(attachments_router.router)
 app.include_router(asr_router.router)
 # ── DEV 模拟端点（仅开发环境） ────────────────────
 if settings.aipm_env == "dev":
     from app.routers import simulate
+
     app.include_router(simulate.router)
 
 

@@ -73,13 +73,18 @@ jobs:
             -c "CREATE DATABASE aipm_db_test OWNER aipm;"
 
       - name: Write CI .env
+        # 覆盖关键基础设施 URL → 用 CI services 提供的 postgres / redis
+        # 清空所有 *_WEBHOOK 字段 → 让 notification_service 走 `skipped` 分支,
+        #   避免测试真去打第三方 API(占位 key 会被拒绝,导致 status=failed)
         run: |
           cp .env.example .env
-          # 覆盖关键基础设施 URL,其他 API key 保留占位值(CI 不打真实 API)
           sed -i \
             -e 's|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://aipm:aipm@localhost:5432/aipm_db|' \
             -e 's|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379/0|' \
             -e 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=ci-test-only-not-secret|' \
+            -e 's|^WECHAT_BOT_WEBHOOK=.*|WECHAT_BOT_WEBHOOK=|' \
+            -e 's|^DINGTALK_BOT_WEBHOOK=.*|DINGTALK_BOT_WEBHOOK=|' \
+            -e 's|^DINGTALK_BOT_SECRET=.*|DINGTALK_BOT_SECRET=|' \
             .env
 
       - name: Ruff lint(non-blocking — 历史违规留待 Stage 1 清理)

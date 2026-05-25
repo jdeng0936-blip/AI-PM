@@ -1,7 +1,13 @@
-"""Alembic migrations script template.
+"""V1 时代占位起点(空迁移)
+
+V1 开发阶段未使用 alembic 管理 schema,而是依赖 dev 模式下的 metadata.create_all。
+本文件是 V1 → V2 切换 alembic 管理时生成的"零基线"占位,upgrade/downgrade 均为 pass。
+实际 V2.0 全表 schema 由后续 `v2_0_baseline` 一次性纳管。
+
+⚠️ 不要在此文件追加任何 op.* 操作 — 它的存在意义只是作为 alembic 历史链的起点节点。
 
 Revision ID: 7c681b8e950c
-Revises: 
+Revises: (空,链的起点)
 Create Date: 2026-03-09 14:49:41.994994+08:00
 """
 from typing import Sequence, Union

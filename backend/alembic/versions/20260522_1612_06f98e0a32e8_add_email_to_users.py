@@ -1,4 +1,16 @@
-"""Alembic migrations script template.
+"""V2.1: 为 users 表新增 email 字段 + 唯一索引
+
+背景:
+  邮件通知通道(services/email_api.py)上线后,需要按员工 email 推送 V2.0 的
+  催报、风险预警、战情简报等。原 users 表只有微信/钉钉账号,缺 email 字段。
+
+变更:
+  - ADD COLUMN users.email VARCHAR(128) NULL  COMMENT '员工邮箱,用于邮件通知'
+  - CREATE UNIQUE INDEX ix_users_email ON users(email)
+
+兼容性:
+  - email 允许 NULL,历史用户无需回填即可继续使用
+  - 唯一索引下 NULL 互不冲突(Postgres 行为)
 
 Revision ID: 06f98e0a32e8
 Revises: v2_1_notification_read_at

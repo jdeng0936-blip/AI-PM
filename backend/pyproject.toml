@@ -22,6 +22,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/env.py" = ["E402"]                # alembic 需要 sys.path 注入后再 import
+"app/main.py" = ["E402"]                   # 路由分块注册的懒 import 风格,Stage 1 重构后移除
 "app/models/__init__.py" = ["F401"]        # __init__.py 的 re-export 是有意为之
 "app/routers/__init__.py" = ["F401"]
 "app/services/__init__.py" = ["F401"]
