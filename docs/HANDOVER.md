@@ -231,6 +231,10 @@ Phase 2.1 部署流程(预计 1 个工作日)
 - 任一渠道失败自动降下一级,**不会阻塞业务**
 - 但你看 Sentry 应该会看到 "channel failed" warning,需要关注
 
+### 7.9 ⚠️ V2.2 新增: 本地 Mock 与 Demo 数据种子
+
+- **ai_engine_mock**: 如果没有配置 `LITELLM_API_KEY`，本地会自动降级使用 `app.services.ai_engine_mock`。它能让系统在脱机或无大模型状态下闭环跑通日报评分。在生产环境部署时，**请务必确保真实 API Key 已配置**，否则用户看到的将是 Mock 数据（带有 "[Mock]" 前缀）。
+- **seed_demo_data.py**: 这是一个测试数据植入脚本（包含 378 条带项目/任务挂载关联的日报及项目数据），仅在演示或 MVP 本地测试使用。生产环境（`AIPM_ENV=prod`）严禁执行此脚本。
 ---
 
 ## 八、联系人 & 升级链路
