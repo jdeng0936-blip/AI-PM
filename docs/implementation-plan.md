@@ -1014,46 +1014,57 @@ CREATE TABLE knowledge_assets (
 
 ---
 
-## 附录：实现进度跟踪（截至 2026-03-10）
+## 附录：实现进度跟踪（截至 2026-05-25）
 
-### A. 已实现功能
+> 本附录已于 V2.0 发版日完整刷新。详细发版说明见 [`RELEASE_NOTES_V2.0.md`](./RELEASE_NOTES_V2.0.md)。
 
-| 功能 | 对应章节 | 状态 | 关键文件 |
-|------|---------|------|---------|
-| JWT 登录 + RBAC 权限 | §1 | ✅ | `backend/app/routers/auth.py`, `middleware/rbac.py` |
-| 快捷登录(10预置用户) | §1 | ✅ | `frontend/src/app/login/page.tsx` |
-| 日报 Web 提交 | §4 | ✅ | `backend/app/routers/simulate.py` |
-| **双模式: ☀️晨规划 / 🌙晚复核** | §4 新增 | ✅ | `frontend/src/app/submit-report/page.tsx` |
-| **结构化表单(6+7字段)** | §4 新增 | ✅ | 同上 |
-| Mock AI 解析+评分 | §4 | ✅ | `backend/app/services/ai_engine_mock.py` |
-| **质检闭环(驳回→修改→重提)** | §4 新增 | ✅ | `simulate.py` + `submit-report/page.tsx` |
-| 日报列表(角色隔离) | §10 | ✅ | `backend/app/routers/reports.py` |
-| 日报详情面板 | §10 | ✅ | `frontend/src/app/reports/page.tsx` |
-| Excel 导出 | §8 | ✅ | `backend/app/routers/export.py` |
-| 管理驾驶舱 | — | ✅ | `backend/app/routers/dashboard.py` |
-| 评分趋势 | §7 | ✅ | `frontend/src/app/trends/page.tsx` |
+### A. 13 个 Phase 完成情况(全部 ✅)
 
-### B. 待实现功能
+| § | 功能 | 状态 | 关键文件 |
+|---|------|------|---------|
+| §1 | 登录认证与安全 | ✅ | `routers/auth.py`、`models/audit_log.py` |
+| §2 | 催报机制 | ✅ | `services/scheduled_tasks.py`、`services/scheduler.py` |
+| §3 | 通知推送渠道 | ✅ | `services/{notification_service,wechat_api,dingtalk_api,email_api}.py` |
+| §4 | 岗位日报模板差异(双模式 + 质检闭环) | ✅ | `routers/reports.py`、`routers/simulate.py`、`app/submit-report/page.tsx` |
+| §5 | 附件与多媒体(OSS + ASR) | ✅ | `services/oss_service.py`、`routers/{attachments,asr}.py` |
+| §6 | 总经理 AI 对话查询(13 Tool) | ✅ | `routers/chat.py`、`services/chat_tools/` |
+| §7 | 历史趋势看板 | ✅ | `routers/trends.py`、`services/sprint_aggregator.py` |
+| §8 | 数据导出 | ✅ | `routers/export.py` |
+| §9 | KPI 目标设定 / 项目健康分 | ✅ | `services/health_engine.py`、`routers/dashboard.py` |
+| §10 | 部门与项目分组 | ✅ | `models/{project,project_member,project_stage}.py`、`routers/projects.py` |
+| §11 | OKR 战略对齐(AI 抽取 KR 进度) | ✅ | `models/okr.py`、`routers/okr.py`、`services/kr_progress_extractor.py` |
+| §12 | 资源负载水位预判 | ✅ | `services/capacity_engine.py`、`routers/capacity.py` |
+| §13 | AI 自动复盘 + 知识库 | ✅ | `services/retro/`、`routers/{retro,knowledge}.py`、`models/knowledge.py` |
 
-| 功能 | 对应章节 | 优先级 | 说明 |
-|------|---------|--------|------|
-| 真实 Gemini API | §4 | P0 | 替换 Mock 引擎 |
-| 企微/钉钉推送 | §3 | P0 | 通知渠道对接 |
-| 催报定时任务 | §2 | P1 | APScheduler 已就绪 |
-| 附件上传(OSS) | §5 | P1 | |
-| AI 对话查询 | §6 | P2 | Tool Calling |
-| OKR 战略对齐 | §11 | P2 | 数据模型已设计 |
-| 资源负载预判 | §12 | P3 | |
-| AI 自动复盘 | §13 | P3 | |
+### B. 超预期交付(规划外的 8 项)
 
-### C. 开发过程中的关键决策
+| 功能 | 关键 commit |
+|------|------------|
+| IPD 项目阶段门控 | `242b744 feat: complete IPD project stage gating` |
+| Sprint 燃尽看板 + 关键路径 | `aabf896 feat(sprint): Sprint 任务级模型 + 燃尽快照 + 关键路径算法` |
+| 双模式日报(晨规划 + 晚复核) | `009e3f4 feat: 双模式日报提交` |
+| 质检闭环(未通过不入库) | `f8ed543 feat: 质检闭环` |
+| 语音转写(讯飞 / Gemini 双 provider) | `0147e80 feat(infra): 附件+ASR基础设施` |
+| LLM 多模型选择器 | `services/llm_selector.py` + `llm_registry.yaml` |
+| 微信 / 钉钉 / 邮件三渠道通知 + 站内信铃铛 | `3d48fff feat(notify): 增加多渠道通知服务` |
+| ERP 集成接口 | `routers/erp.py` + `v2_0_erp_enhancement` 迁移 |
+
+### C. 关键架构决策
 
 | 决策 | 原因 |
 |------|------|
-| 结构化表单 > 纯自由文本 | 引导用户填写关键字段，提高质检通过率 |
-| 累加评分制(≥60通过) | 比硬编码规则更灵活，非必填字段不影响通过 |
-| 晨规划/晚复核双模式 | 早晨描述计划，晚上汇报结果，符合实际工作节奏 |
-| 员工可查看个人日报 | 原来仅manager可见，改为员工可看自己的 |
-| Git版本号标注"非必填" | 非代码项目不需要，避免误导 |
-| 未通过不入库 | 保证 daily_reports 数据质量 |
+| 结构化表单 > 纯自由文本 | 引导用户填写关键字段,提高质检通过率 |
+| 累加评分制(≥60 通过) | 比硬编码规则更灵活,非必填字段不影响通过 |
+| 晨规划 / 晚复核双模式 | 早晨描述计划,晚上汇报结果,符合实际工作节奏 |
+| 未通过不入库 | 保证 `daily_reports` 数据质量,质检闭环可追溯 |
+| Tool Calling 多轮编排 | AI 对话不直查 SQL,所有数据访问走显式 Tool,可审计、可降级 |
+| pgvector 语义检索(1536 维) | 复盘知识资产支持自然语言搜索,与 OpenAI embeddings 兼容 |
+| APScheduler 嵌入式调度 | V2.0 单实例部署即可覆盖业务规模,无需引入 Celery 增加运维复杂度 |
+| 站内信 `read_at` 字段 | 用 NULL/时间戳替代 `is_read` 布尔,更精确表达"何时已读" |
+
+### D. 数据库基线
+
+- 当前 head:`d2c623c6291a`(`schema_sync_v2_1_cleanup`)
+- `alembic check` 已通过 ` No new upgrade operations detected`
+- 详细迁移链与上线动作清单见 `RELEASE_NOTES_V2.0.md`
 
