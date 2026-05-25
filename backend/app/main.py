@@ -151,3 +151,73 @@ if settings.aipm_env == "dev":
 async def health_check():
     """健康检查接口，供 Docker health check 使用"""
     return {"status": "ok", "service": "huiyuancheng-ai-pm"}
+
+
+@app.get("/health/detailed")
+async def health_detailed():
+    """生产监控用的多维度健康检查 — DB / Redis / Sentry / Scheduler。
+
+    返回每个依赖的 ok/down + 关键指标。任何 down 整体 status="degraded"。
+    canary / oncall / Sentry 关联告警可基于本端点轮询。
+    """
+    import time
+
+    import redis.asyncio as redis_async
+    from sqlalchemy import text
+
+    from app.database import AsyncSessionLocal
+    from app.services.scheduler import scheduler
+
+    result: dict = {
+        "status": "ok",
+        "service": "huiyuancheng-ai-pm",
+        "checks": {},
+    }
+
+    # ─── DB ping ──────────────────────────────────────────────────
+    t0 = time.perf_counter()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        result["checks"]["database"] = {
+            "ok": True,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
+        }
+    except Exception as e:
+        result["checks"]["database"] = {"ok": False, "error": str(e)[:200]}
+        result["status"] = "degraded"
+
+    # ─── Redis ping(分布式锁 + 缓存依赖)───────────────────────
+    t0 = time.perf_counter()
+    try:
+        r = redis_async.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2)
+        await r.ping()
+        await r.aclose()
+        result["checks"]["redis"] = {
+            "ok": True,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
+        }
+    except Exception as e:
+        result["checks"]["redis"] = {"ok": False, "error": str(e)[:200]}
+        result["status"] = "degraded"
+
+    # ─── Sentry 配置状态 ──────────────────────────────────────────
+    result["checks"]["sentry"] = {
+        "enabled": bool(settings.sentry_dsn),
+        "environment": settings.sentry_environment if settings.sentry_dsn else None,
+    }
+
+    # ─── APScheduler 任务数 ──────────────────────────────────────
+    try:
+        jobs = scheduler.get_jobs() if scheduler.running else []
+        result["checks"]["scheduler"] = {
+            "running": scheduler.running,
+            "job_count": len(jobs),
+        }
+        if not scheduler.running:
+            result["status"] = "degraded"
+    except Exception as e:
+        result["checks"]["scheduler"] = {"running": False, "error": str(e)[:200]}
+        result["status"] = "degraded"
+
+    return result

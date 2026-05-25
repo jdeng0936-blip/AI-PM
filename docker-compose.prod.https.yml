@@ -1,0 +1,49 @@
+# ════════════════════════════════════════════════════════════════
+# docker-compose.prod.https.yml — 公网 HTTPS 部署 override
+#
+# 用途:在 docker-compose.prod.yml 之上叠加 Caddy 反代 + 自动 SSL。
+#
+# 启动:
+#   export AIPM_DOMAIN=aipm.your-domain.com    # 真实生产域名
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.https.yml up -d
+#
+# 关闭 frontend 直接绑 80 端口(交给 caddy 反代,内部端口 3000 only)
+# 增加 caddy 服务,自动从 Let's Encrypt 申请证书
+# ════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── 关闭 frontend 直接对公网暴露 80(交给 caddy)─────────────
+  # 注意:docker-compose 对 ports list 是 merge 而非 override,
+  # 这里通过 ports: ! 完全替换为 expose-only(内网可达)
+  frontend:
+    ports: !reset []
+    expose:
+      - "3000"
+
+  # ── Caddy 反代 + 自动 HTTPS ──────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: aipm-caddy
+    restart: always
+    environment:
+      # 把 AIPM_DOMAIN 透传给 Caddyfile(默认 your-domain.com,生产必改)
+      AIPM_DOMAIN: ${AIPM_DOMAIN:?请 export AIPM_DOMAIN=aipm.your-domain.com}
+    ports:
+      - "80:80"      # Let's Encrypt HTTP-01 验证 + HTTP→HTTPS 跳转
+      - "443:443"    # HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data           # 持久化 SSL 证书 + ACME 帐号(关键)
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

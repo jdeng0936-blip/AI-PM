@@ -1,12 +1,16 @@
-# AI-PM V2.0 部署指南
+# AI-PM 部署指南(单机/内网快速版)
 
-> 从 0 到上线的完整步骤,适合**第一次把 V2.0 部署到生产/内网/试用环境**的同学。
+> 从 0 到上线的完整步骤,适合**单机 / 内网 demo / 试用环境**(无 HTTPS)。
+>
+> **公网生产部署请用** `docs/PRODUCTION_DEPLOY.md`(包含 Caddy + Let's Encrypt + 备份 SOP)。
 >
 > 部署时间预估:
 > - 准备凭证:30 分钟(企微/钉钉/OSS/LiteLLM)
 > - 实际部署:15 分钟
 > - 联调验证:30 分钟
 > - **总计:约 1.5 小时**
+
+> **V2.1 已同步**(2026-05-25):APScheduler 11 个任务、audit_logs 归档、Redis 分布式锁、Sentry 集成、备份脚本
 
 ---
 
@@ -127,9 +131,9 @@ docker exec -it aipm-backend python scripts/seed_admin.py
 curl http://localhost:8000/health
 # 期待: {"status":"ok","service":"huiyuancheng-ai-pm"}
 
-# 看定时任务有没启动(9 个)
+# 看定时任务有没启动(11 个)
 docker logs aipm-backend 2>&1 | grep "APScheduler"
-# 期待: ⏰ APScheduler 已启动,注册了 9 个定时任务
+# 期待: ⏰ APScheduler 已启动,注册了 11 个定时任务
 ```
 
 访问前端:`https://你的前端域名` → 用 admin 账号登录。

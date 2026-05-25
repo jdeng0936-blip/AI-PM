@@ -1,0 +1,48 @@
+# Caddyfile — 公网生产 HTTPS 反代配置
+#
+# Caddy 优势:
+#   - 自动从 Let's Encrypt 申请 + 续期 SSL 证书(只要 80/443 开放、域名解析到本机)
+#   - 自动 HTTP → HTTPS 重定向
+#   - 简洁配置,出 bug 几率远低于手写 nginx
+#
+# 启用方式:
+#   1. 把 your-domain.com 替换为真实生产域名(也可用 env 变量,见下)
+#   2. 确保 DNS A 记录指向本机 IP,80/443 在云控制台/iptables 开放
+#   3. 启动:
+#      docker compose -f docker-compose.prod.yml -f docker-compose.prod.https.yml up -d
+#
+# 证书会自动放到 caddy_data volume(docker-compose.prod.https.yml 定义),无需手工 certbot
+
+# ── 真实生产域名(替换我!)──────────────────────────────────
+{$AIPM_DOMAIN:your-domain.com} {
+
+    # gzip / zstd 压缩
+    encode gzip zstd
+
+    # ── 后端 API + 健康检查 + auth + ASR + ... 全部转后端 ──
+    @backend {
+        path /api/* /health /health/* /docs /openapi.json /redoc
+    }
+    handle @backend {
+        reverse_proxy aipm-backend:8000
+    }
+
+    # ── 其它请求(前端 SSR / 静态资产 / Next.js)────────────
+    handle {
+        reverse_proxy aipm-frontend:3000
+    }
+
+    # ── 安全头(基础)────────────────────────────────────────
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    # ── 访问日志(可选,生产可关)──────────────────────────
+    log {
+        output stdout
+        format console
+    }
+}

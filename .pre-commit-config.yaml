@@ -21,6 +21,8 @@ repos:
       - id: end-of-file-fixer
         exclude: ^.*\.(md|json)$
       - id: check-yaml
+        # docker-compose 用了 !reset 等扩展 tag,PyYAML 不认,跳过
+        exclude: ^docker-compose.*\.yml$
       - id: check-added-large-files
         args: [--maxkb=500]
       - id: check-merge-conflict
