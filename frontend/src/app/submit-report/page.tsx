@@ -3,12 +3,18 @@
 import { useState, useRef, useEffect } from 'react'
 import request from '@/api/request'
 import { getTodayPlan } from '@/api/reports'
+import { getProjectsOverview } from '@/api/projects'
+import { getProjectSprints, getSprintTasks } from '@/api/sprints'
 import { useAuthStore } from '@/stores/use-auth-store'
 import AttachmentsPanel from '@/components/attachments-panel'
 import type { Attachment } from '@/api/attachments'
 
 type ReportMode = 'plan' | 'review'
 type InputStyle = 'form' | 'free'
+
+// V2.2 — 结构化关联:项目 + Sprint 任务下拉数据形态
+type ProjectOption = { id: string; name: string; code: string; health_status?: string }
+type TaskOption = { id: string; title: string; status: string; priority: string; story_points: number }
 
 // ─── 表单字段定义 ─────────────────────────────────────
 const FORM_FIELDS = {
@@ -47,12 +53,85 @@ export default function SubmitReportPage() {
   const [planLoading, setPlanLoading] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
 
+  // ─── V2.2 结构化关联:项目 + Sprint 任务联动选择器 ───────────
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [tasks, setTasks] = useState<TaskOption[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('')
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('')
+  const [tasksLoading, setTasksLoading] = useState(false)
+
+  // 进入页面拉项目列表
+  useEffect(() => {
+    getProjectsOverview(false)
+      .then((res: any) => {
+        const items = Array.isArray(res) ? res : res?.items || res?.projects || []
+        setProjects(
+          items.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            code: p.code,
+            health_status: p.health_status,
+          })),
+        )
+      })
+      .catch(() => setProjects([]))
+  }, [])
+
+  // 项目变化 → 联动加载该项目当前 active Sprint 的 task 列表
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setTasks([])
+      setSelectedTaskId('')
+      return
+    }
+    setTasksLoading(true)
+    ;(async () => {
+      try {
+        const sprintsRes: any = await getProjectSprints(selectedProjectId)
+        const sprints = Array.isArray(sprintsRes) ? sprintsRes : sprintsRes?.items || []
+        const active = sprints.find((s: any) => s.status === 'active') || sprints[0]
+        if (!active) {
+          setTasks([])
+          setSelectedTaskId('')
+          return
+        }
+        const taskList: any = await getSprintTasks(active.id)
+        const arr = Array.isArray(taskList) ? taskList : taskList?.items || []
+        const mapped = arr.map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          story_points: t.story_points || 0,
+        }))
+        setTasks(mapped)
+        // 若当前选中的 task 不在新列表里,清空(支持晨规划继承场景)
+        setSelectedTaskId((prev) => (prev && mapped.some((t: TaskOption) => t.id === prev) ? prev : ''))
+      } catch {
+        setTasks([])
+        setSelectedTaskId('')
+      } finally {
+        setTasksLoading(false)
+      }
+    })()
+  }, [selectedProjectId])
+
   // ─── 晚复核模式自动拉取今日晨规划 ─────────────────
   useEffect(() => {
     if (mode === 'review') {
       setPlanLoading(true)
       getTodayPlan()
-        .then((res: any) => setMorningPlan(res.plan))
+        .then((res: any) => {
+          setMorningPlan(res.plan)
+          // V2.2:晚复核默认继承晨规划的项目/任务关联
+          if (res.plan?.project_id) {
+            setSelectedProjectId(res.plan.project_id)
+            if (res.plan.sprint_task_id) {
+              // 等 tasks 加载完会自动可选;这里先记下,联动 effect 不会覆盖
+              setSelectedTaskId(res.plan.sprint_task_id)
+            }
+          }
+        })
         .catch(() => setMorningPlan(null))
         .finally(() => setPlanLoading(false))
     } else {
@@ -115,9 +194,13 @@ export default function SubmitReportPage() {
     if (!text.trim()) { setError('请填写内容'); return }
     setSubmitting(true); setError(''); setResult(null)
     try {
-      const res = await request.post('/simulate/web-submit', {
+      // V2.2:把 project_id + sprint_task_id 一并发给后端
+      const payload: Record<string, any> = {
         raw_text: `[${mode === 'plan' ? '晨规划' : '晚复核'}] ${text}`,
-      })
+      }
+      if (selectedProjectId) payload.project_id = selectedProjectId
+      if (selectedTaskId) payload.sprint_task_id = selectedTaskId
+      const res = await request.post('/simulate/web-submit', payload)
       setResult(res)
     } catch (err: any) {
       const status = err.response?.status
@@ -221,6 +304,55 @@ export default function SubmitReportPage() {
         </div>
       )}
 
+
+      {/* ═══ V2.2 关联项目 + 任务选择器(可选)═══ */}
+      <div className="bg-slate-800/40 rounded-xl border border-slate-700/50 p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-slate-300 font-medium text-sm">🔗 关联项目 / 任务</span>
+          <span className="text-xs text-slate-500">(可选 — 关联到项目和任务后,本日报会自动挂到 OKR KR)</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* 项目下拉 */}
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">📁 项目</label>
+            <select
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="w-full bg-gray-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-slate-500"
+            >
+              <option value="">— 不挂钩项目 —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  [{p.code}] {p.name}
+                  {p.health_status === 'yellow' ? ' ⚠️' : p.health_status === 'red' ? ' 🔴' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* 任务下拉(联动) */}
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              📋 Sprint 任务{' '}
+              {tasksLoading && <span className="text-slate-600 animate-pulse">加载中…</span>}
+            </label>
+            <select
+              value={selectedTaskId}
+              onChange={(e) => setSelectedTaskId(e.target.value)}
+              disabled={!selectedProjectId || tasksLoading}
+              className="w-full bg-gray-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <option value="">
+                {selectedProjectId ? (tasks.length ? '— 仅挂钩项目,不指定任务 —' : '该项目当前无 active Sprint') : '请先选项目'}
+              </option>
+              {tasks.map((t) => (
+                <option key={t.id} value={t.id}>
+                  [{t.priority.toUpperCase()}·{t.story_points}pt·{t.status}] {t.title}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
       {/* ═══ 结构化表单 ═══ */}
       {inputStyle === 'form' && (
