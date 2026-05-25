@@ -1464,13 +1464,31 @@ async def seed_daily_reports(db, admin_id):
     r = await db.execute(select(User))
     users = list(r.scalars())
 
+    # ── V2.2: 预建 user_id → 项目列表 / 项目 → 任务列表 映射(回填日报关联)──
+    # 1) user_id → 该用户参与的 project_id 列表(via project_members)
+    user_projects: dict = {}
+    pm_rows = await db.execute(select(ProjectMember.user_id, ProjectMember.project_id))
+    for uid, pid in pm_rows.all():
+        user_projects.setdefault(uid, []).append(pid)
+
+    # 2) project_id → 该项目所有 sprint_task 列表(via sprint → tasks)
+    project_tasks: dict = {}
+    pt_rows = await db.execute(
+        select(Sprint.project_id, SprintTask.id).join(SprintTask, SprintTask.sprint_id == Sprint.id)
+    )
+    for pid, tid in pt_rows.all():
+        project_tasks.setdefault(pid, []).append(tid)
+
     workdays = workdays_between(DEMO_START, TODAY)
     added = 0
+    relations_added = 0
     for u in users:
         templates = DAILY_REPORT_TEMPLATES.get(u.name)
         if not templates:
             # 没模板就跳过这个用户(避免造无意义日报)
             continue
+        # 该员工参与的项目(用于回填 project_id)
+        my_projects = user_projects.get(u.id, [])
         for wd in workdays:
             # 已存在 → skip
             existing = await db.execute(
@@ -1501,6 +1519,17 @@ async def seed_daily_reports(db, admin_id):
             # management_alert 只在 30% 的概率触发(避免每天都告警)
             alert = tpl["management_alert"] if random.random() < 0.3 else None
 
+            # ── V2.2: 80% 概率挂项目,50% 概率再挂具体任务 ──
+            project_id = None
+            sprint_task_id = None
+            if my_projects and random.random() < 0.8:
+                project_id = random.choice(my_projects)
+                relations_added += 1
+                # 在选了项目的日报里,50% 概率从该项目任务库里挑一个
+                proj_tasks = project_tasks.get(project_id, [])
+                if proj_tasks and random.random() < 0.5:
+                    sprint_task_id = random.choice(proj_tasks)
+
             report = DailyReport(
                 user_id=u.id,
                 report_date=wd,
@@ -1514,6 +1543,8 @@ async def seed_daily_reports(db, admin_id):
                 ai_comment=tpl["ai_comment"],
                 management_alert=alert,
                 mentioned_task_ids=[],
+                project_id=project_id,
+                sprint_task_id=sprint_task_id,
                 created_by=admin_id,
             )
             db.add(report)
@@ -1524,7 +1555,7 @@ async def seed_daily_reports(db, admin_id):
             await db.commit()
 
     await db.commit()
-    print(f"  ✅ DailyReport +{added}")
+    print(f"  ✅ DailyReport +{added}(其中 {relations_added} 条挂上了项目)")
 
 
 # ═══════════════════════════════════════════════════════════════════
