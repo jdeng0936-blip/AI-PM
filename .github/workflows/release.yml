@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # 创建 GitHub Release 需要 write 权限
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史用于 auto-changelog
+
+      - name: Locate release notes file
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"          # e.g. 2.0.0
+          MAJOR_MINOR="${VERSION%.*}"                  # e.g. 2.0
+          FILE="docs/RELEASE_NOTES_V${MAJOR_MINOR}.md"
+          if [ -f "$FILE" ]; then
+            echo "found=true"        >> "$GITHUB_OUTPUT"
+            echo "file=$FILE"        >> "$GITHUB_OUTPUT"
+            echo "✅ Using release notes from $FILE"
+          else
+            echo "found=false"       >> "$GITHUB_OUTPUT"
+            echo "⚠️  No $FILE found — falling back to auto-generated notes"
+          fi
+
+      - name: Create Release (with curated notes)
+        if: steps.notes.outputs.found == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AI-PM ${{ github.ref_name }}"
+          body_path: ${{ steps.notes.outputs.file }}
+          generate_release_notes: false   # 用 docs/ 里手写的 notes
+          draft: false
+          prerelease: false
+
+      - name: Create Release (auto-generated notes)
+        if: steps.notes.outputs.found == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AI-PM ${{ github.ref_name }}"
+          generate_release_notes: true    # GitHub 自动从 commit 生成
+          draft: false
+          prerelease: false

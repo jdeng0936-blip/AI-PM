@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同分支多次 push 时,取消旧的运行
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest + alembic check + ruff)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aipm
+          POSTGRES_PASSWORD: aipm
+          POSTGRES_DB: aipm_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -U aipm && break
+            sleep 1
+          done
+
+      - name: Create test database
+        env:
+          PGPASSWORD: aipm
+        run: |
+          psql -h localhost -U aipm -d aipm_db \
+            -c "CREATE DATABASE aipm_db_test OWNER aipm;"
+
+      - name: Write CI .env
+        run: |
+          cp .env.example .env
+          # 覆盖关键基础设施 URL,其他 API key 保留占位值(CI 不打真实 API)
+          sed -i \
+            -e 's|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://aipm:aipm@localhost:5432/aipm_db|' \
+            -e 's|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379/0|' \
+            -e 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=ci-test-only-not-secret|' \
+            .env
+
+      - name: Ruff lint(non-blocking — 历史违规留待 Stage 1 清理)
+        # 临时 `continue-on-error`:Stage 4 阶段只观察,不阻塞 CI
+        # 全部 normalize 后由后续 PR 移除该 flag
+        continue-on-error: true
+        run: ruff check .
+
+      - name: Run pytest
+        # tests/test_e2e_ipd.py 是 module 级直接 HTTP 调用的"脚本",非纯测试 —
+        # 需要外部 uvicorn 在 8001 端口运行,CI 环境不适用,Stage 1 重构后移除该 ignore
+        run: pytest -v --tb=short --ignore=tests/test_e2e_ipd.py
+
+      - name: Alembic upgrade head
+        run: alembic upgrade head
+
+      - name: Alembic check (no ORM↔schema drift)
+        run: alembic check
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        # Next.js build 内置严格的类型 + 实际编译验证;不跑 `next lint`(已废弃且需交互配置)
+        run: npm run build
