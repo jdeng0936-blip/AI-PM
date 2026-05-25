@@ -22,6 +22,8 @@ class ProjectTrack(str, enum.Enum):
     dual = "dual"  # 软硬双轨（智能硬件类项目主模式）
     software = "software"  # 纯软件项目（纯敏捷 Sprints）
     hardware = "hardware"  # 纯硬件项目（纯瀑布里程碑）
+    support = "support"  # 日常支撑
+    other = "other"  # 其它临时
 
 
 class ProjectHealthStatus(str, enum.Enum):

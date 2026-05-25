@@ -16,6 +16,12 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
 import { getProjectsOverview, createProject } from '@/api/projects'
+import {
+  MAIN_TRACK_OPTIONS,
+  TEMP_TRACK_OPTIONS,
+  TRACK_LABELS,
+  trackLabel,
+} from '@/lib/project-track'
 import { toast } from 'sonner'
 import {
   LayoutDashboard,
@@ -55,6 +61,7 @@ export default function DashboardPage() {
   const [projectForm, setProjectForm] = useState({
     name: '',
     code: '',
+    description: '',
     track: 'dual',
     planned_launch_date: '',
     budget_total: 100000,
@@ -119,8 +126,10 @@ export default function DashboardPage() {
         ? {
             name: projectForm.name,
             code: projectForm.code || undefined,
+            description: projectForm.description || undefined,
+            planned_launch_date: projectForm.planned_launch_date || undefined,
             is_temporary: true,
-            track: 'software',
+            track: projectForm.track,
           }
         : projectForm
       const created = (await createProject(payload)) as any
@@ -133,6 +142,7 @@ export default function DashboardPage() {
       setProjectForm({
         name: '',
         code: '',
+        description: '',
         track: 'dual',
         planned_launch_date: '',
         budget_total: 100000,
@@ -485,7 +495,7 @@ export default function DashboardPage() {
                   {p.code} · {p.name}
                 </div>
                 <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                  第{p.current_stage}阶段「{p.stage_name}」 · {p.track === 'dual' ? '软硬双轨' : p.track}
+                  第{p.current_stage}阶段「{p.stage_name}」 · {trackLabel(p.track)}
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -562,7 +572,15 @@ export default function DashboardPage() {
                 <input
                   type="checkbox"
                   checked={projectForm.is_temporary}
-                  onChange={(e) => setProjectForm({ ...projectForm, is_temporary: e.target.checked })}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                    // 联动:勾上时把 track 默认重置为 support;取消时回 dual
+                    setProjectForm({
+                      ...projectForm,
+                      is_temporary: next,
+                      track: next ? 'support' : 'dual',
+                    })
+                  }}
                   className="mt-0.5"
                 />
                 <div className="flex-1">
@@ -593,9 +611,17 @@ export default function DashboardPage() {
                   />
                 </div>
               ))}
-              {/* 临时项目隐藏:轨道 / 计划交付 / 预算 */}
-              {!projectForm.is_temporary && (
-              <>
+              <div>
+                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>项目描述 / 任务简述</label>
+                <textarea
+                  value={projectForm.description}
+                  onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
+                  rows={2}
+                  placeholder={projectForm.is_temporary ? '简要描述该临时工单的任务内容...' : '输入项目背景或描述...'}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                />
+              </div>
               <div>
                 <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>轨道</label>
                 <select
@@ -604,13 +630,15 @@ export default function DashboardPage() {
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
                 >
-                  <option value="dual">软硬双轨</option>
-                  <option value="software">纯软件</option>
-                  <option value="hardware">纯硬件</option>
+                  {(projectForm.is_temporary ? TEMP_TRACK_OPTIONS : MAIN_TRACK_OPTIONS).map((t) => (
+                    <option key={t} value={t}>
+                      {TRACK_LABELS[t]}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付</label>
+                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付时间</label>
                 <input
                   type="date"
                   value={projectForm.planned_launch_date}
@@ -619,7 +647,20 @@ export default function DashboardPage() {
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
                 />
               </div>
-              </>
+              {/* 临时项目只隐藏预算 */}
+              {!projectForm.is_temporary && (
+                <>
+                  <div>
+                    <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>预算总额(元)</label>
+                    <input
+                      type="number"
+                      value={projectForm.budget_total}
+                      onChange={(e) => setProjectForm({ ...projectForm, budget_total: Number(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                      style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                    />
+                  </div>
+                </>
               )}
             </div>
             <div className="flex justify-end gap-3 mt-6">

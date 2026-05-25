@@ -1678,7 +1678,7 @@ async def seed_temp_projects(db, admin_id):
             code=TEMP_PROJECT_CODE,
             name=TEMP_PROJECT_NAME,
             description=TEMP_PROJECT_DESC,
-            track=ProjectTrack.software,
+            track=ProjectTrack.support,  # V2.3 Stage 2:日常支撑专用轨道
             current_stage=1,  # 临时项目不走 IPD 阶段,但字段必填,给个 1
             status=ProjectStatus.active,
             health_status=ProjectHealthStatus.green,

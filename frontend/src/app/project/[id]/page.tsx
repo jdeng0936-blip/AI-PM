@@ -8,6 +8,7 @@ import { useParams } from 'next/navigation'
 import { getProject, getProjectMembers, getGateReviews, submitGateReview, addProjectMember, updateStage } from '@/api/projects'
 import { getUsers } from '@/api/users'
 import { getProjectSprints, createSprint, startSprint, completeSprint } from '@/api/sprints'
+import { trackLabel } from '@/lib/project-track'
 import { toast } from 'sonner'
 import { RefreshCw, Users, CheckCircle, Shield, Plus, Play, Check, Lock, Target, Calendar, Pencil } from 'lucide-react'
 
@@ -122,7 +123,7 @@ export default function ProjectDetailPage() {
             <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>{project?.name || '加载中...'}</h1>
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            {project ? `${project.code} · ${project.track === 'dual' ? '软硬双轨' : project.track} · 第${project.current_stage}阶段` : ''}
+            {project ? `${project.code} · ${trackLabel(project.track)} · 第${project.current_stage}阶段` : ''}
           </p>
         </div>
         <button onClick={fetchAll} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ border: '1px solid var(--color-brand-blue)', color: 'var(--color-brand-blue)' }}>
@@ -147,7 +148,7 @@ export default function ProjectDetailPage() {
             <div className="stat-card">
               <div className="section-title">🏗️ 项目信息</div>
               <div className="space-y-3 text-sm">
-                {[['项目名称', project.name], ['项目编号', project.code], ['轨道', project.track === 'dual' ? '软硬双轨' : project.track], ['当前阶段', `第${project.current_stage}阶段`], ['计划交付', project.planned_launch_date || '-'], ['健康分', project.health_score]].map(([l, v]: any) => (
+                {[['项目名称', project.name], ['项目编号', project.code], ['轨道', trackLabel(project.track)], ['当前阶段', `第${project.current_stage}阶段`], ['计划交付', project.planned_launch_date || '-'], ['健康分', project.health_score]].map(([l, v]: any) => (
                   <div key={l} className="flex justify-between">
                     <span style={{ color: 'var(--color-text-secondary)' }}>{l}</span>
                     <span style={{ color: 'var(--color-text-primary)' }}>{v}</span>

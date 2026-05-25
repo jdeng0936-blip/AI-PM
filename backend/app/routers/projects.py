@@ -380,7 +380,7 @@ async def get_project(
 
 # ── 项目编辑（改名 / 改预算 / 改日期 / 改状态）─────────────────────
 _VALID_STATUSES = {s.value for s in ProjectStatus}
-_VALID_TRACKS = {"dual", "software", "hardware"}
+_VALID_TRACKS = {"dual", "software", "hardware", "support", "other"}
 
 
 @router.patch("/{project_id}")
