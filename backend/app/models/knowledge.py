@@ -4,7 +4,7 @@ app/models/knowledge.py — 知识库模型
 实现白皮书「知识沉淀/复用」功能：
   - FAQ 库、最佳实践 Wiki
   - 每条知识带 pgvector embedding 用于语义检索
-  - 遵循 Rule 01-Stack-Database: embedding Vector(1536) + HNSW 索引
+  - embedding 维度由 settings.embedding_dim 控制(默认 1536,兼容 OpenAI text-embedding-3-small)
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.config import settings
 from app.database import Base
 from app.models.base_mixin import BaseMixin
 
@@ -82,11 +83,14 @@ class KnowledgeItem(BaseMixin, Base):
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, comment="关联项目"
     )
     # ── pgvector 嵌入 ─────────────────────────────────────────────
-    # embedding 字段: 1536 维向量（OpenAI text-embedding-3-small 兼容）
-    # 如果 pgvector 不可用，回退到 Text 存 JSON
+    # 维度由 settings.embedding_dim 控制(EMBEDDING_DIM env var,默认 1536)
+    # 切换 embedding 模型时:同时修改 env + 跑新的 alembic migration
+    # 如果 pgvector 不可用,回退到 Text 存 JSON
     if HAS_PGVECTOR:
         embedding: Mapped[Optional[list]] = mapped_column(
-            Vector(1536), nullable=True, comment="1536维语义向量 (pgvector)"
+            Vector(settings.embedding_dim),
+            nullable=True,
+            comment=f"{settings.embedding_dim} 维语义向量 (pgvector)",
         )
     else:
         embedding_json: Mapped[Optional[str]] = mapped_column(

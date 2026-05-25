@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="", validation_alias=AliasChoices("SMTP_PASSWORD", "MAIL_PASSWORD"))
     smtp_from_email: str = Field(default="", validation_alias=AliasChoices("SMTP_FROM_EMAIL", "MAIL_FROM"))
 
+    # ── 向量检索 ──────────────────────────────────────────────────
+    # embedding 维度,与所选 embedding 模型对齐:
+    #   OpenAI text-embedding-3-small / ada-002 → 1536
+    #   OpenAI text-embedding-3-large           → 3072
+    #   智谱 embedding-2                        → 1024
+    # ⚠️ 改这个值需要配套新 alembic migration(ALTER COLUMN ... TYPE vector(N))
+    embedding_dim: int = Field(default=1536, validation_alias=AliasChoices("EMBEDDING_DIM"))
+
     # Sentry 错误监控(Stage 4 接入);留空则不启用 Sentry,应用照常启动
     sentry_dsn: str = Field(default="", validation_alias=AliasChoices("SENTRY_DSN"))
     sentry_traces_sample_rate: float = Field(default=0.1, validation_alias=AliasChoices("SENTRY_TRACES_SAMPLE_RATE"))
