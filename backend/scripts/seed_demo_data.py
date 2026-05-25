@@ -296,8 +296,9 @@ PROJECTS = [
 
 
 async def get_user_id_by_name(db, name: str) -> Optional[str]:
-    r = await db.execute(select(User.id).where(User.name == name))
-    return r.scalar_one_or_none()
+    """容忍重名:取最早创建的同名用户(LIMIT 1)。"""
+    r = await db.execute(select(User.id).where(User.name == name).order_by(User.created_at).limit(1))
+    return r.scalars().first()
 
 
 async def seed_projects_and_stages(db, admin_id):
