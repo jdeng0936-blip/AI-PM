@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user
 from app.models.daily_report import DailyReport
+from app.models.project import Project
+from app.models.sprint_task import SprintTask
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"], redirect_slashes=False)
@@ -48,8 +50,20 @@ async def list_reports(
     if pass_check is not None and pass_check != "":
         conditions.append(DailyReport.pass_check == (pass_check == "true"))
 
-    # 基础查询
-    stmt = select(DailyReport, User.name, User.department).join(User, DailyReport.user_id == User.id)
+    # 基础查询 — V2.2 起 LEFT JOIN projects + sprint_tasks 拿名称
+    stmt = (
+        select(
+            DailyReport,
+            User.name,
+            User.department,
+            Project.name.label("project_name"),
+            Project.code.label("project_code"),
+            SprintTask.title.label("sprint_task_title"),
+        )
+        .join(User, DailyReport.user_id == User.id)
+        .outerjoin(Project, DailyReport.project_id == Project.id)
+        .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
+    )
     count_stmt = select(func.count(DailyReport.id)).join(User, DailyReport.user_id == User.id)
     if user_name:
         stmt = stmt.where(User.name.ilike(f"%{user_name}%"))
@@ -83,6 +97,12 @@ async def list_reports(
             "raw_input_text": r.DailyReport.raw_input_text,
             "media_urls": r.DailyReport.media_urls,
             "created_at": r.DailyReport.created_at.isoformat() if r.DailyReport.created_at else None,
+            # V2.2 结构化关联
+            "project_id": str(r.DailyReport.project_id) if r.DailyReport.project_id else None,
+            "project_name": r.project_name,
+            "project_code": r.project_code,
+            "sprint_task_id": str(r.DailyReport.sprint_task_id) if r.DailyReport.sprint_task_id else None,
+            "sprint_task_title": r.sprint_task_title,
         }
         for r in rows
     ]
@@ -127,6 +147,9 @@ async def get_today_plan(
             "ai_score": plan.ai_score,
             "ai_comment": plan.ai_comment,
             "created_at": plan.created_at.isoformat() if plan.created_at else None,
+            # V2.2 结构化关联(供晚复核继承晨规划的项目/任务)
+            "project_id": str(plan.project_id) if plan.project_id else None,
+            "sprint_task_id": str(plan.sprint_task_id) if plan.sprint_task_id else None,
         }
     }
 
@@ -141,8 +164,17 @@ async def get_report_detail(
     获取单条日报详情（员工查自己的 / 管理层查任意人）。
     """
     result = await db.execute(
-        select(DailyReport, User.name, User.department)
+        select(
+            DailyReport,
+            User.name,
+            User.department,
+            Project.name.label("project_name"),
+            Project.code.label("project_code"),
+            SprintTask.title.label("sprint_task_title"),
+        )
         .join(User, DailyReport.user_id == User.id)
+        .outerjoin(Project, DailyReport.project_id == Project.id)
+        .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
         .where(DailyReport.id == report_id)
     )
     row = result.first()
@@ -168,4 +200,10 @@ async def get_report_detail(
         "ai_comment": row.DailyReport.ai_comment,
         "management_alert": row.DailyReport.management_alert,
         "created_at": row.DailyReport.created_at.isoformat() if row.DailyReport.created_at else None,
+        # V2.2 结构化关联
+        "project_id": str(row.DailyReport.project_id) if row.DailyReport.project_id else None,
+        "project_name": row.project_name,
+        "project_code": row.project_code,
+        "sprint_task_id": str(row.DailyReport.sprint_task_id) if row.DailyReport.sprint_task_id else None,
+        "sprint_task_title": row.sprint_task_title,
     }

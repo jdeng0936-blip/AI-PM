@@ -5,17 +5,21 @@ app/routers/simulate.py — 开发环境模拟端点
 仅在 AIPM_ENV=dev 时注册此路由。
 """
 
+import uuid
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.daily_report import DailyReport
 from app.models.notification import NotificationChannel, NotificationTemplate
 from app.models.risk_alert import RiskAlert
+from app.models.sprint import Sprint
+from app.models.sprint_task import SprintTask
 from app.models.user import User
 from app.services.ai_engine import parse_report_with_ai
 from app.services.notification_service import notify_safe
@@ -24,12 +28,44 @@ from app.services.token_guard import log_token_usage
 router = APIRouter(prefix="/api/v1/simulate", tags=["DEV Simulation"])
 
 
+async def _validate_project_task_consistency(
+    db: AsyncSession,
+    project_id: Optional[uuid.UUID],
+    sprint_task_id: Optional[uuid.UUID],
+) -> None:
+    """V2.2: 如果同时传了 task 和 project,校验 task ∈ project。
+
+    - 只传 project_id:OK,放过
+    - 只传 sprint_task_id:OK(允许员工只挂任务,不挂项目)
+    - 同时传:必须 task.sprint.project_id == project_id,否则 400
+    - 任务不存在:404
+    """
+    if sprint_task_id is None:
+        return
+    result = await db.execute(
+        select(Sprint.project_id)
+        .join(SprintTask, SprintTask.sprint_id == Sprint.id)
+        .where(SprintTask.id == sprint_task_id)
+    )
+    task_project_id = result.scalar_one_or_none()
+    if task_project_id is None:
+        raise HTTPException(status_code=404, detail="Sprint 任务不存在")
+    if project_id is not None and task_project_id != project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Sprint 任务不属于所选项目,请重新选择",
+        )
+
+
 class SimulateReportRequest(BaseModel):
     """模拟日报请求体"""
 
     wechat_userid: str  # 用 wechat_userid 定位用户
     raw_text: str  # 日报原始文本
     report_date: Optional[date] = None  # 可指定日期，默认今天
+    # V2.2:可选结构化关联(项目 + 主任务)
+    project_id: Optional[uuid.UUID] = None
+    sprint_task_id: Optional[uuid.UUID] = None
 
 
 @router.post("/daily-report")
@@ -44,13 +80,14 @@ async def simulate_daily_report(
     3. 落库到 daily_reports + risk_alerts
     4. 返回 AI 结果供核验
     """
-    from sqlalchemy import select
-
     # ── 查找用户 ──
     result = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid))
     user = result.scalar_one_or_none()
     if not user:
         return {"error": f"用户 {req.wechat_userid} 不存在，请先注册"}
+
+    # ── V2.2: 校验 project_id + sprint_task_id 一致性 ──
+    await _validate_project_task_consistency(db, req.project_id, req.sprint_task_id)
 
     # ── AI 解析（Gemini 或自动降级 Mock）──
     ai_result, p_tokens, c_tokens = await parse_report_with_ai(
@@ -73,6 +110,8 @@ async def simulate_daily_report(
         ai_score=ai_result.ai_score,
         ai_comment=ai_result.ai_comment,
         management_alert=ai_result.management_alert,
+        project_id=req.project_id,
+        sprint_task_id=req.sprint_task_id,
     )
     db.add(report)
     await db.flush()
@@ -100,6 +139,8 @@ async def simulate_daily_report(
         "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
         "management_alert": ai_result.management_alert,
         "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
+        "project_id": str(report.project_id) if report.project_id else None,
+        "sprint_task_id": str(report.sprint_task_id) if report.sprint_task_id else None,
     }
 
 
@@ -113,6 +154,9 @@ class WebReportRequest(BaseModel):
 
     raw_text: str
     report_date: Optional[date] = None
+    # V2.2:可选结构化关联(项目 + 主任务)
+    project_id: Optional[uuid.UUID] = None
+    sprint_task_id: Optional[uuid.UUID] = None
 
 
 @router.post("/web-submit")
@@ -137,9 +181,12 @@ async def web_submit_daily_report(
     credentials = await security(request)
     current_user = await get_current_user(credentials=credentials, db=db)
 
+    # ── V2.2: 校验 project_id + sprint_task_id 一致性 ──
+    await _validate_project_task_consistency(db, req.project_id, req.sprint_task_id)
+
     # ── 防重复提交：同一用户 + 同一天 + 相同原始文本 → 拒绝 ──
     report_date = req.report_date or date.today()
-    from sqlalchemy import and_, select
+    from sqlalchemy import and_
 
     dup_check = await db.execute(
         select(DailyReport.id)
@@ -153,8 +200,6 @@ async def web_submit_daily_report(
         .limit(1)
     )
     if dup_check.scalar():
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=409,
             detail="该内容今天已经提交过，请勿重复提交。如需修改，请更新内容后再提交。",
@@ -215,6 +260,8 @@ async def web_submit_daily_report(
         ai_score=ai_result.ai_score,
         ai_comment=ai_result.ai_comment,
         management_alert=ai_result.management_alert,
+        project_id=req.project_id,
+        sprint_task_id=req.sprint_task_id,
     )
     db.add(report)
     await db.flush()
@@ -287,4 +334,6 @@ async def web_submit_daily_report(
         "management_alert": ai_result.management_alert,
         "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
         "kr_updates": kr_updates,
+        "project_id": str(report.project_id) if report.project_id else None,
+        "sprint_task_id": str(report.sprint_task_id) if report.sprint_task_id else None,
     }
