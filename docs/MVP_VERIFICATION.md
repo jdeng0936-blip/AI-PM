@@ -299,6 +299,64 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 
 ---
 
+## 11. 金路径 #11 — V2.2 结构化关联(项目 / Sprint 任务挂钩,8 min)
+
+> 验证晨规划/日报与项目/任务/OKR KR 的结构化挂钩链路。
+> 相关 commits:`afe7df6` → `c38ac49` → `301f22d` → `37285d6` → `ffe471d`
+
+### 操作 A:提交一份带关联的晨规划
+1. 用 **zhang_yi / aipm2026** 登录(或本地改过密码)
+2. 进 `/submit-report`,切到 ☀️ 晨规划
+3. 在 **"🔗 关联项目 / 任务"** 卡片:
+   - 项目下拉选 `[P2026-001] 206 智能样机研发与量产 ⚠️`
+   - 任务下拉等加载完(状态 disabled → 切回 enabled),选 `[P0·5pt·todo] MQTT 设备接入协议联调`(或任一带 P0 的)
+4. 任意填写晨规划内容,提交
+
+### 预期结果 A ☐
+- [ ] 提交后右下角返回 JSON 含 `project_id` 和 `sprint_task_id`(非 null)
+- [ ] 进 `/reports` 列表页,新行的"🔗 关联"列显示 📁 `P2026-001` + 📋 `MQTT 设备接入协议联调`
+- [ ] 点开该行抽屉,头部下方有两个 chip:📁 灰色 / 📋 紫色
+
+### 操作 B:验证联动 + 校验(挑战 happy/sad path)
+1. 在 `/submit-report` 项目下拉切到另一个项目 → 任务下拉应**自动清空**(因为之前选的 task 不属于新项目)
+2. 项目下拉切到 `[P2026-003] 客户智能合同审核` → 任务下拉显示"该项目当前无 active Sprint"(因为 P2026-003 还在立项期,没 Sprint)
+3. 浏览器 DevTools 复现 backend 校验:
+   ```bash
+   # 拿 admin 的 wechat_userid 直接调 simulate(无 JWT)
+   PROJ_ID=$(docker exec aipm-postgres psql -U aipm -d aipm_db -tA -c "SELECT id FROM projects WHERE code = 'P2026-003'")
+   TASK_ID=$(docker exec aipm-postgres psql -U aipm -d aipm_db -tA -c "SELECT st.id FROM sprint_tasks st JOIN sprints s ON st.sprint_id=s.id WHERE s.project_id IN (SELECT id FROM projects WHERE code='P2026-001') LIMIT 1")
+   curl -X POST http://localhost:8000/api/v1/simulate/daily-report \
+     -H 'Content-Type: application/json' \
+     -d "{\"wechat_userid\":\"admin\",\"raw_text\":\"V2.2 unit\",\"project_id\":\"$PROJ_ID\",\"sprint_task_id\":\"$TASK_ID\"}" \
+     -w "\nHTTP=%{http_code}"
+   ```
+
+### 预期结果 B ☐
+- [ ] 切项目时任务下拉清空 + disabled 短暂出现"加载中…"
+- [ ] P2026-003 下任务下拉文案"该项目当前无 active Sprint"
+- [ ] 不一致 curl 返回 `HTTP=400` + `{"detail":"Sprint 任务不属于所选项目,请重新选择"}`
+
+### 操作 C:晚复核继承晨规划
+1. 同一员工切到 🌙 晚复核
+2. 上方"今日晨规划参考"卡片显示前面那份晨规划
+3. **项目 + 任务下拉应自动填充**了晨规划里选的那两个
+
+### 预期结果 C ☐
+- [ ] 项目下拉自动选中 P2026-001
+- [ ] 任务下拉自动选中"MQTT 设备接入协议联调"
+
+### ❌ 失败排查
+- 提交报错 500 → 看 `tail -50 /tmp/aipm_uvicorn_v22.log`,如果是 `ai_engine_mock` 缺失这是 **pre-existing bug**(与 V2.2 无关,需另行修复)
+- 项目下拉空 → `docker exec aipm-postgres psql -U aipm -d aipm_db -c "select count(*) from projects;"` 应 = 3
+- 任务下拉空但项目有 active Sprint → 看 `sprints.status` 是不是 `active`
+- 抽屉头部没有 chip → 检查老日报可能 `project_id IS NULL`(seed 阶段 56% 概率不挂),换一条新提交的
+
+### 已知限制
+- 当前**只在 Web 端 submit-report** 暴露关联选择器;企微提交链路 (wechat.py) 暂未支持(决策 2A:Phase 2.2 不动企微,留待 V2.3 + AI 自动推断)
+- 老的 378 条种子日报里 56% 没有挂项目(管理层 + 未分配项目用户),这是预期
+
+---
+
 ## 最终判定
 
 ```
@@ -312,18 +370,19 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 ☐ 金路径 #8 — AI 周报生成(核心)
 ☐ 金路径 #9 — 复盘 / 知识库
 ☐ 金路径 #10 — 多角色权限切换
+☐ 金路径 #11 — V2.2 项目/任务结构化关联
 
-通过数:____ / 10
+通过数:____ / 11
 ```
 
 ### 决策
 
 | 通过数 | 决策 | 下一步 |
 |---|---|---|
-| **10** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
-| **8-9** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
-| **5-7** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
-| **≤ 4** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
+| **11** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
+| **9-10** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
+| **6-8** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
+| **≤ 5** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
 
 ### ❌ 项记录模板
 
