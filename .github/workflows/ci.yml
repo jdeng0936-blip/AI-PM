@@ -98,20 +98,15 @@ jobs:
         # 需要外部 uvicorn 在 8001 端口运行,CI 环境不适用,Stage 1 重构后移除该 ignore
         run: pytest -v --tb=short --ignore=tests/test_e2e_ipd.py
 
-      - name: Alembic upgrade head(non-blocking)
-        # 已知架构问题(Stage 1 待修):
-        #   v2_0_baseline 用 Base.metadata.create_all(当前 ORM) 兜底建表,
-        #   后续迁移用 op.add_column 加 baseline 写完后才加的列;空库重放时
-        #   这些列已被 create_all 提前建出,触发 DuplicateColumn。
-        # Stage 1 重构:
-        #   1) 把 v2_0_baseline 改为显式 op.create_table(冻结 V2.0 当年 schema)
-        #   2) 所有后续迁移加 IF EXISTS / IF NOT EXISTS 幂等保护
-        # 之后本步骤可去掉 continue-on-error,转硬门禁。
-        continue-on-error: true
+      - name: Alembic upgrade head(硬门禁)
+        # Stage 1 已修复:
+        # 后续 5 个迁移全部幂等化(用 inspector 检测后再操作),
+        # baseline 用 Base.metadata.create_all(checkfirst=True) 兜底建表,
+        # 空库重放时 baseline 建出全表 → 后续迁移全部检测后跳过 → 全链路通畅。
+        # 本地 fresh aipm_db_stage1_test 已验证 6 revisions 100% 跑通。
         run: alembic upgrade head
 
-      - name: Alembic check(non-blocking,Stage 1 修复后转硬门禁)
-        continue-on-error: true
+      - name: Alembic check(硬门禁,ORM↔DB schema 零漂移)
         run: alembic check
 
   frontend:
