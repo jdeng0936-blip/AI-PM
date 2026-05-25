@@ -245,8 +245,8 @@ export default function AttachmentsPanel({ onChange, onTranscribed }: Props) {
                     className="ml-2 truncate text-xs text-emerald-400"
                     title={f.transcript}
                   >
-                    "{f.transcript.slice(0, 30)}
-                    {f.transcript.length > 30 ? '...' : ''}"
+                    &ldquo;{f.transcript.slice(0, 30)}
+                    {f.transcript.length > 30 ? '...' : ''}&rdquo;
                   </span>
                 )}
               </div>

@@ -132,6 +132,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: ESLint(Stage 1 已迁移到 ESLint CLI flat config)
+        # 0 errors 是硬门禁;warnings 留给 Stage 1 后续子任务清理
+        run: npm run lint
+
       - name: Build
-        # Next.js build 内置严格的类型 + 实际编译验证;不跑 `next lint`(已废弃且需交互配置)
+        # Next.js build 做实际编译验证
         run: npm run build

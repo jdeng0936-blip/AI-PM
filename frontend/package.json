@@ -6,7 +6,7 @@
     "dev": "next dev --port 5173",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest"
   },
@@ -38,6 +38,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
     "@tailwindcss/postcss": "^4.0.0",
     "@testing-library/react": "^16.0.0",
     "@types/node": "^22.0.0",
