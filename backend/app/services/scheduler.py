@@ -12,6 +12,7 @@ app/services/scheduler.py — APScheduler 定时任务调度中心
   - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
   - 每日 18:00 Sprint 燃尽快照(Week 7)
   - 每月 1 日  季度 OKR 汇总归档
+  - 每月 1 日 02:00 审计日志月度归档(>12 个月) (Stage 1)
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ def start_scheduler() -> None:
     """注册所有定时任务并启动调度器"""
     from app.services.capacity_engine import run_weekly_capacity_refresh
     from app.services.scheduled_tasks import (
+        archive_old_audit_logs,
         auto_recover_expired_status,
         remind_unreported_deadline,
         remind_unreported_friendly,
@@ -124,6 +126,15 @@ def start_scheduler() -> None:
         CronTrigger(day_of_week="mon", hour=8, minute=30),
         id="weekly_capacity_refresh",
         name="资源水位刷新",
+        replace_existing=True,
+    )
+
+    # ── 每月 1 日 02:00 审计日志归档(Stage 1) ─────────────────────
+    scheduler.add_job(
+        archive_old_audit_logs,
+        CronTrigger(day=1, hour=2, minute=0),
+        id="archive_audit_logs",
+        name="审计日志月度归档(>12 个月)",
         replace_existing=True,
     )
 

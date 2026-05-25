@@ -489,3 +489,62 @@ async def run_quarterly_okr_summary() -> None:
 def _is_quarter_end(d) -> bool:
     """判断某天是否是季度最后一天(3.31 / 6.30 / 9.30 / 12.31)"""
     return (d.month, d.day) in {(3, 31), (6, 30), (9, 30), (12, 31)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 审计日志归档(Stage 1)
+# ═══════════════════════════════════════════════════════════════════
+
+
+async def archive_old_audit_logs(retention_months: int = 12) -> None:
+    """每月 1 日 02:00 — 把 retention_months 个月前的 audit_logs 迁移到 audit_logs_archive。
+
+    使用 raw SQL 在单事务里 INSERT INTO ... SELECT + DELETE,保证原子性。
+    """
+    from sqlalchemy import text
+
+    logger.info("⏰ [Day1 02:00] 审计日志归档(>%d 个月)", retention_months)
+
+    async with AsyncSessionLocal() as db:
+        # 1. 先查待归档数量,日志透明
+        count_result = await db.execute(
+            text("SELECT count(*) FROM audit_logs " "WHERE created_at < (now() - (:months || ' months')::interval)"),
+            {"months": str(retention_months)},
+        )
+        to_archive = count_result.scalar() or 0
+
+        if to_archive == 0:
+            logger.info("   无待归档记录")
+            return
+
+        logger.info("   待归档 %d 条记录", to_archive)
+
+        # 2. 单事务里 INSERT + DELETE(原子操作)
+        await db.execute(
+            text(
+                """
+                INSERT INTO audit_logs_archive (
+                    id, user_id, action, ip_address, detail,
+                    created_at, updated_at, created_by, tenant_id, archived_at
+                )
+                SELECT id, user_id, action, ip_address, detail,
+                       created_at, updated_at, created_by, tenant_id, now()
+                FROM audit_logs
+                WHERE created_at < (now() - (:months || ' months')::interval)
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {"months": str(retention_months)},
+        )
+
+        delete_result = await db.execute(
+            text("DELETE FROM audit_logs " "WHERE created_at < (now() - (:months || ' months')::interval)"),
+            {"months": str(retention_months)},
+        )
+
+        await db.commit()
+        logger.info(
+            "   已归档 %d 条,主表清理 %d 条",
+            to_archive,
+            delete_result.rowcount or 0,
+        )

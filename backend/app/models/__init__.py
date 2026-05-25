@@ -4,6 +4,7 @@
 # --- 附件模型 ---
 from app.models.attachment import Attachment, AttachmentKind
 from app.models.audit_log import AuditLog
+from app.models.audit_log_archive import AuditLogArchive
 from app.models.base_mixin import BaseMixin
 from app.models.capacity import CapacityLevel, CapacitySnapshot
 from app.models.daily_report import DailyReport
@@ -54,6 +55,7 @@ __all__ = [
     "RiskAlert",
     "TenantUsageLog",
     "AuditLog",
+    "AuditLogArchive",
     "Project",
     "ProjectStage",
     "GateReview",
