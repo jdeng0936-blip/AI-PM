@@ -137,14 +137,14 @@ export default function ReportsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-              {['日期', '类型', '姓名', '部门', 'AI 评分', '今日进展', 'AI 评语', '状态'].map((h) => (
+              {['日期', '类型', '姓名', '部门', 'AI 评分', '今日进展', '🔗 关联', 'AI 评语', '状态'].map((h) => (
                 <th key={h} className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {reports.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
+              <tr><td colSpan={9} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
             ) : reports.map((r: any) => (
               <tr key={r.id} className="cursor-pointer transition-colors hover:bg-white/[0.02]" onClick={() => handleRowClick(r)} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                 <td className="py-3 px-3 text-xs">{r.report_date}</td>
@@ -169,6 +169,24 @@ export default function ReportsPage() {
                   </span>
                 </td>
                 <td className="py-3 px-3 text-xs max-w-[200px] truncate">{r.parsed_content?.tasks?.slice(0, 80) || r.raw_input_text?.slice(0, 80) || '-'}</td>
+                <td className="py-3 px-3 text-xs max-w-[180px]">
+                  {r.project_code || r.sprint_task_title ? (
+                    <div className="flex flex-col gap-0.5">
+                      {r.project_code && (
+                        <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                          📁 <span className="font-mono">{r.project_code}</span>
+                        </span>
+                      )}
+                      {r.sprint_task_title && (
+                        <span className="text-[10px] truncate" title={r.sprint_task_title} style={{ color: 'var(--color-text-secondary)' }}>
+                          📋 {r.sprint_task_title}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: 'var(--color-text-disabled, #4b5563)' }}>—</span>
+                  )}
+                </td>
                 <td className="py-3 px-3 text-xs max-w-[200px] truncate" style={{ color: 'var(--color-text-secondary)' }}>{r.ai_comment || '-'}</td>
                 <td className="py-3 px-3">
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: r.pass_check === true ? 'rgba(34,197,94,0.15)' : r.pass_check === false ? 'rgba(239,68,68,0.15)' : 'rgba(100,116,139,0.15)', color: r.pass_check === true ? '#22c55e' : r.pass_check === false ? '#ef4444' : '#94a3b8' }}>
@@ -211,6 +229,21 @@ export default function ReportsPage() {
                         background: pc.report_type === '晨规划' ? 'rgba(59,130,246,0.15)' : pc.report_type === '晚复盘' ? 'rgba(168,85,247,0.15)' : 'rgba(34,197,94,0.15)',
                         color: pc.report_type === '晨规划' ? '#3b82f6' : pc.report_type === '晚复盘' ? '#a855f7' : '#22c55e'
                       }}>{pc.report_type}</span>
+                    )}
+                    {/* V2.2 结构化关联标签 */}
+                    {(detail.project_code || detail.sprint_task_title) && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {detail.project_code && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px]" style={{ background: 'rgba(100,116,139,0.15)', color: '#94a3b8' }}>
+                            📁 <span className="font-mono">{detail.project_code}</span> {detail.project_name}
+                          </span>
+                        )}
+                        {detail.sprint_task_title && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px]" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
+                            📋 {detail.sprint_task_title}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <button onClick={() => setDrawerOpen(false)} className="p-1"><X size={20} style={{ color: 'var(--color-text-secondary)' }} /></button>
