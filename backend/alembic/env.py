@@ -1,19 +1,20 @@
 """
 alembic/env.py — Alembic 异步迁移环境配置
 """
+
 import asyncio
+
+# 引入应用配置 + 触发所有模型注册到 Base.metadata
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.models  # noqa: F401  ← 走 __init__.py,把全部 20 张表纳入 metadata
 from alembic import context
-
-# 引入应用配置 + 触发所有模型注册到 Base.metadata
-import os
 from app.config import settings
 from app.database import Base
-import app.models  # noqa: F401  ← 走 __init__.py,把全部 20 张表纳入 metadata
 
 config = context.config
 

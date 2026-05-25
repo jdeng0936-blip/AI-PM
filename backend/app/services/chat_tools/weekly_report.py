@@ -10,6 +10,7 @@ chat_tools/weekly_report.py — AI 自动生成管理周报
   /chat/ask "帮我写本周周报" → LLM 决定调 generate_weekly_report
   scheduler 周一 09:00 → 直接调 generate_weekly_report → 走通知服务推送
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,7 +38,9 @@ logger = logging.getLogger("aipm.weekly_report")
 
 
 async def collect_weekly_data(
-    db: AsyncSession, *, end_date: Optional[date] = None,
+    db: AsyncSession,
+    *,
+    end_date: Optional[date] = None,
 ) -> dict[str, Any]:
     """收集"上一个完整周(周一→周日)"的数据。end_date 默认昨天。"""
     if end_date is None:
@@ -92,9 +95,13 @@ async def collect_weekly_data(
     # 3) 风险预警(本周新增 + 仍未解决)
     risk_stmt = (
         select(
-            User.name, User.department, RiskAlert.description,
-            RiskAlert.alert_type, RiskAlert.days_unresolved,
-            RiskAlert.status, RiskAlert.created_at,
+            User.name,
+            User.department,
+            RiskAlert.description,
+            RiskAlert.alert_type,
+            RiskAlert.days_unresolved,
+            RiskAlert.status,
+            RiskAlert.created_at,
         )
         .join(User, RiskAlert.user_id == User.id)
         .where(RiskAlert.created_at >= monday)
@@ -114,11 +121,7 @@ async def collect_weekly_data(
     ]
 
     # 4) 项目健康度
-    proj_stmt = (
-        select(Project)
-        .where(Project.status == ProjectStatus.active)
-        .order_by(Project.health_score)
-    )
+    proj_stmt = select(Project).where(Project.status == ProjectStatus.active).order_by(Project.health_score)
     projects = [
         {
             "code": p.code,
@@ -133,7 +136,8 @@ async def collect_weekly_data(
     # 5) Top/Bottom 人员
     user_perf_stmt = (
         select(
-            User.name, User.department,
+            User.name,
+            User.department,
             func.avg(DailyReport.ai_score).label("avg_score"),
             func.count(DailyReport.id).label("submitted"),
         )
@@ -202,9 +206,7 @@ async def render_weekly_report_markdown(data: dict[str, Any]) -> str:
         "messages": [
             {
                 "role": "user",
-                "content": WEEKLY_PROMPT.format(
-                    data_json=json.dumps(data, ensure_ascii=False, indent=2)
-                ),
+                "content": WEEKLY_PROMPT.format(data_json=json.dumps(data, ensure_ascii=False, indent=2)),
             }
         ],
         "temperature": model_config.get("temperature", 0.5),

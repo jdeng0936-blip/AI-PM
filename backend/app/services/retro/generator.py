@@ -8,6 +8,7 @@ app/services/retro/generator.py — 复盘生成主入口
 - scheduled_tasks 的季度自动触发
 - chat_tools.retro 的对话触发
 """
+
 from __future__ import annotations
 
 import logging
@@ -64,9 +65,13 @@ async def generate_retrospective(
 
     # 1) 聚合数据
     data, default_title, source_id, related_project_id = await _collect(
-        db, scope=scope, target_id=target_id,
-        year=year, month=month,
-        project_id=project_id, incident_id=incident_id,
+        db,
+        scope=scope,
+        target_id=target_id,
+        year=year,
+        month=month,
+        project_id=project_id,
+        incident_id=incident_id,
     )
     if "error" in data:
         raise ValueError(data["error"])
@@ -105,7 +110,8 @@ async def generate_retrospective(
 
 
 async def generate_retrospective_safe(
-    db: AsyncSession, **kwargs: Any,
+    db: AsyncSession,
+    **kwargs: Any,
 ) -> Optional[RetroGenerationResult]:
     """异常安全版本(给定时任务/Tool 调用用),失败返回 None"""
     try:
@@ -121,11 +127,14 @@ async def generate_retrospective_safe(
 
 
 async def _collect(
-    db: AsyncSession, *,
+    db: AsyncSession,
+    *,
     scope: str,
     target_id: Optional[str],
-    year: Optional[int], month: Optional[int],
-    project_id: Optional[str], incident_id: Optional[str],
+    year: Optional[int],
+    month: Optional[int],
+    project_id: Optional[str],
+    incident_id: Optional[str],
 ) -> tuple[dict, str, Optional[str], Optional[str]]:
     """返回 (data, default_title, source_id, related_project_id)"""
     if scope == RetroScope.OKR_CYCLE:

@@ -3,17 +3,17 @@ app/routers/trends.py — 趋势统计 API
 
 个人评分趋势、部门对比、自动周报生成。
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
+from app.middleware.rbac import get_current_user, require_role
 from app.models.daily_report import DailyReport
 from app.models.user import User, UserRole
 
@@ -38,10 +38,12 @@ async def my_score_trend(
             DailyReport.ai_score,
             DailyReport.pass_check,
         )
-        .where(and_(
-            DailyReport.user_id == current_user.id,
-            DailyReport.report_date >= since,
-        ))
+        .where(
+            and_(
+                DailyReport.user_id == current_user.id,
+                DailyReport.report_date >= since,
+            )
+        )
         .order_by(DailyReport.report_date)
     )
     rows = (await db.execute(stmt)).all()
@@ -99,9 +101,7 @@ async def department_stats(
 
     # 每个部门的活跃人数
     dept_users = await db.execute(
-        select(User.department, func.count(User.id))
-        .where(User.is_active == True)
-        .group_by(User.department)
+        select(User.department, func.count(User.id)).where(User.is_active == True).group_by(User.department)
     )
     dept_user_count = {r[0]: r[1] for r in dept_users.all()}
 
@@ -136,10 +136,12 @@ async def generate_weekly_report(
     stmt = (
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(
-            DailyReport.report_date >= start,
-            DailyReport.report_date <= end,
-        ))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+            )
+        )
         .order_by(DailyReport.report_date, User.department)
     )
     rows = (await db.execute(stmt)).all()
@@ -160,10 +162,10 @@ async def generate_weekly_report(
 
     try:
         from app.services.ai_engine import generate_morning_briefing
+
         # 复用晨报生成函数，prompt 足够通用
         ai_report = await generate_morning_briefing(
-            f"以下是 {start} 至 {end} 一整周的全员日报汇总，"
-            f"请生成管理层周报（Markdown 格式）：\n\n" + "\n".join(lines)
+            f"以下是 {start} 至 {end} 一整周的全员日报汇总，请生成管理层周报（Markdown 格式）：\n\n" + "\n".join(lines)
         )
     except Exception as e:
         ai_report = f"AI 生成失败: {str(e)[:200]}\n\n原始数据已保留。"

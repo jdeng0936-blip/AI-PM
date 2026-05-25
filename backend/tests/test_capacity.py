@@ -10,6 +10,7 @@ tests/test_capacity.py — 资源水位测试
 - department_capacity_summary 部门聚合
 - Chat Tools 集成
 """
+
 from __future__ import annotations
 
 import uuid
@@ -39,7 +40,6 @@ from app.services.capacity_engine import (
 )
 from app.services.chat_tools import registry
 
-
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
 
@@ -63,18 +63,24 @@ async def seeded(db):
     """
     over_user = User(
         wechat_userid=f"t_over_{uuid.uuid4().hex[:6]}",
-        name="过载工", department="软件研发部",
-        role=UserRole.employee, story_points_capacity=8,
+        name="过载工",
+        department="软件研发部",
+        role=UserRole.employee,
+        story_points_capacity=8,
     )
     idle_user = User(
         wechat_userid=f"t_idle_{uuid.uuid4().hex[:6]}",
-        name="闲置工", department="软件研发部",
-        role=UserRole.employee, story_points_capacity=8,
+        name="闲置工",
+        department="软件研发部",
+        role=UserRole.employee,
+        story_points_capacity=8,
     )
     normal_user = User(
         wechat_userid=f"t_norm_{uuid.uuid4().hex[:6]}",
-        name="健康工", department="采购部",
-        role=UserRole.employee, story_points_capacity=8,
+        name="健康工",
+        department="采购部",
+        role=UserRole.employee,
+        story_points_capacity=8,
     )
     db.add_all([over_user, idle_user, normal_user])
     await db.commit()
@@ -82,8 +88,10 @@ async def seeded(db):
         await db.refresh(u)
 
     proj = Project(
-        code=f"P-{uuid.uuid4().hex[:6]}", name="水位测试",
-        track=ProjectTrack.software, status=ProjectStatus.active,
+        code=f"P-{uuid.uuid4().hex[:6]}",
+        name="水位测试",
+        track=ProjectTrack.software,
+        status=ProjectStatus.active,
         created_by=over_user.id,
     )
     db.add(proj)
@@ -91,10 +99,13 @@ async def seeded(db):
     await db.refresh(proj)
 
     sprint = Sprint(
-        project_id=proj.id, sprint_number=1, goal="capacity test",
+        project_id=proj.id,
+        sprint_number=1,
+        goal="capacity test",
         start_date=date.today() - timedelta(days=2),
         end_date=date.today() + timedelta(days=11),
-        planned_story_points=30, status=SprintStatus.active,
+        planned_story_points=30,
+        status=SprintStatus.active,
         created_by=over_user.id,
     )
     db.add(sprint)
@@ -103,42 +114,68 @@ async def seeded(db):
 
     # over: 3 个任务 5+5+5=15pt(其中 1 个 todo + 非关键路径,可调配)
     t1 = SprintTask(
-        sprint_id=sprint.id, assignee_id=over_user.id,
-        title="ov_t1", story_points=5, status=TaskStatus.in_progress,
-        priority=TaskPriority.p1, is_on_critical_path=True,
+        sprint_id=sprint.id,
+        assignee_id=over_user.id,
+        title="ov_t1",
+        story_points=5,
+        status=TaskStatus.in_progress,
+        priority=TaskPriority.p1,
+        is_on_critical_path=True,
         created_by=over_user.id,
     )
     t2 = SprintTask(
-        sprint_id=sprint.id, assignee_id=over_user.id,
-        title="ov_t2", story_points=5, status=TaskStatus.todo,
-        priority=TaskPriority.p2, is_on_critical_path=False,
+        sprint_id=sprint.id,
+        assignee_id=over_user.id,
+        title="ov_t2",
+        story_points=5,
+        status=TaskStatus.todo,
+        priority=TaskPriority.p2,
+        is_on_critical_path=False,
         created_by=over_user.id,
     )
     t3 = SprintTask(
-        sprint_id=sprint.id, assignee_id=over_user.id,
-        title="ov_t3", story_points=5, status=TaskStatus.todo,
-        priority=TaskPriority.p3, is_on_critical_path=False,
+        sprint_id=sprint.id,
+        assignee_id=over_user.id,
+        title="ov_t3",
+        story_points=5,
+        status=TaskStatus.todo,
+        priority=TaskPriority.p3,
+        is_on_critical_path=False,
         created_by=over_user.id,
     )
     # idle: 1 个 1pt 任务
     t4 = SprintTask(
-        sprint_id=sprint.id, assignee_id=idle_user.id,
-        title="id_t1", story_points=1, status=TaskStatus.todo,
+        sprint_id=sprint.id,
+        assignee_id=idle_user.id,
+        title="id_t1",
+        story_points=1,
+        status=TaskStatus.todo,
         created_by=idle_user.id,
     )
     # normal: 5pt(健康)
     t5 = SprintTask(
-        sprint_id=sprint.id, assignee_id=normal_user.id,
-        title="nm_t1", story_points=5, status=TaskStatus.in_progress,
+        sprint_id=sprint.id,
+        assignee_id=normal_user.id,
+        title="nm_t1",
+        story_points=5,
+        status=TaskStatus.in_progress,
         created_by=normal_user.id,
     )
     db.add_all([t1, t2, t3, t4, t5])
     await db.commit()
 
     return {
-        "db": db, "proj": proj, "sprint": sprint,
-        "over_user": over_user, "idle_user": idle_user, "normal_user": normal_user,
-        "t1": t1, "t2": t2, "t3": t3, "t4": t4, "t5": t5,
+        "db": db,
+        "proj": proj,
+        "sprint": sprint,
+        "over_user": over_user,
+        "idle_user": idle_user,
+        "normal_user": normal_user,
+        "t1": t1,
+        "t2": t2,
+        "t3": t3,
+        "t4": t4,
+        "t5": t5,
     }
 
 
@@ -167,8 +204,11 @@ def test_classify_level_boundaries():
 async def test_compute_user_capacity_overload(seeded, monkeypatch):
     """over_user: 15pt 分配 / 8pt 容量 = 187%"""
     db = seeded["db"]
+
     # 屏蔽 velocity 调整,避免历史样本影响判定
-    async def fake_v(*a, **kw): return 1.0
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     m = await compute_user_capacity(db, seeded["over_user"], seeded["sprint"])
@@ -183,7 +223,10 @@ async def test_compute_user_capacity_overload(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_compute_user_capacity_idle(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     m = await compute_user_capacity(db, seeded["idle_user"], seeded["sprint"])
@@ -195,7 +238,10 @@ async def test_compute_user_capacity_idle(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_compute_user_capacity_healthy(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     m = await compute_user_capacity(db, seeded["normal_user"], seeded["sprint"])
@@ -208,7 +254,10 @@ async def test_compute_user_capacity_healthy(seeded, monkeypatch):
 async def test_compute_user_capacity_on_leave(seeded, monkeypatch):
     """休假状态:effective_capacity 应为 0,utilization=2.0(极度过载)"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     seeded["normal_user"].status = UserStatus.on_leave
@@ -223,7 +272,10 @@ async def test_compute_user_capacity_on_leave(seeded, monkeypatch):
 async def test_compute_user_capacity_on_travel(seeded, monkeypatch):
     """出差状态:容量 ×0.5"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     seeded["normal_user"].status = UserStatus.on_travel
@@ -242,7 +294,10 @@ async def test_compute_user_capacity_on_travel(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_snapshot_writes_all_assignees(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     rows = await snapshot_sprint_capacity(db, seeded["sprint"].id)
@@ -250,12 +305,10 @@ async def test_snapshot_writes_all_assignees(seeded, monkeypatch):
     assert len(rows) == 3  # 3 个 assignee
 
     saved = (
-        await db.execute(
-            select(CapacitySnapshot).where(
-                CapacitySnapshot.sprint_id == seeded["sprint"].id
-            )
-        )
-    ).scalars().all()
+        (await db.execute(select(CapacitySnapshot).where(CapacitySnapshot.sprint_id == seeded["sprint"].id)))
+        .scalars()
+        .all()
+    )
     assert len(saved) == 3
 
 
@@ -263,7 +316,10 @@ async def test_snapshot_writes_all_assignees(seeded, monkeypatch):
 async def test_snapshot_idempotent(seeded, monkeypatch):
     """重复 snapshot 应更新而非新增"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
@@ -273,12 +329,10 @@ async def test_snapshot_idempotent(seeded, monkeypatch):
     await db.commit()
 
     rows = (
-        await db.execute(
-            select(CapacitySnapshot).where(
-                CapacitySnapshot.sprint_id == seeded["sprint"].id
-            )
-        )
-    ).scalars().all()
+        (await db.execute(select(CapacitySnapshot).where(CapacitySnapshot.sprint_id == seeded["sprint"].id)))
+        .scalars()
+        .all()
+    )
     assert len(rows) == 3  # 没有重复
 
 
@@ -286,7 +340,10 @@ async def test_snapshot_idempotent(seeded, monkeypatch):
 async def test_snapshot_reflects_task_status_change(seeded, monkeypatch):
     """改任务状态后重新 snapshot,allocated 应减少"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
@@ -321,7 +378,10 @@ async def test_snapshot_reflects_task_status_change(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_find_overloaded(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
@@ -336,7 +396,10 @@ async def test_find_overloaded(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_find_underutilized(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
@@ -356,7 +419,10 @@ async def test_find_underutilized(seeded, monkeypatch):
 async def test_rebalance_picks_non_critical_todo(seeded, monkeypatch):
     """调配只移动 todo + 非关键路径任务"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
@@ -375,7 +441,10 @@ async def test_rebalance_picks_non_critical_todo(seeded, monkeypatch):
 async def test_rebalance_prefers_same_department(seeded, monkeypatch):
     """同部门 idle 优先匹配:idle_user 与 over_user 都在软件研发部"""
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
@@ -403,7 +472,10 @@ async def test_rebalance_empty_when_no_overload(db):
 @pytest.mark.asyncio
 async def test_department_summary(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
@@ -437,11 +509,16 @@ def test_capacity_tools_registered():
 @pytest.mark.asyncio
 async def test_tool_workload_status(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
 
     result = await registry.dispatch(
-        "workload_status", db, {"project_query": seeded["proj"].code},
+        "workload_status",
+        db,
+        {"project_query": seeded["proj"].code},
     )
     assert result["member_count"] == 3
     assert result["distribution"]["overload"] >= 1
@@ -451,13 +528,18 @@ async def test_tool_workload_status(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_rebalance_suggestion(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake_v(*a, **kw): return 1.0
+
+    async def fake_v(*a, **kw):
+        return 1.0
+
     monkeypatch.setattr(capacity_engine, "compute_velocity_factor", fake_v)
     await snapshot_sprint_capacity(db, seeded["sprint"].id)
     await db.commit()
 
     result = await registry.dispatch(
-        "rebalance_suggestion", db, {"project_query": seeded["proj"].code},
+        "rebalance_suggestion",
+        db,
+        {"project_query": seeded["proj"].code},
     )
     assert result["overloaded_count"] >= 1
     assert result["move_count"] >= 1
@@ -466,6 +548,8 @@ async def test_tool_rebalance_suggestion(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_workload_status_no_project(db):
     result = await registry.dispatch(
-        "workload_status", db, {"project_query": "不存在xxx"},
+        "workload_status",
+        db,
+        {"project_query": "不存在xxx"},
     )
     assert "error" in result

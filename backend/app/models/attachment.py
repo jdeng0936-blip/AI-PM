@@ -6,13 +6,18 @@ app/models/attachment.py — 附件元数据表
 - 与 daily_reports 弱绑定:既支持「未提交日报前先上传」,也支持「直接关联到已提交日报」
 - 支持图片/语音/文档三类,语音附加 transcript 字段保存讯飞 ASR 结果
 """
+
 import enum
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    BigInteger, DateTime, Enum, ForeignKey, Integer, String, Text,
+    BigInteger,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,7 +51,10 @@ class Attachment(BaseMixin, Base):
 
     # 文件元数据
     kind: Mapped[AttachmentKind] = mapped_column(
-        Enum(AttachmentKind), nullable=False, default=AttachmentKind.other, index=True,
+        Enum(AttachmentKind),
+        nullable=False,
+        default=AttachmentKind.other,
+        index=True,
     )
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False, default="")

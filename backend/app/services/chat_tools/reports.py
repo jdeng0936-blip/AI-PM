@@ -4,6 +4,7 @@ chat_tools/reports.py — 日报相关查询 Tools
 提供给 LLM 调用的报表查询能力。所有 SQL 必读不写,绝不暴露给 LLM
 任意的表名/字段名 — 一律走预定义聚合。
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -15,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.daily_report import DailyReport
 from app.models.user import User
 from app.services.chat_tools import tool
-
 
 # ────────────────────────────────────────────────────────────────
 # 辅助:把自然语言时间段解析成 (start_date, end_date)
@@ -281,9 +281,7 @@ async def avg_score_by_department(
             func.count(DailyReport.id).label("report_count"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(
-            and_(DailyReport.report_date >= start, DailyReport.report_date <= end)
-        )
+        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
         .group_by(User.department)
         .order_by(desc("avg_score"))
     )
@@ -315,9 +313,7 @@ async def list_missing_today(db: AsyncSession) -> dict:
     users = (await db.execute(users_stmt)).scalars().all()
 
     missing = [
-        {"user": u.name, "department": u.department, "role": u.role.value}
-        for u in users
-        if u.id not in submitted_ids
+        {"user": u.name, "department": u.department, "role": u.role.value} for u in users if u.id not in submitted_ids
     ]
     return {
         "date": today.isoformat(),

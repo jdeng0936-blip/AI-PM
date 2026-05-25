@@ -15,14 +15,14 @@ app/services/capacity_engine.py — 资源负载水位计算引擎
 - high:      80% ~ 100%
 - overload:  ≥ 100%
 """
+
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
@@ -50,7 +50,9 @@ def classify_level(utilization: float) -> CapacityLevel:
 
 
 async def compute_velocity_factor(
-    db: AsyncSession, user_id: UUID, last_n: int = 4,
+    db: AsyncSession,
+    user_id: UUID,
+    last_n: int = 4,
 ) -> float:
     """
     velocity_factor = 历史平均完成点 / 标称容量
@@ -66,29 +68,36 @@ async def compute_velocity_factor(
 
     # 拉最近 N 个完成的 sprint 中该用户的 done 任务
     sprints = (
-        await db.execute(
-            select(Sprint)
-            .where(Sprint.status == SprintStatus.completed)
-            .order_by(desc(Sprint.end_date))
-            .limit(last_n * 3)  # 该用户不一定每个 sprint 都参与,多拉一些
+        (
+            await db.execute(
+                select(Sprint)
+                .where(Sprint.status == SprintStatus.completed)
+                .order_by(desc(Sprint.end_date))
+                .limit(last_n * 3)  # 该用户不一定每个 sprint 都参与,多拉一些
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not sprints:
         return 1.0
 
     sprint_ids = [s.id for s in sprints]
     rows = (
-        await db.execute(
-            select(SprintTask)
-            .where(
-                and_(
-                    SprintTask.assignee_id == user_id,
-                    SprintTask.sprint_id.in_(sprint_ids),
-                    SprintTask.status == TaskStatus.done,
+        (
+            await db.execute(
+                select(SprintTask).where(
+                    and_(
+                        SprintTask.assignee_id == user_id,
+                        SprintTask.sprint_id.in_(sprint_ids),
+                        SprintTask.status == TaskStatus.done,
+                    )
                 )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not rows:
         return 1.0
 
@@ -120,26 +129,26 @@ async def compute_user_capacity(
 ) -> dict[str, Any]:
     """计算单人单 Sprint 水位指标,返回 dict(不落库)"""
     tasks = (
-        await db.execute(
-            select(SprintTask).where(
-                and_(
-                    SprintTask.sprint_id == sprint.id,
-                    SprintTask.assignee_id == user.id,
+        (
+            await db.execute(
+                select(SprintTask).where(
+                    and_(
+                        SprintTask.sprint_id == sprint.id,
+                        SprintTask.assignee_id == user.id,
+                    )
                 )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
-    active_tasks = [
-        t for t in tasks
-        if t.status in (TaskStatus.todo, TaskStatus.in_progress, TaskStatus.blocked)
-    ]
+    active_tasks = [t for t in tasks if t.status in (TaskStatus.todo, TaskStatus.in_progress, TaskStatus.blocked)]
     done_tasks = [t for t in tasks if t.status == TaskStatus.done]
 
     allocated = sum(t.story_points for t in active_tasks)
     completed = sum(
-        (t.actual_story_points if t.actual_story_points is not None else t.story_points)
-        for t in done_tasks
+        (t.actual_story_points if t.actual_story_points is not None else t.story_points) for t in done_tasks
     )
     blocked_count = sum(1 for t in active_tasks if t.status == TaskStatus.blocked)
     cp_count = sum(1 for t in tasks if t.is_on_critical_path)
@@ -155,9 +164,7 @@ async def compute_user_capacity(
     elif user.status == UserStatus.sick_leave:
         status_factor = 0.3
 
-    velocity_factor = (
-        await compute_velocity_factor(db, user.id) if apply_velocity else 1.0
-    )
+    velocity_factor = await compute_velocity_factor(db, user.id) if apply_velocity else 1.0
 
     effective_capacity = max(int(round(base_capacity * status_factor * velocity_factor)), 0)
 
@@ -207,7 +214,10 @@ async def compute_user_capacity(
 
 
 async def snapshot_sprint_capacity(
-    db: AsyncSession, sprint_id: UUID, *, include_unassigned: bool = False,
+    db: AsyncSession,
+    sprint_id: UUID,
+    *,
+    include_unassigned: bool = False,
 ) -> list[CapacitySnapshot]:
     """
     给某 Sprint 内有任务分配的所有用户写一条 CapacitySnapshot。
@@ -234,9 +244,7 @@ async def snapshot_sprint_capacity(
     if not user_ids:
         return []
 
-    users = (
-        await db.execute(select(User).where(User.id.in_(user_ids)))
-    ).scalars().all()
+    users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
 
     results: list[CapacitySnapshot] = []
     for user in users:
@@ -294,11 +302,7 @@ async def snapshot_sprint_capacity(
 async def run_weekly_capacity_refresh() -> None:
     logger.info("⏰ [周一 08:30] 资源水位刷新")
     async with AsyncSessionLocal() as db:
-        active_sprints = (
-            await db.execute(
-                select(Sprint).where(Sprint.status == SprintStatus.active)
-            )
-        ).scalars().all()
+        active_sprints = (await db.execute(select(Sprint).where(Sprint.status == SprintStatus.active))).scalars().all()
         total_snapshots = 0
         for s in active_sprints:
             try:
@@ -313,7 +317,8 @@ async def run_weekly_capacity_refresh() -> None:
 
         logger.info(
             "   完成 %d 个 active Sprint 的水位快照,共 %d 条用户记录",
-            len(active_sprints), total_snapshots,
+            len(active_sprints),
+            total_snapshots,
         )
 
 
@@ -349,13 +354,17 @@ async def _push_overload_alerts(db: AsyncSession) -> None:
     )
 
     admins = (
-        await db.execute(
-            select(User).where(
-                User.role.in_(["admin", "manager"]),
-                User.is_active == True,
+        (
+            await db.execute(
+                select(User).where(
+                    User.role.in_(["admin", "manager"]),
+                    User.is_active == True,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     for admin in admins:
         await notify_safe(
@@ -384,7 +393,10 @@ async def _push_overload_alerts(db: AsyncSession) -> None:
 
 
 async def find_overloaded(
-    db: AsyncSession, *, sprint_id: Optional[UUID] = None, limit: int = 20,
+    db: AsyncSession,
+    *,
+    sprint_id: Optional[UUID] = None,
+    limit: int = 20,
 ) -> list[dict[str, Any]]:
     """查询当前过载人员(可选限定某 Sprint)"""
     stmt = (
@@ -401,7 +413,10 @@ async def find_overloaded(
 
 
 async def find_underutilized(
-    db: AsyncSession, *, sprint_id: Optional[UUID] = None, limit: int = 20,
+    db: AsyncSession,
+    *,
+    sprint_id: Optional[UUID] = None,
+    limit: int = 20,
 ) -> list[dict[str, Any]]:
     """查询当前闲置人员(level=idle)"""
     stmt = (
@@ -443,7 +458,8 @@ def _snapshot_to_dict(snap: CapacitySnapshot, user: User) -> dict[str, Any]:
 
 
 async def suggest_rebalance(
-    db: AsyncSession, sprint_id: UUID,
+    db: AsyncSession,
+    sprint_id: UUID,
 ) -> dict[str, Any]:
     """
     生成 Sprint 内的任务调配建议:
@@ -473,38 +489,41 @@ async def suggest_rebalance(
     for over in overloaded:
         # 该过载成员的可移动任务:非关键路径 + 状态 todo,按点数降序
         tasks = (
-            await db.execute(
-                select(SprintTask).where(
-                    and_(
-                        SprintTask.sprint_id == sprint_id,
-                        SprintTask.assignee_id == UUID(over["user_id"]),
-                        SprintTask.status == TaskStatus.todo,
-                        SprintTask.is_on_critical_path.is_(False),
+            (
+                await db.execute(
+                    select(SprintTask)
+                    .where(
+                        and_(
+                            SprintTask.sprint_id == sprint_id,
+                            SprintTask.assignee_id == UUID(over["user_id"]),
+                            SprintTask.status == TaskStatus.todo,
+                            SprintTask.is_on_critical_path.is_(False),
+                        )
                     )
+                    .order_by(desc(SprintTask.story_points))
                 )
-                .order_by(desc(SprintTask.story_points))
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not tasks:
             continue
 
         # 候选接收方:同部门 idle,按剩余容量降序
         candidates = sorted(
             idle_by_dept.get(over["department"] or "", []),
-            key=lambda u: (u["effective_capacity"] - u["allocated_points"]),
+            key=lambda u: u["effective_capacity"] - u["allocated_points"],
             reverse=True,
         ) or sorted(
             idle,  # 跨部门兜底
-            key=lambda u: (u["effective_capacity"] - u["allocated_points"]),
+            key=lambda u: u["effective_capacity"] - u["allocated_points"],
             reverse=True,
         )
         if not candidates:
             continue
 
         # 简单贪心:把过载成员超出 80% 的部分挪给闲置成员
-        need_to_move = max(
-            int(over["allocated_points"] - over["effective_capacity"] * 0.8), 0
-        )
+        need_to_move = max(int(over["allocated_points"] - over["effective_capacity"] * 0.8), 0)
         moved_points = 0
         for task in tasks:
             if moved_points >= need_to_move:
@@ -547,7 +566,9 @@ async def suggest_rebalance(
 
 
 async def department_capacity_summary(
-    db: AsyncSession, *, sprint_id: Optional[UUID] = None,
+    db: AsyncSession,
+    *,
+    sprint_id: Optional[UUID] = None,
 ) -> dict[str, Any]:
     """部门级水位聚合(适合 admin 总览)"""
     stmt = (

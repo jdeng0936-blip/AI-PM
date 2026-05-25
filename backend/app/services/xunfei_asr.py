@@ -13,6 +13,7 @@ app/services/xunfei_asr.py — 讯飞流式语音识别(IAT)WebSocket 客户端
 - ASR_PROVIDER=none 或缺凭证 → transcribe() 返回 None,不报错
 - 非 wav/pcm/16k 输入暂不做格式转换(后续可接 ffmpeg),返回错误提示
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,11 +55,7 @@ def _build_auth_url() -> str:
     now = datetime.utcnow()
     date_str = formatdate(timeval=now.timestamp(), usegmt=True)
 
-    signature_origin = (
-        f"host: {IAT_HOST}\n"
-        f"date: {date_str}\n"
-        f"GET {IAT_PATH} HTTP/1.1"
-    )
+    signature_origin = f"host: {IAT_HOST}\ndate: {date_str}\nGET {IAT_PATH} HTTP/1.1"
     signature_sha = hmac.new(
         settings.xunfei_api_secret.encode("utf-8"),
         signature_origin.encode("utf-8"),

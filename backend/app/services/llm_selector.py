@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 app/services/llm_selector.py — LLM 动态模型选择器 (Rule 01-Stack-AI-Routing)
 
@@ -18,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 # 注册表文件路径（backend/llm_registry.yaml）
 _REGISTRY_PATH = Path(__file__).parent.parent.parent / "llm_registry.yaml"
@@ -58,10 +58,7 @@ class LLMSelector:
         """
         registry = _load_registry()
         if task_type not in registry:
-            raise KeyError(
-                f"未注册的 LLM 任务类型: '{task_type}'。"
-                f"可用的任务类型: {list(registry.keys())}"
-            )
+            raise KeyError(f"未注册的 LLM 任务类型: '{task_type}'。可用的任务类型: {list(registry.keys())}")
         return registry[task_type]
 
     @staticmethod

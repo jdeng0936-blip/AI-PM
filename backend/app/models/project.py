@@ -4,36 +4,35 @@ app/models/project.py — 项目总表
 一个"项目"代表一个完整的 IPD 研发周期（如"206样机研发及落地"）。
 health_status 由 health_engine.py 每日自动聚合日报数据后更新。
 """
+
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String
-from sqlalchemy import Enum
+from sqlalchemy import Date, Enum, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
 
 
 class ProjectTrack(str, enum.Enum):
-    dual     = "dual"      # 软硬双轨（智能硬件类项目主模式）
+    dual = "dual"  # 软硬双轨（智能硬件类项目主模式）
     software = "software"  # 纯软件项目（纯敏捷 Sprints）
     hardware = "hardware"  # 纯硬件项目（纯瀑布里程碑）
 
 
 class ProjectHealthStatus(str, enum.Enum):
-    green  = "green"   # 健康，整体推进正常
+    green = "green"  # 健康，整体推进正常
     yellow = "yellow"  # 存在卡点，需关注
-    red    = "red"     # 严重滞后或硬卡，需管理层介入
+    red = "red"  # 严重滞后或硬卡，需管理层介入
 
 
 class ProjectStatus(str, enum.Enum):
-    active    = "active"
-    paused    = "paused"
+    active = "active"
+    paused = "paused"
     completed = "completed"
     cancelled = "cancelled"
 

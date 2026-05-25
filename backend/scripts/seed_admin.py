@@ -2,19 +2,20 @@
 scripts/seed_admin.py — 创建默认管理员用户（总经理）
 运行方式: cd backend && python -m scripts.seed_admin
 """
+
 import asyncio
-import sys
 import os
+import sys
 
 # 确保 backend 目录在 path 中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select
 from passlib.context import CryptContext
+from sqlalchemy import select
 
-from app.database import AsyncSessionLocal, engine, Base
-from app.models.user import User, UserRole
+from app.database import AsyncSessionLocal, Base, engine
 from app.models.audit_log import AuditLog  # noqa: F401 — 确保表被注册
+from app.models.user import User, UserRole
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -103,9 +104,7 @@ async def seed():
     async with AsyncSessionLocal() as db:
         for u in SEED_USERS:
             # 检查是否已存在
-            result = await db.execute(
-                select(User).where(User.wechat_userid == u["wechat_userid"])
-            )
+            result = await db.execute(select(User).where(User.wechat_userid == u["wechat_userid"]))
             if result.scalar_one_or_none():
                 print(f"  ⏭️  用户 '{u['name']}' 已存在，跳过")
                 continue

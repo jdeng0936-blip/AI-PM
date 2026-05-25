@@ -1,13 +1,17 @@
 """
 模拟 7 人发日报 → Mock AI 解析 → 落库 → 前端可查看
 """
-import httpx
+
 import json
 
+import httpx
+
 BASE = "http://127.0.0.1:8001"
-TOKEN = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-         "eyJzdWIiOiJhMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJyb2xlIjoiYWRtaW4ifQ."
-         "aDcsWW4bnStxSF6m3bIAUWKy8uemp9kVAzzJ2HX9ths")
+TOKEN = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiJhMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJyb2xlIjoiYWRtaW4ifQ."
+    "aDcsWW4bnStxSF6m3bIAUWKy8uemp9kVAzzJ2HX9ths"
+)
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 
 # ── 7 人真实日报内容（模拟徽远成各部门员工每日汇报）──
@@ -45,9 +49,7 @@ DAILY_REPORTS = [
     },
     {
         "wechat_userid": "wx_zhengtaohui",
-        "raw_text": (
-            "今天在搭建测试环境"
-        ),
+        "raw_text": ("今天在搭建测试环境"),
     },
     {
         "wechat_userid": "wx_taoqun",
@@ -115,7 +117,7 @@ def main():
     alerts_count = sum(1 for r in results if r.get("management_alert"))
 
     print(f"\n{'═' * 60}")
-    print(f"  📊 汇总")
+    print("  📊 汇总")
     print(f"{'═' * 60}")
     print(f"  提交人数: {len(results)}")
     print(f"  通过/退回: {passed}/{len(results) - passed}")
@@ -123,8 +125,8 @@ def main():
     print(f"  最高分: {max(scores)} / 最低分: {min(scores)}")
     print(f"  预警数: {alerts_count}")
     print(f"{'═' * 60}")
-    print(f"\n  👉 打开前端查看: http://127.0.0.1:5173/reports")
-    print(f"  👉 Dashboard: http://127.0.0.1:5173/dashboard")
+    print("\n  👉 打开前端查看: http://127.0.0.1:5173/reports")
+    print("  👉 Dashboard: http://127.0.0.1:5173/dashboard")
 
 
 if __name__ == "__main__":

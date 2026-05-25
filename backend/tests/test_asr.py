@@ -6,12 +6,12 @@ tests/test_asr.py — ASR provider 路由 + 配置感知测试
 - _resolve_provider 按 ASR_PROVIDER 偏好 + 可用性回退
 - transcribe 在未配置时优雅返回 None
 """
+
 from __future__ import annotations
 
 import pytest
 
 from app.services import gemini_asr, xunfei_asr
-
 
 # ────────────────────────────────────────────────────────────────
 # is_configured 的关闭语义
@@ -20,6 +20,7 @@ from app.services import gemini_asr, xunfei_asr
 
 def test_xunfei_not_configured_when_provider_is_not_xunfei(monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "asr_provider", "gemini")
     monkeypatch.setattr(settings, "xunfei_app_id", "real-id")
     monkeypatch.setattr(settings, "xunfei_api_key", "k")
@@ -29,6 +30,7 @@ def test_xunfei_not_configured_when_provider_is_not_xunfei(monkeypatch):
 
 def test_xunfei_not_configured_with_placeholder_id(monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "asr_provider", "xunfei")
     monkeypatch.setattr(settings, "xunfei_app_id", "your_app_id")
     monkeypatch.setattr(settings, "xunfei_api_key", "k")
@@ -38,6 +40,7 @@ def test_xunfei_not_configured_with_placeholder_id(monkeypatch):
 
 def test_gemini_not_configured_when_provider_is_not_gemini(monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "asr_provider", "xunfei")
     monkeypatch.setattr(settings, "new_api_base_url", "http://x")
     monkeypatch.setattr(settings, "new_api_key", "k")
@@ -46,6 +49,7 @@ def test_gemini_not_configured_when_provider_is_not_gemini(monkeypatch):
 
 def test_gemini_configured_when_provider_is_gemini(monkeypatch):
     from app.config import settings
+
     monkeypatch.setattr(settings, "asr_provider", "gemini")
     monkeypatch.setattr(settings, "new_api_base_url", "http://x")
     monkeypatch.setattr(settings, "new_api_key", "k")
@@ -79,6 +83,7 @@ async def test_gemini_transcribe_returns_none_on_empty():
 
 def test_gemini_mime_guess():
     from app.services.gemini_asr import _guess_audio_mime
+
     assert _guess_audio_mime("a.wav", "audio/x") == "audio/wav"
     assert _guess_audio_mime("a.mp3", "audio/x") == "audio/mpeg"
     assert _guess_audio_mime("a.m4a", "audio/x") == "audio/mp4"
@@ -91,8 +96,8 @@ def test_gemini_mime_guess():
 
 
 def test_resolve_provider_prefers_configured(monkeypatch):
-    from app.routers.asr import _resolve_provider
     from app.config import settings
+    from app.routers.asr import _resolve_provider
 
     # 明确选 gemini 且可用
     monkeypatch.setattr(settings, "asr_provider", "gemini")
@@ -102,8 +107,8 @@ def test_resolve_provider_prefers_configured(monkeypatch):
 
 
 def test_resolve_provider_fallback_when_preferred_missing(monkeypatch):
-    from app.routers.asr import _resolve_provider
     from app.config import settings
+    from app.routers.asr import _resolve_provider
 
     # 偏好 xunfei 但只有 gemini 可用 → 回退到 gemini
     monkeypatch.setattr(settings, "asr_provider", "xunfei")
@@ -113,8 +118,8 @@ def test_resolve_provider_fallback_when_preferred_missing(monkeypatch):
 
 
 def test_resolve_provider_none_when_nothing(monkeypatch):
-    from app.routers.asr import _resolve_provider
     from app.config import settings
+    from app.routers.asr import _resolve_provider
 
     monkeypatch.setattr(settings, "asr_provider", "none")
     monkeypatch.setattr(gemini_asr, "is_configured", lambda: False)

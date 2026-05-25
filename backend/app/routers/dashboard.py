@@ -4,15 +4,16 @@ app/routers/dashboard.py — 管理看板核心数据 API
 对应管理层每日必看的"晨报视图"，是 Excel 所有行数据的可视化升级版。
 需要 manager 或 admin 角色才可访问。
 """
+
 from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, and_, Integer
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
+from app.middleware.rbac import get_current_user, require_role
 from app.models.daily_report import DailyReport
 from app.models.risk_alert import RiskAlert
 from app.models.user import User, UserRole
@@ -54,9 +55,7 @@ async def get_morning_briefing(
     all_users = all_users_result.scalars().all()
     reported_user_ids = {str(r.DailyReport.user_id) for r in rows}
     missing_members = [
-        {"name": u.name, "department": u.department}
-        for u in all_users
-        if str(u.id) not in reported_user_ids
+        {"name": u.name, "department": u.department} for u in all_users if str(u.id) not in reported_user_ids
     ]
 
     passed = [r for r in rows if r.DailyReport.pass_check]
@@ -71,9 +70,7 @@ async def get_morning_briefing(
             "fail_count": len(not_passed),
             "missing_count": len(missing_members),
             "pass_rate": round(len(passed) / max(len(rows), 1) * 100, 1),
-            "avg_score": round(
-                sum(r.DailyReport.ai_score or 0 for r in rows) / max(len(rows), 1), 1
-            ),
+            "avg_score": round(sum(r.DailyReport.ai_score or 0 for r in rows) / max(len(rows), 1), 1),
         },
         "not_passed_members": [
             {
@@ -146,8 +143,8 @@ async def get_token_usage(
     _user=Depends(require_role(UserRole.admin)),
 ):
     """今日 Token 消耗统计（仅 admin 可见）"""
-    from app.services.token_guard import get_daily_usage
     from app.config import settings
+    from app.services.token_guard import get_daily_usage
 
     used = await get_daily_usage(db)
     return {
@@ -176,19 +173,19 @@ async def get_weekly_stats(
             func.coalesce(func.avg(DailyReport.ai_score), 0).label("avg_score"),
             func.count().filter(DailyReport.pass_check == True).label("pass_count"),
         )
-        .where(and_(
-            DailyReport.report_date >= start,
-            DailyReport.report_date <= end,
-        ))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+            )
+        )
         .group_by(DailyReport.report_date)
         .order_by(DailyReport.report_date)
     )
     rows = (await db.execute(stmt)).all()
 
     # 总人数
-    total_users_result = await db.execute(
-        select(func.count()).select_from(User).where(User.is_active == True)
-    )
+    total_users_result = await db.execute(select(func.count()).select_from(User).where(User.is_active == True))
     total_users = total_users_result.scalar() or 0
 
     # 填充无数据的日期
@@ -205,16 +202,20 @@ async def get_weekly_stats(
     result = []
     for i in range(7):
         d = str(start + timedelta(days=i))
-        result.append(daily.get(d, {
-            "date": d,
-            "count": 0,
-            "avg_score": 0,
-            "pass_count": 0,
-            "pass_rate": 0,
-        }))
+        result.append(
+            daily.get(
+                d,
+                {
+                    "date": d,
+                    "count": 0,
+                    "avg_score": 0,
+                    "pass_count": 0,
+                    "pass_rate": 0,
+                },
+            )
+        )
 
     return {
         "total_users": total_users,
         "days": result,
     }
-

@@ -8,9 +8,8 @@ chat_tools/retro.py — 复盘相关 Tools
 
 注:生成新复盘走 routers/retro.py 的端点(LLM 不直接生成,避免 chat 端点超时)。
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,9 +72,7 @@ async def list_recent_retros(
         scope: 过滤复盘类型,可选 okr_cycle / project / monthly / incident,空=不过滤
         limit: 返回前 N 条
     """
-    stmt = select(KnowledgeItem).where(
-        KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE
-    )
+    stmt = select(KnowledgeItem).where(KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE)
     if scope:
         if scope not in (RetroScope.OKR_CYCLE, RetroScope.PROJECT, RetroScope.MONTHLY, RetroScope.INCIDENT):
             return {"error": f"scope 不合法:{scope}"}
@@ -109,6 +106,7 @@ async def get_retro(
         retro_id: 复盘的知识条目 UUID
     """
     import uuid as _uuid
+
     try:
         item = await db.get(KnowledgeItem, _uuid.UUID(retro_id))
     except (ValueError, TypeError):

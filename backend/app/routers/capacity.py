@@ -10,6 +10,7 @@ app/routers/capacity.py — 资源负载水位 API
 - GET  /capacity/department-summary             部门级聚合
 - GET  /capacity/users/{user_id}/timeline       某用户跨 Sprint 水位时间线
 """
+
 from __future__ import annotations
 
 import uuid
@@ -25,7 +26,6 @@ from app.models.capacity import CapacitySnapshot
 from app.models.sprint import Sprint
 from app.models.user import User, UserRole
 from app.services.capacity_engine import (
-    _snapshot_to_dict,
     compute_user_capacity,
     department_capacity_summary,
     find_overloaded,
@@ -56,10 +56,12 @@ async def sprint_capacity(
         raise HTTPException(404, "Sprint 不存在")
 
     from sqlalchemy import and_
+
     from app.models.sprint_task import SprintTask
 
     user_ids = [
-        r[0] for r in (
+        r[0]
+        for r in (
             await db.execute(
                 select(SprintTask.assignee_id)
                 .where(
@@ -189,8 +191,11 @@ async def user_capacity_timeline(
 
     user = await db.get(User, user_id)
     return {
-        "user": {"id": str(user_id), "name": user.name if user else "?",
-                  "department": user.department if user else None},
+        "user": {
+            "id": str(user_id),
+            "name": user.name if user else "?",
+            "department": user.department if user else None,
+        },
         "count": len(items),
         "timeline": items,
     }

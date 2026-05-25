@@ -9,11 +9,12 @@ app/middleware/rbac.py — RBAC 权限中间件
     async def admin_stats(user = Depends(require_role(UserRole.admin))):
         ...
 """
+
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError, jwt
 
 from app.config import settings
 from app.database import get_db
@@ -62,6 +63,7 @@ def require_role(*roles: UserRole):
         Depends(require_role(UserRole.admin))
         Depends(require_role(UserRole.admin, UserRole.manager))
     """
+
     async def _checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in roles:
             raise HTTPException(
@@ -69,12 +71,14 @@ def require_role(*roles: UserRole):
                 detail=f"该操作需要以下权限之一：{[r.value for r in roles]}",
             )
         return current_user
+
     return _checker
 
 
 def create_access_token(user_id: str, role: str = "employee") -> str:
     """生成 JWT Token（用于管理后台登录），payload 含 role"""
     from datetime import datetime, timedelta, timezone
+
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours)
     payload = {"sub": user_id, "role": role, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=ALGORITHM)

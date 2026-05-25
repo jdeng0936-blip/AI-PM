@@ -1,11 +1,12 @@
 """
 chat_tools/people.py — 人员与部门维度查询 Tools
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
@@ -159,9 +160,7 @@ async def user_snapshot(
     if not user_name:
         return {"error": "user_name 不能为空"}
 
-    user = (
-        await db.execute(select(User).where(User.name == user_name).limit(1))
-    ).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.name == user_name).limit(1))).scalar_one_or_none()
     if not user:
         return {"error": f"未找到员工『{user_name}』"}
 

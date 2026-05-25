@@ -8,10 +8,8 @@ chat_tools/capacity.py — 资源水位 Chat Tools
 - rebalance_suggestion   某 Sprint 任务调配建议
 - department_workload    部门级水位聚合
 """
-from __future__ import annotations
 
-from typing import Optional
-from uuid import UUID
+from __future__ import annotations
 
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +33,7 @@ async def _find_active_sprint(db: AsyncSession, project_query: str) -> tuple:
         return None, None
     proj = (
         await db.execute(
-            select(Project)
-            .where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%")))
-            .limit(1)
+            select(Project).where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%"))).limit(1)
         )
     ).scalar_one_or_none()
     if not proj:
@@ -69,11 +65,13 @@ async def workload_status(
         return {"project": proj.name, "message": "当前无 active Sprint"}
 
     from sqlalchemy import and_
+
     from app.models.sprint_task import SprintTask
     from app.models.user import User
 
     user_ids = [
-        r[0] for r in (
+        r[0]
+        for r in (
             await db.execute(
                 select(SprintTask.assignee_id)
                 .where(
@@ -115,7 +113,8 @@ async def workload_status(
                 "allocated": m["allocated_points"],
                 "capacity": m["effective_capacity"],
             }
-            for m in members if m["level"] == "overload"
+            for m in members
+            if m["level"] == "overload"
         ][:5],
         "top_idle": [
             {
@@ -124,7 +123,8 @@ async def workload_status(
                 "utilization": m["utilization"],
                 "free_capacity": m["effective_capacity"] - m["allocated_points"],
             }
-            for m in members if m["level"] == "idle"
+            for m in members
+            if m["level"] == "idle"
         ][:5],
     }
 

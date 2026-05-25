@@ -13,9 +13,11 @@ app/services/scheduler.py — APScheduler 定时任务调度中心
   - 每日 18:00 Sprint 燃尽快照(Week 7)
   - 每月 1 日  季度 OKR 汇总归档
 """
+
 from __future__ import annotations
 
 import logging
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -26,18 +28,18 @@ scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
 def start_scheduler() -> None:
     """注册所有定时任务并启动调度器"""
+    from app.services.capacity_engine import run_weekly_capacity_refresh
     from app.services.scheduled_tasks import (
+        auto_recover_expired_status,
+        remind_unreported_deadline,
         remind_unreported_friendly,
         remind_unreported_urgent,
-        remind_unreported_deadline,
         run_health_refresh_all,
         run_morning_briefing,
-        run_weekly_report,
         run_quarterly_okr_summary,
-        auto_recover_expired_status,
+        run_weekly_report,
     )
     from app.services.sprint_aggregator import run_daily_burndown_snapshots
-    from app.services.capacity_engine import run_weekly_capacity_refresh
 
     # ── 催报机制（三级） ──────────────────────────────────────────
     scheduler.add_job(

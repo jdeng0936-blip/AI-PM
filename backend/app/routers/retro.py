@@ -9,6 +9,7 @@ app/routers/retro.py — AI 复盘库 API
 - GET  /retro/items/{id}         单条详情(全员可见)
 - DELETE /retro/items/{id}       删除(admin)
 """
+
 from __future__ import annotations
 
 import uuid
@@ -134,9 +135,7 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    stmt = select(KnowledgeItem).where(
-        KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE
-    )
+    stmt = select(KnowledgeItem).where(KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE)
     if scope:
         stmt = stmt.where(KnowledgeItem.tags.ilike(f"%{scope}%"))
     if project_id:
@@ -145,11 +144,7 @@ async def list_items(
     # 简单 count(避免大量数据时性能问题留后续优化)
     total = len((await db.execute(stmt.with_only_columns(KnowledgeItem.id))).scalars().all())
 
-    stmt = (
-        stmt.order_by(desc(KnowledgeItem.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    stmt = stmt.order_by(desc(KnowledgeItem.created_at)).offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(stmt)).scalars().all()
 
     return RetroListResponse(

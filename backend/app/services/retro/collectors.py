@@ -3,6 +3,7 @@ app/services/retro/collectors.py — 复盘数据聚合器
 
 按四种 scope 收集业务数据,所有返回都是 JSON 可序列化的 dict,直接喂给 prompt。
 """
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -16,15 +17,12 @@ from app.models.daily_report import DailyReport
 from app.models.okr import (
     KeyResult,
     KRProgressLog,
-    KRProgressSource,
-    OKRCycle,
-    OKRStatus,
     Objective,
+    OKRCycle,
 )
-from app.models.project import Project, ProjectStatus
+from app.models.project import Project
 from app.models.risk_alert import RiskAlert
 from app.models.user import User
-
 
 # ────────────────────────────────────────────────────────────────
 # 共用:某时间段日报 + 风险 + 部门聚合
@@ -32,7 +30,11 @@ from app.models.user import User
 
 
 async def collect_period_basics(
-    db: AsyncSession, start: date, end: date, *, dept: Optional[str] = None,
+    db: AsyncSession,
+    start: date,
+    end: date,
+    *,
+    dept: Optional[str] = None,
 ) -> dict[str, Any]:
     """收集时间段内的通用业务素材(供 monthly/incident/项目复盘 复用)"""
     # 日报汇总
@@ -46,9 +48,7 @@ async def collect_period_basics(
             DailyReport.parsed_content,
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(
-            and_(DailyReport.report_date >= start, DailyReport.report_date <= end)
-        )
+        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
         .order_by(desc(DailyReport.report_date))
     )
     if dept:
@@ -67,8 +67,12 @@ async def collect_period_basics(
     # 风险
     risk_stmt = (
         select(
-            User.name, User.department, RiskAlert.description,
-            RiskAlert.alert_type, RiskAlert.days_unresolved, RiskAlert.status,
+            User.name,
+            User.department,
+            RiskAlert.description,
+            RiskAlert.alert_type,
+            RiskAlert.days_unresolved,
+            RiskAlert.status,
             RiskAlert.created_at,
         )
         .join(User, RiskAlert.user_id == User.id)
@@ -104,7 +108,8 @@ async def collect_period_basics(
     # 人员表现 Top/Bottom
     user_stmt = (
         select(
-            User.name, User.department,
+            User.name,
+            User.department,
             func.avg(DailyReport.ai_score).label("avg_score"),
             func.count(DailyReport.id).label("submitted"),
         )
@@ -115,7 +120,8 @@ async def collect_period_basics(
     )
     user_perf = [
         {
-            "name": r.name, "department": r.department,
+            "name": r.name,
+            "department": r.department,
             "avg_score": round(float(r.avg_score), 1) if r.avg_score else 0,
             "submitted": int(r.submitted),
         }
@@ -164,11 +170,7 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
     obj_ids = [o.id for o, _ in obj_rows]
     krs = []
     if obj_ids:
-        krs = (
-            await db.execute(
-                select(KeyResult).where(KeyResult.objective_id.in_(obj_ids))
-            )
-        ).scalars().all()
+        krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all()
 
     # 进度日志聚合(AI 提取 vs 手工 vs 系统)
     logs_summary = {"manual": 0, "ai_extracted": 0, "sprint_close": 0, "system": 0}
@@ -215,7 +217,8 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
 
     return {
         "cycle": {
-            "id": str(cycle.id), "name": cycle.name,
+            "id": str(cycle.id),
+            "name": cycle.name,
             "type": cycle.cycle_type.value,
             "start": str(cycle.start_date),
             "end": str(cycle.end_date),
@@ -244,7 +247,8 @@ async def collect_project(db: AsyncSession, project_id: UUID) -> dict[str, Any]:
     period = await collect_period_basics(db, start, end)
     return {
         "project": {
-            "code": proj.code, "name": proj.name,
+            "code": proj.code,
+            "name": proj.name,
             "track": proj.track.value if proj.track else None,
             "status": proj.status.value if proj.status else None,
             "current_stage": proj.current_stage,
@@ -272,17 +276,14 @@ async def collect_monthly(db: AsyncSession, year: int, month: int) -> dict[str, 
     period = await collect_period_basics(db, start, end)
 
     # 月度新增 / 关闭项目
-    proj_stmt = select(Project).where(
-        and_(Project.created_at >= start, Project.created_at <= end)
-    )
+    proj_stmt = select(Project).where(and_(Project.created_at >= start, Project.created_at <= end))
     new_projects = (await db.execute(proj_stmt)).scalars().all()
 
     return {
         "month": {"year": year, "month": month, "start": str(start), "end": str(end)},
         "period_basics": period,
         "new_projects": [
-            {"code": p.code, "name": p.name, "status": p.status.value if p.status else None}
-            for p in new_projects
+            {"code": p.code, "name": p.name, "status": p.status.value if p.status else None} for p in new_projects
         ],
     }
 

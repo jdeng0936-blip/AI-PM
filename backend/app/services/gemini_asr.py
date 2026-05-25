@@ -10,6 +10,7 @@ Gemini 原生支持音频输入(audio_url / inline base64 audio),
 
 格式支持:wav/mp3/aac/flac/m4a/ogg(Gemini Pro/Flash 都支持)
 """
+
 from __future__ import annotations
 
 import base64
@@ -79,8 +80,7 @@ async def transcribe(
                     {
                         "type": "text",
                         "text": (
-                            "请把这段音频完整准确地转写成中文文本,"
-                            "只输出转写结果本身,不要添加前缀、解释或标点修饰。"
+                            "请把这段音频完整准确地转写成中文文本,只输出转写结果本身,不要添加前缀、解释或标点修饰。"
                         ),
                     },
                     {

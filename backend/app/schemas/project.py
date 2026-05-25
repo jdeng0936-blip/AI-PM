@@ -1,10 +1,11 @@
 """
 app/schemas/project.py — IPD 项目相关 Pydantic V2 Schemas
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
@@ -25,6 +26,7 @@ class ProjectCreate(BaseModel):
 # ── 项目更新（PATCH）──────────────────────────────────────────────
 class ProjectUpdate(BaseModel):
     """所有字段可选；仅传入的字段会被更新。"""
+
     name: Optional[str] = Field(None, max_length=128)
     description: Optional[str] = Field(None, max_length=512)
     track: Optional[str] = Field(None, description="dual / software / hardware")
@@ -73,10 +75,7 @@ class SprintCreate(BaseModel):
 # ── Sprint 完成（填写回顾） ───────────────────────────────────────
 class SprintComplete(BaseModel):
     completed_story_points: int = Field(..., ge=0)
-    retrospective: dict = Field(
-        ...,
-        description="Sprint 回顾三问：{went_well:[], improve:[], action_items:[]}"
-    )
+    retrospective: dict = Field(..., description="Sprint 回顾三问：{went_well:[], improve:[], action_items:[]}")
 
 
 # ── 项目成员分配 ─────────────────────────────────────────────────

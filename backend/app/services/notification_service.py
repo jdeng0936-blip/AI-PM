@@ -18,6 +18,7 @@ app/services/notification_service.py — 统一通知分发服务
         related_type="report", related_id=str(report.id),
     )
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +34,7 @@ from app.models.notification import (
     NotificationTemplate,
 )
 from app.models.user import User
-from app.services import dingtalk_api, wechat_api, email_api
+from app.services import dingtalk_api, email_api, wechat_api
 
 logger = logging.getLogger("aipm.notification")
 
@@ -47,19 +48,12 @@ TEMPLATES: dict[NotificationTemplate, dict[str, str]] = {
     NotificationTemplate.report_rejected: {
         "title": "日报需要补充",
         "body": (
-            "### ⚠️ {name} 的日报未通过质检\n\n"
-            "**问题**: {reason}\n\n"
-            "**建议补充**:\n{guidance}\n\n"
-            "请尽快修改后重新提交。"
+            "### ⚠️ {name} 的日报未通过质检\n\n**问题**: {reason}\n\n**建议补充**:\n{guidance}\n\n请尽快修改后重新提交。"
         ),
     },
     NotificationTemplate.report_passed: {
         "title": "日报已收录",
-        "body": (
-            "### ✅ {name} 日报已收录\n\n"
-            "**评分**: {score}/100\n"
-            "**点评**: {comment}\n"
-        ),
+        "body": ("### ✅ {name} 日报已收录\n\n**评分**: {score}/100\n**点评**: {comment}\n"),
     },
     NotificationTemplate.risk_alert: {
         "title": "风险预警",
@@ -92,10 +86,7 @@ TEMPLATES: dict[NotificationTemplate, dict[str, str]] = {
     },
     NotificationTemplate.reminder_missed: {
         "title": "缺勤通知",
-        "body": (
-            "### 📋 {date} 未提交日报名单\n\n{missing_list}\n\n"
-            "请相关同学补提交,管理层已收到本通知。"
-        ),
+        "body": ("### 📋 {date} 未提交日报名单\n\n{missing_list}\n\n请相关同学补提交,管理层已收到本通知。"),
     },
     NotificationTemplate.sprint_review: {
         "title": "Sprint 回顾",
@@ -124,9 +115,7 @@ TEMPLATES: dict[NotificationTemplate, dict[str, str]] = {
 }
 
 
-def render_template(
-    template: NotificationTemplate, context: dict[str, Any]
-) -> tuple[str, str]:
+def render_template(template: NotificationTemplate, context: dict[str, Any]) -> tuple[str, str]:
     """渲染模板,返回 (title, body)。占位符缺失会用空串兜底。"""
     spec = TEMPLATES.get(template)
     if not spec:
@@ -145,6 +134,7 @@ def render_template(
 # ────────────────────────────────────────────────────────────────
 # 渠道分发
 # ────────────────────────────────────────────────────────────────
+
 
 async def _dispatch_one(
     channel: NotificationChannel,
@@ -213,6 +203,7 @@ async def _dispatch_one(
 # ────────────────────────────────────────────────────────────────
 # 对外主接口
 # ────────────────────────────────────────────────────────────────
+
 
 async def notify(
     db: AsyncSession,

@@ -7,6 +7,7 @@ app/services/sprint_aggregator.py — Sprint 数据归集与燃尽计算
 - compute_burndown_series(sprint_id): 生成「日期 → 理想/实际剩余点」时间序列(供前端)
 - compute_velocity_history(project_id, last_n=6): 项目近 N 个已完成 Sprint 的速率历史
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,7 +15,7 @@ from datetime import date, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
@@ -34,23 +35,21 @@ logger = logging.getLogger("aipm.sprint_aggregator")
 
 
 async def snapshot_burndown(
-    db: AsyncSession, sprint_id: UUID, *, snap_date: Optional[date] = None,
+    db: AsyncSession,
+    sprint_id: UUID,
+    *,
+    snap_date: Optional[date] = None,
 ) -> BurndownSnapshot:
     """计算 sprint_id 当前任务状态,落一条 BurndownSnapshot 记录"""
     if snap_date is None:
         snap_date = date.today()
 
-    tasks = (
-        await db.execute(
-            select(SprintTask).where(SprintTask.sprint_id == sprint_id)
-        )
-    ).scalars().all()
+    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
 
     total_points = sum(t.story_points for t in tasks)
     done_tasks = [t for t in tasks if t.status == TaskStatus.done]
     completed_points = sum(
-        (t.actual_story_points if t.actual_story_points is not None else t.story_points)
-        for t in done_tasks
+        (t.actual_story_points if t.actual_story_points is not None else t.story_points) for t in done_tasks
     )
     remaining_points = max(total_points - completed_points, 0)
 
@@ -104,11 +103,7 @@ async def run_daily_burndown_snapshots() -> None:
     """定时任务:每日 18:00 给所有 active Sprint 写快照"""
     logger.info("⏰ [18:00] Sprint 每日燃尽快照")
     async with AsyncSessionLocal() as db:
-        rows = (
-            await db.execute(
-                select(Sprint).where(Sprint.status == SprintStatus.active)
-            )
-        ).scalars().all()
+        rows = (await db.execute(select(Sprint).where(Sprint.status == SprintStatus.active))).scalars().all()
         for s in rows:
             try:
                 await snapshot_burndown(db, s.id)
@@ -124,7 +119,8 @@ async def run_daily_burndown_snapshots() -> None:
 
 
 async def compute_burndown_series(
-    db: AsyncSession, sprint_id: UUID,
+    db: AsyncSession,
+    sprint_id: UUID,
 ) -> dict[str, Any]:
     """
     返回前端 Recharts 用的燃尽序列:
@@ -145,11 +141,7 @@ async def compute_burndown_series(
     span_days = max((end - start).days + 1, 1)
 
     # 任务总点数(用当前真实值,可能 sprint 进行中临时加任务)
-    tasks = (
-        await db.execute(
-            select(SprintTask).where(SprintTask.sprint_id == sprint.id)
-        )
-    ).scalars().all()
+    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint.id))).scalars().all()
     total_points = sum(t.story_points for t in tasks) or sprint.planned_story_points
 
     # 理想燃尽线:从总点数线性递减到 0
@@ -164,12 +156,16 @@ async def compute_burndown_series(
 
     # 实际燃尽线:取所有快照,按日期升序
     snaps = (
-        await db.execute(
-            select(BurndownSnapshot)
-            .where(BurndownSnapshot.sprint_id == sprint.id)
-            .order_by(BurndownSnapshot.snapshot_date)
+        (
+            await db.execute(
+                select(BurndownSnapshot)
+                .where(BurndownSnapshot.sprint_id == sprint.id)
+                .order_by(BurndownSnapshot.snapshot_date)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     actual = [
         {
@@ -227,22 +223,28 @@ async def compute_burndown_series(
 
 
 async def compute_velocity_history(
-    db: AsyncSession, project_id: UUID, last_n: int = 6,
+    db: AsyncSession,
+    project_id: UUID,
+    last_n: int = 6,
 ) -> dict[str, Any]:
     """近 N 个已完成 Sprint 的速率(完成点数)历史"""
     rows = (
-        await db.execute(
-            select(Sprint)
-            .where(
-                and_(
-                    Sprint.project_id == project_id,
-                    Sprint.status == SprintStatus.completed,
+        (
+            await db.execute(
+                select(Sprint)
+                .where(
+                    and_(
+                        Sprint.project_id == project_id,
+                        Sprint.status == SprintStatus.completed,
+                    )
                 )
+                .order_by(desc(Sprint.end_date))
+                .limit(last_n)
             )
-            .order_by(desc(Sprint.end_date))
-            .limit(last_n)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     items = [
         {
@@ -254,9 +256,7 @@ async def compute_velocity_history(
         }
         for s in reversed(rows)
     ]
-    avg = (
-        round(sum(i["completed"] for i in items) / len(items), 1) if items else 0
-    )
+    avg = round(sum(i["completed"] for i in items) / len(items), 1) if items else 0
     return {
         "project_id": str(project_id),
         "history": items,

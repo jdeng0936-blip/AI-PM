@@ -15,6 +15,7 @@ milestones JSONB 结构示例（硬件轨）：
   {"name": "贴片组装完成", "planned_date": "2026-04-01", "actual_date": null, "status": "blocked"}
 ]
 """
+
 import enum
 import uuid
 from datetime import date, datetime
@@ -23,7 +24,6 @@ from typing import Optional
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
@@ -32,13 +32,13 @@ from app.models.base_mixin import BaseMixin
 class StageTrack(str, enum.Enum):
     hardware = "hardware"
     software = "software"
-    both     = "both"      # 联调阶段双轨合并
+    both = "both"  # 联调阶段双轨合并
 
 
 class StageHealthStatus(str, enum.Enum):
-    green  = "green"
+    green = "green"
     yellow = "yellow"
-    red    = "red"
+    red = "red"
     locked = "locked"  # 前置关卡未通过，本阶段锁定
 
 
@@ -46,31 +46,30 @@ class StageHealthStatus(str, enum.Enum):
 # 格式: (stage_number, stage_name, track, typical_duration_days)
 STAGE_DEFINITIONS_BY_TRACK = {
     "software": [
-        (1, "需求分析期",       "software",  14),
-        (2, "架构设计期",       "software",  21),
-        (3, "迭代开发期",       "software",  60),
-        (4, "测试验收期",       "software",  21),
-        (5, "上线运维期",       "software",  14),
+        (1, "需求分析期", "software", 14),
+        (2, "架构设计期", "software", 21),
+        (3, "迭代开发期", "software", 60),
+        (4, "测试验收期", "software", 21),
+        (5, "上线运维期", "software", 14),
     ],
     "hardware": [
-        (1, "概念与立项期",     "hardware",  14),
-        (2, "方案与设计期",     "hardware",  21),
-        (3, "样机开发期",       "hardware",  60),
-        (4, "测试认证期",       "hardware",  21),
-        (5, "量产与交付期",     "hardware",  14),
+        (1, "概念与立项期", "hardware", 14),
+        (2, "方案与设计期", "hardware", 21),
+        (3, "样机开发期", "hardware", 60),
+        (4, "测试认证期", "hardware", 21),
+        (5, "量产与交付期", "hardware", 14),
     ],
     "dual": [
-        (1, "概念与立项期",     "both",      14),
-        (2, "计划与设计期",     "both",      21),
-        (3, "双轨并行开发期",   "both",      60),
-        (4, "集成与测试期",     "both",      21),
-        (5, "量产与交付期",     "both",      14),
+        (1, "概念与立项期", "both", 14),
+        (2, "计划与设计期", "both", 21),
+        (3, "双轨并行开发期", "both", 60),
+        (4, "集成与测试期", "both", 21),
+        (5, "量产与交付期", "both", 14),
     ],
 }
 
 # 向后兼容：默认使用 dual 定义
 STAGE_DEFINITIONS = STAGE_DEFINITIONS_BY_TRACK["dual"]
-
 
 
 class ProjectStage(BaseMixin, Base):
@@ -92,11 +91,9 @@ class ProjectStage(BaseMixin, Base):
     actual_end: Mapped[Optional[date]] = mapped_column(Date)
 
     # 健康度（由 health_engine.py 基于阶段内成员日报自动更新）
-    health_status: Mapped[StageHealthStatus] = mapped_column(
-        Enum(StageHealthStatus), default=StageHealthStatus.green
-    )
-    progress_pct: Mapped[int] = mapped_column(Integer, default=0)     # 0-100
-    health_score: Mapped[int] = mapped_column(Integer, default=100)   # 0-100
+    health_status: Mapped[StageHealthStatus] = mapped_column(Enum(StageHealthStatus), default=StageHealthStatus.green)
+    progress_pct: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    health_score: Mapped[int] = mapped_column(Integer, default=100)  # 0-100
 
     # 里程碑节点（硬件轨核心）
     milestones: Mapped[Optional[list]] = mapped_column(JSONB, default=list)

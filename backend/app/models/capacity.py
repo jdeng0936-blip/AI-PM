@@ -7,6 +7,7 @@ CapacitySnapshot:每人每 Sprint 的容量水位快照
 
 字段对齐白皮书 §7.2「资源负载水位与瓶颈预判」。
 """
+
 from __future__ import annotations
 
 import enum
@@ -14,7 +15,13 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import (
-    Enum as SAEnum, Float, ForeignKey, Integer, String, Text,
+    Enum as SAEnum,
+)
+from sqlalchemy import (
+    Float,
+    ForeignKey,
+    Integer,
+    Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,23 +31,29 @@ from app.models.base_mixin import BaseMixin
 
 class CapacityLevel(str, enum.Enum):
     """水位等级 — 与前端颜色映射"""
-    idle      = "idle"        # 占用 < 30%(显著闲置)
-    healthy   = "healthy"     # 30% ≤ 占用 < 80%(健康)
-    high      = "high"        # 80% ≤ 占用 < 100%(高位但未爆)
-    overload  = "overload"    # 占用 ≥ 100%(过载,需调配)
+
+    idle = "idle"  # 占用 < 30%(显著闲置)
+    healthy = "healthy"  # 30% ≤ 占用 < 80%(健康)
+    high = "high"  # 80% ≤ 占用 < 100%(高位但未爆)
+    overload = "overload"  # 占用 ≥ 100%(过载,需调配)
 
 
 class CapacitySnapshot(BaseMixin, Base):
     """每人每 Sprint 的容量水位快照"""
+
     __tablename__ = "capacity_snapshots"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     sprint_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sprints.id", ondelete="CASCADE"), index=True, nullable=False,
+        ForeignKey("sprints.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
 
     # 用户基础容量(取自 User.story_points_capacity,可能被 velocity 调整)
@@ -61,7 +74,10 @@ class CapacitySnapshot(BaseMixin, Base):
     utilization: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     level: Mapped[CapacityLevel] = mapped_column(
-        SAEnum(CapacityLevel), default=CapacityLevel.healthy, nullable=False, index=True,
+        SAEnum(CapacityLevel),
+        default=CapacityLevel.healthy,
+        nullable=False,
+        index=True,
     )
 
     # 历史 velocity 调整系数(实际能力 / 标称容量,可用来微调 effective_capacity)

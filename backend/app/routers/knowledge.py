@@ -3,6 +3,7 @@ app/routers/knowledge.py — 知识库 API
 
 CRUD + 语义搜索。
 """
+
 from __future__ import annotations
 
 import uuid
@@ -10,12 +11,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
-from app.models.knowledge import KnowledgeItem, KnowledgeCategory
+from app.middleware.rbac import get_current_user, require_role
+from app.models.knowledge import KnowledgeCategory, KnowledgeItem
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/knowledge", tags=["Knowledge Base"])
@@ -53,11 +54,13 @@ async def list_knowledge(
         stmt = stmt.where(KnowledgeItem.category == category)
     if search:
         pattern = f"%{search}%"
-        stmt = stmt.where(or_(
-            KnowledgeItem.title.ilike(pattern),
-            KnowledgeItem.content.ilike(pattern),
-            KnowledgeItem.tags.ilike(pattern),
-        ))
+        stmt = stmt.where(
+            or_(
+                KnowledgeItem.title.ilike(pattern),
+                KnowledgeItem.content.ilike(pattern),
+                KnowledgeItem.tags.ilike(pattern),
+            )
+        )
 
     stmt = stmt.order_by(KnowledgeItem.created_at.desc())
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
@@ -91,9 +94,7 @@ async def get_knowledge_detail(
     _user=Depends(get_current_user),
 ):
     """知识条目详情（自增浏览量）"""
-    result = await db.execute(
-        select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id))
-    )
+    result = await db.execute(select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id)))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "知识条目不存在")
@@ -145,9 +146,7 @@ async def update_knowledge(
     _user=Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """更新知识条目"""
-    result = await db.execute(
-        select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id))
-    )
+    result = await db.execute(select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id)))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "知识条目不存在")
@@ -168,9 +167,7 @@ async def mark_helpful(
     _user=Depends(get_current_user),
 ):
     """标记知识条目为「有用」"""
-    result = await db.execute(
-        select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id))
-    )
+    result = await db.execute(select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id)))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "知识条目不存在")
@@ -187,9 +184,7 @@ async def delete_knowledge(
     _user=Depends(require_role(UserRole.admin)),
 ):
     """删除知识条目"""
-    result = await db.execute(
-        select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id))
-    )
+    result = await db.execute(select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id)))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "知识条目不存在")

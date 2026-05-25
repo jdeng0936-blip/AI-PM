@@ -10,6 +10,7 @@ tests/test_notifications.py — 通知服务测试
 注:为绕开 conftest.py 中 session.begin() 与 asyncpg 的兼容性问题,
 DB 类测试自管会话,显式 commit/rollback。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,6 @@ from app.models.notification import (
 )
 from app.models.user import User, UserRole
 from app.services.notification_service import notify, render_template
-
 
 # ────────────────────────────────────────────────────────────────
 # 纯函数测试:模板渲染(不依赖 DB)
@@ -195,11 +195,7 @@ async def test_notify_persists_history(isolated_db):
     )
     await isolated_db.commit()
 
-    rows = (
-        await isolated_db.execute(
-            select(Notification).where(Notification.user_id == user.id)
-        )
-    ).scalars().all()
+    rows = (await isolated_db.execute(select(Notification).where(Notification.user_id == user.id))).scalars().all()
 
     assert len(rows) >= 1
     latest = rows[-1]

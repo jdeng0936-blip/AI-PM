@@ -21,12 +21,13 @@ LLM 输出 JSON 数组,每元素形如:
 - new_value 类型不合法 → 跳过该条
 - confidence < 0.6 阈值 → 自动跳过(避免误更新)
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -39,9 +40,9 @@ from app.models.okr import (
     KeyResult,
     KRProgressLog,
     KRProgressSource,
+    Objective,
     OKRCycle,
     OKRStatus,
-    Objective,
 )
 from app.services.llm_selector import LLMSelector
 
@@ -86,7 +87,9 @@ async def extract_and_update_kr_progress(
 
         if confidence < CONFIDENCE_THRESHOLD:
             logger.info(
-                "skip low-confidence kr update: kr=%s conf=%.2f", kr_id_raw, confidence,
+                "skip low-confidence kr update: kr=%s conf=%.2f",
+                kr_id_raw,
+                confidence,
             )
             continue
         try:
@@ -136,7 +139,10 @@ async def extract_and_update_kr_progress(
         )
         logger.info(
             "kr progress updated: %s %s→%s conf=%.2f",
-            kr.title, previous, new_val_f, confidence,
+            kr.title,
+            previous,
+            new_val_f,
+            confidence,
         )
 
     # 上层 simulate.py 会统一 commit
@@ -149,7 +155,8 @@ async def extract_and_update_kr_progress(
 
 
 async def _fetch_active_krs_for_user(
-    db: AsyncSession, user_id: UUID,
+    db: AsyncSession,
+    user_id: UUID,
 ) -> list[KeyResult]:
     """返回该用户作为 owner、且所属周期/目标都 active 的 KR"""
     stmt = (
@@ -166,11 +173,7 @@ async def _fetch_active_krs_for_user(
 
 
 async def _recalc_objective_progress(db: AsyncSession, objective_id: UUID) -> None:
-    krs = (
-        await db.execute(
-            select(KeyResult).where(KeyResult.objective_id == objective_id)
-        )
-    ).scalars().all()
+    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id))).scalars().all()
     obj = await db.get(Objective, objective_id)
     if obj and krs:
         obj.progress = round(sum(k.progress for k in krs) / len(krs), 1)
@@ -185,7 +188,8 @@ def _strip_json_fences(raw: str) -> str:
 
 
 async def _ask_llm_for_kr_updates(
-    raw_text: str, krs: list[KeyResult],
+    raw_text: str,
+    krs: list[KeyResult],
 ) -> list[dict[str, Any]]:
     """让 LLM 从日报文本里抽取 KR 进度更新建议"""
     kr_brief = [

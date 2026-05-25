@@ -9,6 +9,7 @@ tests/test_sprints.py — Sprint 归集 + 燃尽 + 关键路径测试
 - compute_velocity_history 历史速率
 - Chat Tool 集成
 """
+
 from __future__ import annotations
 
 import uuid
@@ -24,15 +25,19 @@ from app.database import Base
 from app.models.project import Project, ProjectStatus, ProjectTrack
 from app.models.sprint import Sprint, SprintStatus
 from app.models.sprint_task import (
-    BurndownSnapshot, SprintTask, TaskStatus, TaskPriority,
+    BurndownSnapshot,
+    SprintTask,
+    TaskPriority,
+    TaskStatus,
 )
 from app.models.user import User, UserRole
 from app.services.chat_tools import registry
 from app.services.critical_path import compute_critical_path
 from app.services.sprint_aggregator import (
-    compute_burndown_series, compute_velocity_history, snapshot_burndown,
+    compute_burndown_series,
+    compute_velocity_history,
+    snapshot_burndown,
 )
-
 
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
@@ -53,7 +58,8 @@ async def seeded(db):
     """种子:一个项目 + 一个 Sprint + 5 个任务(其中 3 个有依赖链)"""
     user = User(
         wechat_userid=f"t_sp_{uuid.uuid4().hex[:8]}",
-        name="Sprint负责人", department="软件研发部",
+        name="Sprint负责人",
+        department="软件研发部",
         role=UserRole.manager,
     )
     db.add(user)
@@ -61,8 +67,10 @@ async def seeded(db):
     await db.refresh(user)
 
     proj = Project(
-        code=f"P-{uuid.uuid4().hex[:6]}", name="206 智能样机",
-        track=ProjectTrack.software, status=ProjectStatus.active,
+        code=f"P-{uuid.uuid4().hex[:6]}",
+        name="206 智能样机",
+        track=ProjectTrack.software,
+        status=ProjectStatus.active,
         created_by=user.id,
     )
     db.add(proj)
@@ -85,29 +93,51 @@ async def seeded(db):
 
     # 5 个任务,3 个依赖链:t1 → t2 → t3
     t1 = SprintTask(
-        sprint_id=sprint.id, assignee_id=user.id,
-        title="t1 选型", story_points=3, status=TaskStatus.done,
-        actual_story_points=3, depends_on=[], created_by=user.id,
+        sprint_id=sprint.id,
+        assignee_id=user.id,
+        title="t1 选型",
+        story_points=3,
+        status=TaskStatus.done,
+        actual_story_points=3,
+        depends_on=[],
+        created_by=user.id,
     )
     t2 = SprintTask(
-        sprint_id=sprint.id, assignee_id=user.id,
-        title="t2 实现", story_points=5, status=TaskStatus.in_progress,
-        depends_on=[], created_by=user.id,
+        sprint_id=sprint.id,
+        assignee_id=user.id,
+        title="t2 实现",
+        story_points=5,
+        status=TaskStatus.in_progress,
+        depends_on=[],
+        created_by=user.id,
     )
     t3 = SprintTask(
-        sprint_id=sprint.id, assignee_id=user.id,
-        title="t3 联调", story_points=8, status=TaskStatus.todo,
-        depends_on=[], created_by=user.id,
+        sprint_id=sprint.id,
+        assignee_id=user.id,
+        title="t3 联调",
+        story_points=8,
+        status=TaskStatus.todo,
+        depends_on=[],
+        created_by=user.id,
     )
     t4 = SprintTask(
-        sprint_id=sprint.id, assignee_id=user.id,
-        title="t4 独立任务", story_points=2, status=TaskStatus.todo,
-        depends_on=[], created_by=user.id,
+        sprint_id=sprint.id,
+        assignee_id=user.id,
+        title="t4 独立任务",
+        story_points=2,
+        status=TaskStatus.todo,
+        depends_on=[],
+        created_by=user.id,
     )
     t5 = SprintTask(
-        sprint_id=sprint.id, assignee_id=user.id,
-        title="t5 阻塞中", story_points=2, status=TaskStatus.blocked,
-        depends_on=[], priority=TaskPriority.p0, created_by=user.id,
+        sprint_id=sprint.id,
+        assignee_id=user.id,
+        title="t5 阻塞中",
+        story_points=2,
+        status=TaskStatus.blocked,
+        depends_on=[],
+        priority=TaskPriority.p0,
+        created_by=user.id,
     )
     db.add_all([t1, t2, t3, t4, t5])
     await db.commit()
@@ -120,8 +150,15 @@ async def seeded(db):
     await db.commit()
 
     return {
-        "db": db, "user": user, "proj": proj, "sprint": sprint,
-        "t1": t1, "t2": t2, "t3": t3, "t4": t4, "t5": t5,
+        "db": db,
+        "user": user,
+        "proj": proj,
+        "sprint": sprint,
+        "t1": t1,
+        "t2": t2,
+        "t3": t3,
+        "t4": t4,
+        "t5": t5,
     }
 
 
@@ -157,12 +194,10 @@ async def test_snapshot_idempotent_same_day(seeded):
     assert s1.id == s2.id
 
     all_snaps = (
-        await db.execute(
-            select(BurndownSnapshot).where(
-                BurndownSnapshot.sprint_id == seeded["sprint"].id
-            )
-        )
-    ).scalars().all()
+        (await db.execute(select(BurndownSnapshot).where(BurndownSnapshot.sprint_id == seeded["sprint"].id)))
+        .scalars()
+        .all()
+    )
     assert len(all_snaps) == 1
 
 
@@ -271,9 +306,13 @@ async def test_critical_path_empty_sprint(db, seeded):
     user = seeded["user"]
     proj = seeded["proj"]
     empty_sprint = Sprint(
-        project_id=proj.id, sprint_number=99, goal="empty",
-        start_date=date.today(), end_date=date.today() + timedelta(days=7),
-        status=SprintStatus.active, created_by=user.id,
+        project_id=proj.id,
+        sprint_number=99,
+        goal="empty",
+        start_date=date.today(),
+        end_date=date.today() + timedelta(days=7),
+        status=SprintStatus.active,
+        created_by=user.id,
     )
     db.add(empty_sprint)
     await db.commit()
@@ -297,13 +336,16 @@ async def test_velocity_history(seeded):
     # 创建 2 个已完成 Sprint
     for i in range(2):
         s = Sprint(
-            project_id=proj.id, sprint_number=10 + i,
+            project_id=proj.id,
+            sprint_number=10 + i,
             goal=f"s{i}",
             start_date=date.today() - timedelta(days=30 - i * 14),
             end_date=date.today() - timedelta(days=16 - i * 14),
-            planned_story_points=20, completed_story_points=18 + i,
+            planned_story_points=20,
+            completed_story_points=18 + i,
             status=SprintStatus.completed,
-            health_score=85, created_by=user.id,
+            health_score=85,
+            created_by=user.id,
         )
         db.add(s)
     await db.commit()
@@ -333,7 +375,9 @@ def test_sprint_tools_registered():
 async def test_tool_sprint_status(seeded):
     db = seeded["db"]
     result = await registry.dispatch(
-        "sprint_status", db, {"project_query": seeded["proj"].code},
+        "sprint_status",
+        db,
+        {"project_query": seeded["proj"].code},
     )
     assert "project" in result
     assert "sprint" in result
@@ -349,7 +393,9 @@ async def test_tool_sprint_burndown(seeded):
     await db.commit()
 
     result = await registry.dispatch(
-        "sprint_burndown", db, {"project_query": "206"},
+        "sprint_burndown",
+        db,
+        {"project_query": "206"},
     )
     assert "sprint" in result
     assert result["total_points"] > 0
@@ -360,7 +406,9 @@ async def test_tool_sprint_burndown(seeded):
 async def test_tool_critical_path(seeded):
     db = seeded["db"]
     result = await registry.dispatch(
-        "critical_path", db, {"project_query": "206"},
+        "critical_path",
+        db,
+        {"project_query": "206"},
     )
     assert result["critical_length_points"] == 16  # 3 + 5 + 8
     assert result["task_count_on_path"] == 3
@@ -374,18 +422,24 @@ async def test_tool_project_velocity(seeded):
     proj = seeded["proj"]
     # 加 1 个 completed sprint
     s = Sprint(
-        project_id=proj.id, sprint_number=99,
-        goal="历史", start_date=date.today() - timedelta(days=20),
+        project_id=proj.id,
+        sprint_number=99,
+        goal="历史",
+        start_date=date.today() - timedelta(days=20),
         end_date=date.today() - timedelta(days=6),
-        planned_story_points=15, completed_story_points=12,
-        status=SprintStatus.completed, health_score=80,
+        planned_story_points=15,
+        completed_story_points=12,
+        status=SprintStatus.completed,
+        health_score=80,
         created_by=user.id,
     )
     db.add(s)
     await db.commit()
 
     result = await registry.dispatch(
-        "project_velocity", db, {"project_query": proj.code, "last_n": 5},
+        "project_velocity",
+        db,
+        {"project_query": proj.code, "last_n": 5},
     )
     assert result["count"] == 1
     assert result["avg_velocity"] == 12
@@ -394,6 +448,8 @@ async def test_tool_project_velocity(seeded):
 @pytest.mark.asyncio
 async def test_tool_sprint_status_no_project(db):
     result = await registry.dispatch(
-        "sprint_status", db, {"project_query": "不存在的项目xxx"},
+        "sprint_status",
+        db,
+        {"project_query": "不存在的项目xxx"},
     )
     assert "error" in result

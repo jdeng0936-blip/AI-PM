@@ -14,6 +14,7 @@ app/routers/attachments.py — 附件上传/查询/下载
 - 按 mime_type 自动分类为 image/voice/document/other
 - 上传后只返回元数据 + URL,具体业务关联由日报提交时携带 attachment_ids 完成
 """
+
 from __future__ import annotations
 
 import mimetypes
@@ -22,7 +23,14 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import (
-    APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status,
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
 )
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -77,9 +85,7 @@ def _classify(mime_type: str, file_name: str) -> AttachmentKind:
         return AttachmentKind.image
     if mt.startswith("audio/") or mt in ("application/ogg",):
         return AttachmentKind.voice
-    if mt in ("application/pdf",) or mt.startswith("text/") or mt.startswith(
-        "application/vnd."
-    ):
+    if mt in ("application/pdf",) or mt.startswith("text/") or mt.startswith("application/vnd."):
         return AttachmentKind.document
     # 用扩展名兜底
     ext = Path(file_name).suffix.lower()
@@ -116,7 +122,9 @@ async def upload_attachment(
     kind = _classify(mime_type, file_name)
 
     storage_key = oss_service.make_storage_key(
-        kind=kind.value, user_id=str(current_user.id), file_name=file_name,
+        kind=kind.value,
+        user_id=str(current_user.id),
+        file_name=file_name,
     )
     file_url = await oss_service.upload_bytes(storage_key, raw, mime_type)
 
@@ -200,11 +208,7 @@ async def list_attachments_by_report(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    rows = (
-        await db.execute(
-            select(Attachment).where(Attachment.related_report_id == report_id)
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(Attachment).where(Attachment.related_report_id == report_id))).scalars().all()
     return [
         AttachmentOut(
             id=r.id,

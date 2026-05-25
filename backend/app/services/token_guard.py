@@ -5,9 +5,10 @@ app/services/token_guard.py — Token 熔断守卫
 超出每日配额后，拒绝服务并通知员工。
 超出后调用日志也会记录（prompt_tokens=0），保留熔断事件的可追溯性。
 """
+
 from datetime import date
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,12 +19,9 @@ async def get_daily_usage(db: AsyncSession) -> int:
     """查询今日全系统已消耗 Token 总量"""
     today = date.today()
     result = await db.execute(
-        select(
-            func.coalesce(
-                func.sum(TenantUsageLog.prompt_tokens + TenantUsageLog.completion_tokens),
-                0
-            )
-        ).where(TenantUsageLog.log_date == today)
+        select(func.coalesce(func.sum(TenantUsageLog.prompt_tokens + TenantUsageLog.completion_tokens), 0)).where(
+            TenantUsageLog.log_date == today
+        )
     )
     return result.scalar() or 0
 

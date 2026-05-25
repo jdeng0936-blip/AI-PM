@@ -17,13 +17,13 @@ app/services/health_engine.py — 日报→项目健康度聚合引擎
   yellow 50-74 或 存在连续3-4天未解决的卡点
   red    < 50  或 存在连续≥5天未解决的卡点
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
-from typing import Optional
 
-from sqlalchemy import select, func, and_, Integer, Float
+from sqlalchemy import Float, Integer, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
@@ -33,17 +33,16 @@ from app.models.project_stage import ProjectStage, StageHealthStatus
 from app.models.risk_alert import RiskAlert
 from app.models.sprint import Sprint
 
-
 # ── 阈值常量 ─────────────────────────────────────────────────────
-SCORE_GREEN_THRESHOLD  = 75
+SCORE_GREEN_THRESHOLD = 75
 SCORE_YELLOW_THRESHOLD = 50
-BLOCKER_YELLOW_DAYS    = 3   # 连续≥3天未解决 → yellow
-BLOCKER_RED_DAYS       = 5   # 连续≥5天未解决 → red
+BLOCKER_YELLOW_DAYS = 3  # 连续≥3天未解决 → yellow
+BLOCKER_RED_DAYS = 5  # 连续≥5天未解决 → red
 
 # 健康度计算权重
-W_AI_SCORE    = 0.50
-W_PROGRESS    = 0.30
-W_NO_BLOCKER  = 0.20
+W_AI_SCORE = 0.50
+W_PROGRESS = 0.30
+W_NO_BLOCKER = 0.20
 
 
 def _compute_health(
@@ -55,11 +54,7 @@ def _compute_health(
     """
     输入原始指标，返回 (health_score, health_status)
     """
-    score = int(
-        avg_ai_score    * W_AI_SCORE
-        + avg_progress  * W_PROGRESS
-        + no_blocker_rate * 100 * W_NO_BLOCKER
-    )
+    score = int(avg_ai_score * W_AI_SCORE + avg_progress * W_PROGRESS + no_blocker_rate * 100 * W_NO_BLOCKER)
     score = max(0, min(100, score))
 
     # 卡点天数优先降级
@@ -91,11 +86,7 @@ async def compute_stage_health(
     since = date.today() - timedelta(days=window_days)
 
     # 找出该项目此阶段的所有成员
-    members_result = await db.execute(
-        select(ProjectMember.user_id).where(
-            ProjectMember.project_id == stage.project_id
-        )
-    )
+    members_result = await db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == stage.project_id))
     member_ids = [row[0] for row in members_result.all()]
 
     if not member_ids:
@@ -112,9 +103,7 @@ async def compute_stage_health(
                 )
             ),
             func.count(DailyReport.id),
-            func.sum(
-                func.cast(DailyReport.pass_check, Integer)
-            ),
+            func.sum(func.cast(DailyReport.pass_check, Integer)),
         ).where(
             and_(
                 DailyReport.user_id.in_(member_ids),
@@ -141,9 +130,7 @@ async def compute_stage_health(
     )
     max_days = int(alert_result.scalar() or 0)
 
-    health_score, health_status = _compute_health(
-        avg_ai_score, avg_progress, no_blocker_rate, max_days
-    )
+    health_score, health_status = _compute_health(avg_ai_score, avg_progress, no_blocker_rate, max_days)
 
     return health_score, StageHealthStatus(health_status.value)
 
@@ -159,9 +146,7 @@ async def refresh_project_health(
     3. 检查预算是否超阈值
     """
     # 取当前阶段
-    project_result = await db.execute(
-        select(Project).where(Project.id == project_id)
-    )
+    project_result = await db.execute(select(Project).where(Project.id == project_id))
     project = project_result.scalar_one_or_none()
     if not project:
         return
@@ -188,9 +173,12 @@ async def refresh_project_health(
     project.health_status = ProjectHealthStatus(health.value)
 
     # 预算预警（超阈值时强制 yellow）
-    if (project.budget_total and project.budget_spent
-            and project.budget_spent / project.budget_total >= project.budget_alert_threshold
-            and project.health_status == ProjectHealthStatus.green):
+    if (
+        project.budget_total
+        and project.budget_spent
+        and project.budget_spent / project.budget_total >= project.budget_alert_threshold
+        and project.health_status == ProjectHealthStatus.green
+    ):
         project.health_status = ProjectHealthStatus.yellow
 
     await db.commit()

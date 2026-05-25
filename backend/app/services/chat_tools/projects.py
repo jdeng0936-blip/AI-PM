@@ -1,6 +1,7 @@
 """
 chat_tools/projects.py — 项目与风险查询 Tools
 """
+
 from __future__ import annotations
 
 from sqlalchemy import desc, func, or_, select
@@ -25,11 +26,7 @@ async def get_project_status(
     if not q:
         return {"error": "project_query 不能为空"}
 
-    stmt = (
-        select(Project)
-        .where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%")))
-        .limit(5)
-    )
+    stmt = select(Project).where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%"))).limit(5)
     rows = (await db.execute(stmt)).scalars().all()
 
     if not rows:
@@ -112,12 +109,7 @@ async def list_active_projects(db: AsyncSession, limit: int = 30) -> dict:
     Args:
         limit: 返回数量上限,默认 30
     """
-    stmt = (
-        select(Project)
-        .where(Project.status == ProjectStatus.active)
-        .order_by(Project.health_score)
-        .limit(limit)
-    )
+    stmt = select(Project).where(Project.status == ProjectStatus.active).order_by(Project.health_score).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
 
     return {
@@ -129,9 +121,7 @@ async def list_active_projects(db: AsyncSession, limit: int = 30) -> dict:
                 "current_stage": p.current_stage,
                 "health_status": p.health_status.value if p.health_status else None,
                 "health_score": p.health_score,
-                "planned_launch_date": p.planned_launch_date.isoformat()
-                if p.planned_launch_date
-                else None,
+                "planned_launch_date": p.planned_launch_date.isoformat() if p.planned_launch_date else None,
             }
             for p in rows
         ],

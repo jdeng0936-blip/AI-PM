@@ -4,7 +4,7 @@ app/routers/simulate.py — 开发环境模拟端点
 跳过企微加密、签名校验，直接注入文本到 AI 解析 → 落库流水线。
 仅在 AIPM_ENV=dev 时注册此路由。
 """
-import uuid
+
 from datetime import date
 from typing import Optional
 
@@ -14,20 +14,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.daily_report import DailyReport
+from app.models.notification import NotificationChannel, NotificationTemplate
 from app.models.risk_alert import RiskAlert
 from app.models.user import User
 from app.services.ai_engine import parse_report_with_ai
-from app.services.token_guard import log_token_usage
 from app.services.notification_service import notify_safe
-from app.models.notification import NotificationTemplate, NotificationChannel
+from app.services.token_guard import log_token_usage
 
 router = APIRouter(prefix="/api/v1/simulate", tags=["DEV Simulation"])
 
 
 class SimulateReportRequest(BaseModel):
     """模拟日报请求体"""
-    wechat_userid: str          # 用 wechat_userid 定位用户
-    raw_text: str               # 日报原始文本
+
+    wechat_userid: str  # 用 wechat_userid 定位用户
+    raw_text: str  # 日报原始文本
     report_date: Optional[date] = None  # 可指定日期，默认今天
 
 
@@ -46,9 +47,7 @@ async def simulate_daily_report(
     from sqlalchemy import select
 
     # ── 查找用户 ──
-    result = await db.execute(
-        select(User).where(User.wechat_userid == req.wechat_userid)
-    )
+    result = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid))
     user = result.scalar_one_or_none()
     if not user:
         return {"error": f"用户 {req.wechat_userid} 不存在，请先注册"}
@@ -108,8 +107,10 @@ async def simulate_daily_report(
 # Web 端提交日报（JWT 鉴权，不需要传 wechat_userid）
 # ═══════════════════════════════════════════════════════════════════
 
+
 class WebReportRequest(BaseModel):
     """Web 端日报请求体"""
+
     raw_text: str
     report_date: Optional[date] = None
 
@@ -128,27 +129,32 @@ async def web_submit_daily_report(
     4. 返回 AI 结果
     """
     # ── 获取当前用户（延迟导入以规避循环引用） ──
-    from app.middleware.rbac import get_current_user
     from fastapi.security import HTTPBearer
-    
+
+    from app.middleware.rbac import get_current_user
+
     security = HTTPBearer()
     credentials = await security(request)
     current_user = await get_current_user(credentials=credentials, db=db)
 
     # ── 防重复提交：同一用户 + 同一天 + 相同原始文本 → 拒绝 ──
     report_date = req.report_date or date.today()
-    from sqlalchemy import select, and_, func
+    from sqlalchemy import and_, select
+
     dup_check = await db.execute(
-        select(DailyReport.id).where(
+        select(DailyReport.id)
+        .where(
             and_(
                 DailyReport.user_id == current_user.id,
                 DailyReport.report_date == report_date,
                 DailyReport.raw_input_text == req.raw_text,
             )
-        ).limit(1)
+        )
+        .limit(1)
     )
     if dup_check.scalar():
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=409,
             detail="该内容今天已经提交过，请勿重复提交。如需修改，请更新内容后再提交。",
@@ -260,8 +266,11 @@ async def web_submit_daily_report(
 
     # ── AI 自动提取 KR 进度更新(失败不影响主流程) ──
     from app.services.kr_progress_extractor import extract_and_update_kr_progress_safe
+
     kr_updates = await extract_and_update_kr_progress_safe(
-        db, report=report, raw_text=req.raw_text,
+        db,
+        report=report,
+        raw_text=req.raw_text,
     )
 
     await db.commit()

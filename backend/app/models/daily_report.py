@@ -14,15 +14,14 @@ parsed_content JSONB 结构（严格对齐原始 Excel 列）：
   "eta":                  "2026-02-28"  ← 预计解决时间
 }
 """
+
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Text, Date, Boolean, Integer, DateTime
-from sqlalchemy import String
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
@@ -32,9 +31,7 @@ class DailyReport(BaseMixin, Base):
     __tablename__ = "daily_reports"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     report_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
 
     # ── 原始输入（员工在企微发送的内容）─────────────────────────────
@@ -57,7 +54,8 @@ class DailyReport(BaseMixin, Base):
 
     # Sprint 任务关联(Week 7):AI 或手工指定该日报推进了哪些 task
     mentioned_task_ids: Mapped[Optional[list]] = mapped_column(
-        ARRAY(String), default=list,
+        ARRAY(String),
+        default=list,
         comment="该日报关联的 SprintTask UUID 列表(字符串形式)",
     )
 

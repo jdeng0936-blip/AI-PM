@@ -5,14 +5,15 @@ POST /api/v1/erp/webhook/status_update
 接收 ERP 系统物料状态推送，自动解除关联的 risk_alerts 卡点。
 权限：HMAC-SHA256 签名校验
 """
-from datetime import datetime
-import hmac
-import hashlib
-import logging
 
-from fastapi import APIRouter, Depends, Header, Request, HTTPException, status
+import hashlib
+import hmac
+import logging
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import update, select, or_
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -26,20 +27,21 @@ router = APIRouter(prefix="/api/v1/erp", tags=["ERP Integration"])
 
 class ERPStatusPayload(BaseModel):
     """ERP 推送的物料状态体"""
-    material: str           # 物料名称（如 "MCU模块"、"206样机壳体"）
-    status: str             # 新状态（如 "已入库"、"已到货"、"已签收"）
+
+    material: str  # 物料名称（如 "MCU模块"、"206样机壳体"）
+    status: str  # 新状态（如 "已入库"、"已到货"、"已签收"）
     erp_order_no: str = ""  # ERP 单据号（可选，用于追溯）
-    remark: str = ""        # 备注信息
-    
+    remark: str = ""  # 备注信息
+
     # v2 扩展精确字段
-    material_code: str = "" # 物料编码（可选，优先精确匹配）
-    po_number: str = ""     # 采购订单号（可选，优先精确匹配）
+    material_code: str = ""  # 物料编码（可选，优先精确匹配）
+    po_number: str = ""  # 采购订单号（可选，优先精确匹配）
 
 
 async def verify_erp_hmac(request: Request, x_erp_signature: str = Header(None)):
     """
     验证 ERP 系统 Webhook 推送的 HMAC-SHA256 签名。
-    
+
     1. 若未配置 settings.erp_webhook_secret (即为 None 或空字符串)，
        则为友好支持 dev 开发测试，直接 skip 鉴权，但记录一条 warning。
     2. 若已配置，要求请求头中必须提供 X-ERP-Signature Header，
@@ -50,25 +52,15 @@ async def verify_erp_hmac(request: Request, x_erp_signature: str = Header(None))
     if not secret:
         logger.warning("ERP webhook secret is not configured. Signature validation is skipped.")
         return
-    
+
     if not x_erp_signature:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing X-ERP-Signature header"
-        )
-        
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-ERP-Signature header")
+
     body_bytes = await request.body()
-    computed_signature = hmac.new(
-        secret.encode("utf-8"),
-        body_bytes,
-        hashlib.sha256
-    ).hexdigest()
-    
+    computed_signature = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+
     if not hmac.compare_digest(computed_signature, x_erp_signature):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid X-ERP-Signature"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-ERP-Signature")
 
 
 @router.post("/webhook/status_update")
@@ -93,17 +85,14 @@ async def erp_status_update(
         exact_filters.append(RiskAlert.po_number == payload.po_number.strip())
     if payload.material_code:
         exact_filters.append(RiskAlert.material_code == payload.material_code.strip())
-    
+
     resolved_ids = []
     user_ids = set()
 
     if exact_filters:
         stmt = (
             update(RiskAlert)
-            .where(
-                RiskAlert.status == "unresolved",
-                or_(*exact_filters)
-            )
+            .where(RiskAlert.status == "unresolved", or_(*exact_filters))
             .values(
                 status="resolved",
                 resolved_at=datetime.utcnow(),
@@ -121,10 +110,7 @@ async def erp_status_update(
         if keyword:
             stmt = (
                 update(RiskAlert)
-                .where(
-                    RiskAlert.status == "unresolved",
-                    RiskAlert.description.ilike(f"%{keyword}%")
-                )
+                .where(RiskAlert.status == "unresolved", RiskAlert.description.ilike(f"%{keyword}%"))
                 .values(
                     status="resolved",
                     resolved_at=datetime.utcnow(),
@@ -151,7 +137,7 @@ async def erp_status_update(
             .where(
                 ProjectMember.user_id.in_(user_ids),
                 ProjectMember.left_at.is_(None),
-                Project.status == ProjectStatus.active
+                Project.status == ProjectStatus.active,
             )
         )
         project_result = await db.execute(project_stmt)
@@ -163,7 +149,8 @@ async def erp_status_update(
 
     # 4. 触发微信机器人 Markdown 通知
     if resolved_ids:
-        from app.services.notification_service import notify_safe, NotificationChannel, NotificationTemplate
+        from app.services.notification_service import NotificationChannel, NotificationTemplate, notify_safe
+
         await notify_safe(
             db,
             template=NotificationTemplate.erp_resolved,

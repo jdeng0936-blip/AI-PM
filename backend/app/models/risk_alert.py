@@ -5,13 +5,13 @@ app/models/risk_alert.py — 全局卡点与预警表
 管理层可通过 /dashboard/risk-alerts 接口实时查看所有未解决卡点。
 ERP Webhook 可自动将 status 从 unresolved → resolved。
 """
+
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Text, String, Integer, DateTime
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
@@ -23,13 +23,9 @@ class RiskAlert(BaseMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
     # 来源日报（可追溯）
-    report_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("daily_reports.id", ondelete="CASCADE"), nullable=False
-    )
+    report_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_reports.id", ondelete="CASCADE"), nullable=False)
     # 当事人（方便按部门/人员筛选）
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
 
     # 预警类型：blocker（硬卡）/ dependency（跨部门依赖）/ recurring（连续未解决）
     alert_type: Mapped[str] = mapped_column(String(32), nullable=False, default="blocker")

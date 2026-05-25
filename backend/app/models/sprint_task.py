@@ -6,6 +6,7 @@ app/models/sprint_task.py — Sprint 任务级数据
 
 字段对齐白皮书 §5.2「Sprint 任务级管理」与 §5.4「燃尽图自动生成」。
 """
+
 from __future__ import annotations
 
 import enum
@@ -14,7 +15,13 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean, Date, Enum, ForeignKey, Integer, String, Text,
+    Boolean,
+    Date,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,11 +31,11 @@ from app.models.base_mixin import BaseMixin
 
 
 class TaskStatus(str, enum.Enum):
-    todo        = "todo"         # 待开始
+    todo = "todo"  # 待开始
     in_progress = "in_progress"  # 进行中
-    blocked     = "blocked"      # 阻塞
-    done        = "done"         # 完成
-    cancelled   = "cancelled"    # 取消
+    blocked = "blocked"  # 阻塞
+    done = "done"  # 完成
+    cancelled = "cancelled"  # 取消
 
 
 class TaskPriority(str, enum.Enum):
@@ -40,19 +47,25 @@ class TaskPriority(str, enum.Enum):
 
 class SprintTask(BaseMixin, Base):
     """Sprint 内的可执行任务"""
+
     __tablename__ = "sprint_tasks"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
     sprint_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sprints.id", ondelete="CASCADE"), index=True, nullable=False,
+        ForeignKey("sprints.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     # 可关联到 KR(从 KR.sprint_id 反向也能查到)
     kr_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("key_results.id", ondelete="SET NULL"), nullable=True,
+        ForeignKey("key_results.id", ondelete="SET NULL"),
+        nullable=True,
     )
     assignee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     title: Mapped[str] = mapped_column(String(300), nullable=False)
@@ -60,10 +73,15 @@ class SprintTask(BaseMixin, Base):
 
     story_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[TaskStatus] = mapped_column(
-        Enum(TaskStatus), default=TaskStatus.todo, index=True, nullable=False,
+        Enum(TaskStatus),
+        default=TaskStatus.todo,
+        index=True,
+        nullable=False,
     )
     priority: Mapped[TaskPriority] = mapped_column(
-        Enum(TaskPriority), default=TaskPriority.p2, nullable=False,
+        Enum(TaskPriority),
+        default=TaskPriority.p2,
+        nullable=False,
     )
 
     # 关键路径标记(由 services/critical_path.py 自动更新,或手工指定)
@@ -71,7 +89,8 @@ class SprintTask(BaseMixin, Base):
 
     # 依赖的其他 task ID(关键路径计算用)
     depends_on: Mapped[Optional[list[str]]] = mapped_column(
-        ARRAY(String), nullable=True,
+        ARRAY(String),
+        nullable=True,
         comment="依赖的 task UUID 字符串列表(简化:不做强外键约束,允许 dangling)",
     )
 
@@ -89,12 +108,15 @@ class SprintTask(BaseMixin, Base):
 
 class BurndownSnapshot(BaseMixin, Base):
     """每日燃尽快照 — 用于绘制燃尽图(理想线 vs 实际线)"""
+
     __tablename__ = "burndown_snapshots"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
     sprint_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sprints.id", ondelete="CASCADE"), index=True, nullable=False,
+        ForeignKey("sprints.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
 

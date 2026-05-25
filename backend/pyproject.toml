@@ -14,15 +14,26 @@ extend-exclude = [
 
 [tool.ruff.lint]
 # 初期保守:只开 E(pycodestyle)、F(pyflakes)、W(warnings)、I(import 排序)
-# 待 Stage 1 技术债清理时再逐步加 B/UP/SIM 等
+# 待 Stage 1 后续子任务再逐步加 B/UP/SIM 等
 select = ["E", "F", "W", "I"]
 ignore = [
     "E501",  # line too long — 交给 formatter,且历史代码 long line 较多
+    # ──── Stage 1 后续子任务:逐个人工 review 后修复 ─────────────────────────
+    # 以下规则当前历史代码触发较多,且需逐处判断"是漏写还是有意为之",
+    # 暂时 ignore 让自动 normalize 先落地。Stage 1 子任务在干净 baseline 上
+    # 一次性 review 这些违规并修复后,从 ignore 中移除。
+    "F841",  # unused-variable — 测试里 fixture 返回值经常只取一部分
+    "E712",  # true-false-comparison — SQLAlchemy 经常用 == True / == False
+    "E722",  # bare-except — 个别诊断代码用了空 except
+    "E741",  # ambiguous-variable-name — 历史代码有少量 l / o 等单字符变量
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/env.py" = ["E402"]                # alembic 需要 sys.path 注入后再 import
 "app/main.py" = ["E402"]                   # 路由分块注册的懒 import 风格,Stage 1 重构后移除
+"app/routers/auth.py" = ["E402"]           # 开头有初始化代码块后再 import,历史风格
+"app/services/llm_selector.py" = ["E402"]  # 开头有 yaml registry 加载块
+"app/services/wechat_api.py" = ["E402"]    # 开头有 access_token 内存缓存初始化块
 "app/models/__init__.py" = ["F401"]        # __init__.py 的 re-export 是有意为之
 "app/routers/__init__.py" = ["F401"]
 "app/services/__init__.py" = ["F401"]

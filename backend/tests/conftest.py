@@ -6,26 +6,24 @@ tests/conftest.py — pytest 全局 Fixtures (Rule 01-Stack-Backend)
   - 路由测试用 httpx.AsyncClient
   - 数据库测试通过 dependency_overrides 替换回滚 session
 """
+
 import asyncio
 from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.config import settings
-
 
 # ── 使用独立测试数据库（生产数据库名追加 _test）──────────────────
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-TestSessionLocal = async_sessionmaker(
-    test_engine, expire_on_commit=False, class_=AsyncSession
-)
+TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
 
 
 @pytest.fixture(scope="session")
@@ -65,6 +63,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """
     httpx.AsyncClient + dependency_overrides（注入测试 session）
     """
+
     async def _get_test_db():
         yield db_session
 

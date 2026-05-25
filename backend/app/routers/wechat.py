@@ -6,6 +6,7 @@ app/routers/wechat.py — 企业微信消息网关（核心主流水线）
   POST /api/v1/wechat/callback  → 接收加密消息 → 解密身份映射
                                 → 异步 AI 质检 → 落库 / 推送结果
 """
+
 import xml.etree.ElementTree as ET
 from datetime import date
 
@@ -71,7 +72,7 @@ async def receive_wechat_message(
     msg_tree = ET.fromstring(raw_xml)
 
     from_user: str = msg_tree.findtext("FromUserName", "")
-    msg_type: str  = msg_tree.findtext("MsgType", "")
+    msg_type: str = msg_tree.findtext("MsgType", "")
 
     # ── 身份映射（企微 userid → 数据库 User） ─────────────────────
     result = await db.execute(select(User).where(User.wechat_userid == from_user))
@@ -99,9 +100,7 @@ async def receive_wechat_message(
         raw_text = msg_tree.findtext("Recognition", "[语音内容]").strip()
     else:
         # 其他消息类型暂不处理
-        await send_text_message(
-            from_user, "📌 目前仅支持文字和图片汇报，语音请直接发送文字。"
-        )
+        await send_text_message(from_user, "📌 目前仅支持文字和图片汇报，语音请直接发送文字。")
         return "success"
 
     if not raw_text and not media_urls:
@@ -136,16 +135,13 @@ async def _process_report_async(
         if not allowed:
             await send_text_message(
                 user.wechat_userid,
-                "⚠️ 今日 AI 处理配额已满，您的日报将在明日自动处理。\n"
-                "如紧急，请直接联系管理员。",
+                "⚠️ 今日 AI 处理配额已满，您的日报将在明日自动处理。\n如紧急，请直接联系管理员。",
             )
             return
 
         # ── AI 多模态解析 ───────────────────────────────────────
         try:
-            ai_result, p_tokens, c_tokens = await parse_report_with_ai(
-                raw_text, media_urls
-            )
+            ai_result, p_tokens, c_tokens = await parse_report_with_ai(raw_text, media_urls)
         except Exception as e:
             await send_text_message(
                 user.wechat_userid,

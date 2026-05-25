@@ -6,9 +6,8 @@ chat_tools/sprints.py — Sprint 相关 Chat Tools
 - sprint_burndown      某 sprint 燃尽简报(剩余点 + 是否能按期完成)
 - critical_path        某 sprint 关键路径上的任务
 """
-from __future__ import annotations
 
-from uuid import UUID
+from __future__ import annotations
 
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +18,8 @@ from app.models.sprint_task import SprintTask
 from app.services.chat_tools import tool
 from app.services.critical_path import compute_critical_path
 from app.services.sprint_aggregator import (
-    compute_burndown_series, compute_velocity_history,
+    compute_burndown_series,
+    compute_velocity_history,
 )
 
 
@@ -29,9 +29,7 @@ async def _find_project(db: AsyncSession, query: str):
     q = query.strip()
     return (
         await db.execute(
-            select(Project)
-            .where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%")))
-            .limit(1)
+            select(Project).where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%"))).limit(1)
         )
     ).scalar_one_or_none()
 
@@ -63,11 +61,7 @@ async def sprint_status(
             "message": "当前没有 active Sprint",
         }
 
-    tasks = (
-        await db.execute(
-            select(SprintTask).where(SprintTask.sprint_id == sprint.id)
-        )
-    ).scalars().all()
+    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint.id))).scalars().all()
 
     by_status = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0, "cancelled": 0}
     for t in tasks:
@@ -169,7 +163,8 @@ async def critical_path(
     blocked_on_path = [t for t in on_path if t["blocked"]]
     return {
         "sprint": {
-            "id": str(sprint.id), "sprint_number": sprint.sprint_number,
+            "id": str(sprint.id),
+            "sprint_number": sprint.sprint_number,
             "goal": sprint.goal,
         },
         "critical_length_points": result["critical_length"],

@@ -12,6 +12,7 @@ app/services/dingtalk_api.py — 钉钉群机器人 / 应用消息 推送
 - 钉钉群 > 群设置 > 智能群助手 > 添加机器人 > 自定义
 - 安全设置选「加签」模式,把 Secret 写到 DINGTALK_BOT_SECRET
 """
+
 from __future__ import annotations
 
 import base64
@@ -25,10 +26,10 @@ import httpx
 
 from app.config import settings
 
-
 # ────────────────────────────────────────────────────────────────
 # 群机器人 Webhook 推送(推荐)
 # ────────────────────────────────────────────────────────────────
+
 
 def _sign_webhook(secret: str) -> tuple[str, str]:
     """钉钉加签算法: HMAC-SHA256(secret, "{timestamp}\n{secret}") -> base64 -> urlencode"""
@@ -207,8 +208,4 @@ def is_bot_configured() -> bool:
 
 
 def is_app_configured() -> bool:
-    return bool(
-        settings.dingtalk_app_key
-        and settings.dingtalk_app_secret
-        and settings.dingtalk_agent_id
-    )
+    return bool(settings.dingtalk_app_key and settings.dingtalk_app_secret and settings.dingtalk_agent_id)

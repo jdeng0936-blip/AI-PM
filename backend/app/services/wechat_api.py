@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 app/services/wechat_api.py — 企业微信 API 工具函数
 
@@ -8,8 +9,8 @@ app/services/wechat_api.py — 企业微信 API 工具函数
 3. 向员工/管理层推送文本消息 / 卡片消息
 4. 获取并缓存 access_token
 """
-import hashlib
 import base64
+import hashlib
 import struct
 import time
 from typing import Optional
@@ -128,6 +129,7 @@ async def fetch_media_url(media_id: str) -> Optional[str]:
 # 企微群机器人 Webhook 推送(免开发,适合战情日报/风险预警群推)
 # ────────────────────────────────────────────────────────────────
 
+
 async def send_bot_text(content: str, mentioned_list: Optional[list[str]] = None) -> dict:
     """
     企微群机器人 text 消息。
@@ -166,11 +168,7 @@ async def send_bot_markdown(content: str) -> dict:
 
 
 def is_app_configured() -> bool:
-    return bool(
-        settings.wechat_corp_id
-        and settings.wechat_corp_secret
-        and settings.wechat_agent_id
-    )
+    return bool(settings.wechat_corp_id and settings.wechat_corp_secret and settings.wechat_agent_id)
 
 
 def is_bot_configured() -> bool:

@@ -9,13 +9,19 @@ app/routers/asr.py — 语音转写端点
 - 推荐 16kHz / 16bit / mono PCM 或 WAV;其他格式会原样发给讯飞,可能识别失败
 - 文件大小 ≤ 10MB(约 5 分钟)
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
 from fastapi import (
-    APIRouter, Depends, File, Form, HTTPException, UploadFile,
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
 )
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +42,7 @@ MAX_AUDIO_SIZE = 10 * 1024 * 1024  # 10MB
 def _resolve_provider() -> str:
     """选择当前可用的 ASR 实现"""
     from app.config import settings
+
     p = (settings.asr_provider or "").lower()
     if p == "gemini" and gemini_asr.is_configured():
         return "gemini"
@@ -98,7 +105,9 @@ async def transcribe_audio(
 
     if provider == "gemini":
         transcript = await gemini_asr.transcribe(
-            raw, file_name=file_name_for_asr, mime_type=mime_type_for_asr,
+            raw,
+            file_name=file_name_for_asr,
+            mime_type=mime_type_for_asr,
         )
     elif provider == "xunfei":
         transcript = await xunfei_asr.transcribe(raw)
@@ -111,7 +120,9 @@ async def transcribe_audio(
         file_name = file.filename or "voice.wav"
         mime_type = file.content_type or "audio/wav"
         storage_key = oss_service.make_storage_key(
-            kind="voice", user_id=str(current_user.id), file_name=file_name,
+            kind="voice",
+            user_id=str(current_user.id),
+            file_name=file_name,
         )
         file_url = await oss_service.upload_bytes(storage_key, raw, mime_type)
 

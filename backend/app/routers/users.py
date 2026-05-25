@@ -6,17 +6,21 @@ PUT    /users/{id}      — 修改用户
 DELETE /users/{id}      — 停用用户（软删除）
 POST   /users/{id}/reset-password — 重置密码
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.user import User, UserRole
-from app.schemas.user import (
-    UserCreate, UserUpdate, UserOut, UserListResponse,
-)
 from app.middleware.rbac import require_role
+from app.models.user import User, UserRole
 from app.routers.auth import hash_password
+from app.schemas.user import (
+    UserCreate,
+    UserListResponse,
+    UserOut,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
 
@@ -46,22 +50,24 @@ async def list_users(
     total = (await db.execute(count_q)).scalar() or 0
 
     # 分页
-    rows = await db.execute(
-        base_query
-        .order_by(User.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    rows = await db.execute(base_query.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size))
     users = rows.scalars().all()
 
     return UserListResponse(
         items=[
             UserOut(
-                id=str(u.id), name=u.name, wechat_userid=u.wechat_userid,
-                phone=u.phone, email=u.email, department=u.department, job_title=u.job_title,
-                role=u.role.value, is_active=u.is_active,
+                id=str(u.id),
+                name=u.name,
+                wechat_userid=u.wechat_userid,
+                phone=u.phone,
+                email=u.email,
+                department=u.department,
+                job_title=u.job_title,
+                role=u.role.value,
+                is_active=u.is_active,
                 must_change_password=u.must_change_password,
-                created_at=u.created_at, last_login_at=u.last_login_at,
+                created_at=u.created_at,
+                last_login_at=u.last_login_at,
                 status=(u.status.value if hasattr(u.status, "value") else str(u.status)),
                 status_until=u.status_until,
             )
@@ -81,9 +87,7 @@ async def create_user(
 ):
     """新增用户"""
     # 检查 wechat_userid 唯一
-    existing = await db.execute(
-        select(User).where(User.wechat_userid == req.wechat_userid)
-    )
+    existing = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid))
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -92,9 +96,7 @@ async def create_user(
 
     # 检查 phone 唯一
     if req.phone:
-        existing_phone = await db.execute(
-            select(User).where(User.phone == req.phone)
-        )
+        existing_phone = await db.execute(select(User).where(User.phone == req.phone))
         if existing_phone.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -116,11 +118,18 @@ async def create_user(
     await db.refresh(user)
 
     return UserOut(
-        id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, email=user.email, department=user.department, job_title=user.job_title,
-        role=user.role.value, is_active=user.is_active,
+        id=str(user.id),
+        name=user.name,
+        wechat_userid=user.wechat_userid,
+        phone=user.phone,
+        email=user.email,
+        department=user.department,
+        job_title=user.job_title,
+        role=user.role.value,
+        is_active=user.is_active,
         must_change_password=user.must_change_password,
-        created_at=user.created_at, last_login_at=user.last_login_at,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
         status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
         status_until=user.status_until,
     )
@@ -156,11 +165,18 @@ async def update_user(
     await db.refresh(user)
 
     return UserOut(
-        id=str(user.id), name=user.name, wechat_userid=user.wechat_userid,
-        phone=user.phone, email=user.email, department=user.department, job_title=user.job_title,
-        role=user.role.value, is_active=user.is_active,
+        id=str(user.id),
+        name=user.name,
+        wechat_userid=user.wechat_userid,
+        phone=user.phone,
+        email=user.email,
+        department=user.department,
+        job_title=user.job_title,
+        role=user.role.value,
+        is_active=user.is_active,
         must_change_password=user.must_change_password,
-        created_at=user.created_at, last_login_at=user.last_login_at,
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
         status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
         status_until=user.status_until,
     )
@@ -204,6 +220,7 @@ async def reset_password(
 # 请假/出差状态管理
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.patch("/{user_id}/status")
 async def update_user_status(
     user_id: str,
@@ -213,8 +230,9 @@ async def update_user_status(
     _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """更新员工出勤状态（请假/出差/病假）"""
-    from app.models.user import UserStatus
     from datetime import date
+
+    from app.models.user import UserStatus
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -243,44 +261,41 @@ async def update_user_status(
 # 资源负载水位
 # ═══════════════════════════════════════════════════════════════════
 
+
 @router.get("/resource-load")
 async def get_resource_load(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """获取全员资源负载水位（故事点容量 vs 已分配）"""
-    from app.models.sprint import Sprint
-    from app.models.project_member import ProjectMember
     from datetime import date
 
-    users_result = await db.execute(
-        select(User).where(User.is_active == True).order_by(User.department)
-    )
+    from app.models.project_member import ProjectMember
+
+    users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.department))
     users = users_result.scalars().all()
 
     today = date.today()
     load_data = []
     for u in users:
         # 计算当前 Sprint 已分配点数（简化：按项目成员数估算）
-        member_result = await db.execute(
-            select(func.count(ProjectMember.id)).where(
-                ProjectMember.user_id == u.id
-            )
-        )
+        member_result = await db.execute(select(func.count(ProjectMember.id)).where(ProjectMember.user_id == u.id))
         active_projects = member_result.scalar() or 0
         estimated_load = active_projects * 3  # 简化估算：每项目 3 点
 
-        load_data.append({
-            "user_id": str(u.id),
-            "name": u.name,
-            "department": u.department,
-            "job_title": u.job_title,
-            "status": u.status.value if hasattr(u.status, 'value') else str(u.status),
-            "capacity": u.story_points_capacity,
-            "estimated_load": estimated_load,
-            "load_pct": round(estimated_load / max(u.story_points_capacity, 1) * 100, 1),
-            "overloaded": estimated_load > u.story_points_capacity,
-        })
+        load_data.append(
+            {
+                "user_id": str(u.id),
+                "name": u.name,
+                "department": u.department,
+                "job_title": u.job_title,
+                "status": u.status.value if hasattr(u.status, "value") else str(u.status),
+                "capacity": u.story_points_capacity,
+                "estimated_load": estimated_load,
+                "load_pct": round(estimated_load / max(u.story_points_capacity, 1) * 100, 1),
+                "overloaded": estimated_load > u.story_points_capacity,
+            }
+        )
 
     overloaded_count = sum(1 for d in load_data if d["overloaded"])
     return {

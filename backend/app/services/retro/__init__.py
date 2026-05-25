@@ -18,6 +18,7 @@ app/services/retro/ — AI 自动复盘服务
 - 复盘是知识资产,落入 knowledge_items,可被未来的 OKR 制定 / 项目立项时检索
 - 失败任何一步都不影响调用方主流程(generator 提供 safe 版本)
 """
+
 from app.services.retro.generator import (
     RetroGenerationResult,
     generate_retrospective,

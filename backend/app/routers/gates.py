@@ -10,36 +10,31 @@ app/routers/gates.py — IPD 关卡评审 API
     → decision=fail → 推送企微通知相关成员需整改
     → decision=conditional_pass → 记录整改项，允许推进
 """
+
 import uuid
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
-from app.models.gate_review import GateReview, GATE_DEFINITIONS
+from app.middleware.rbac import require_role
+from app.models.gate_review import GATE_DEFINITIONS, GateReview
 from app.models.project import Project
 from app.models.project_stage import ProjectStage, StageHealthStatus
 from app.models.user import User, UserRole
 from app.schemas.project import GateReviewCreate
 from app.services.ai_engine import generate_morning_briefing
-from app.services.health_engine import compute_stage_health
 
 router = APIRouter(prefix="/api/v1/gates", tags=["Gate Reviews (IPD)"])
 
 
-async def _generate_gate_ai_summary(
-    db, project_id: uuid.UUID, stage_number: int
-) -> str:
+async def _generate_gate_ai_summary(db, project_id: uuid.UUID, stage_number: int) -> str:
     """调用 LLM 生成该阶段整体汇总，供评审参考"""
     from app.models.daily_report import DailyReport
     from app.models.project_member import ProjectMember
 
-    members = await db.execute(
-        select(ProjectMember.user_id).where(ProjectMember.project_id == project_id)
-    )
+    members = await db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == project_id))
     member_ids = [r[0] for r in members.all()]
 
     if not member_ids:
@@ -60,16 +55,13 @@ async def _generate_gate_ai_summary(
     rows = reports.all()
 
     summary_text = "\n".join(
-        f"[{r[0]}] 进度:{(r[1] or {}).get('progress','?')}% "
-        f"评分:{r[2]} 预警:{r[3] or '无'}"
-        for r in rows
+        f"[{r[0]}] 进度:{(r[1] or {}).get('progress', '?')}% 评分:{r[2]} 预警:{r[3] or '无'}" for r in rows
     )
 
     try:
         ai_text = await generate_morning_briefing(
             f"以下是项目第{stage_number}阶段所有成员的日报摘要，\n"
-            f"请生成一份200字以内的阶段综合评估（包含整体进展、主要卡点、是否建议通过关卡）：\n\n"
-            + summary_text
+            f"请生成一份200字以内的阶段综合评估（包含整体进展、主要卡点、是否建议通过关卡）：\n\n" + summary_text
         )
         return ai_text
     except Exception:
@@ -103,10 +95,7 @@ async def submit_gate_review(
     # Gate N 只能在 Stage N 完成后提交
     expected_stage = data.gate_number
     if project.current_stage < expected_stage:
-        raise HTTPException(
-            400,
-            f"Gate {data.gate_number} 尚未开放，当前阶段为 Stage {project.current_stage}"
-        )
+        raise HTTPException(400, f"Gate {data.gate_number} 尚未开放，当前阶段为 Stage {project.current_stage}")
 
     # AI 生成阶段摘要（供评审参考）
     ai_summary = await _generate_gate_ai_summary(db, data.project_id, data.gate_number)
@@ -138,6 +127,7 @@ async def submit_gate_review(
         current_stage = current_stage_result.scalar_one_or_none()
         if current_stage:
             from datetime import datetime
+
             current_stage.gate_passed = True
             current_stage.gate_passed_at = datetime.utcnow()
 
@@ -158,6 +148,7 @@ async def submit_gate_review(
             if next_stage and next_stage.health_status == StageHealthStatus.locked:
                 next_stage.health_status = StageHealthStatus.green
                 from datetime import date as date_cls
+
                 next_stage.actual_start = date_cls.today()
 
     await db.commit()

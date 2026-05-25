@@ -10,10 +10,10 @@ app/services/oss_service.py — 阿里云 OSS 对象存储封装
 降级模式:OSS 未配置时,自动落本地 LOCAL_UPLOAD_DIR 目录,
 URL 形式为 /api/v1/attachments/local/{path},供前端通过后端代理访问。
 """
+
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import date
 from pathlib import Path
@@ -52,9 +52,7 @@ def _build_public_url(key: str) -> str:
     return f"https://{settings.oss_bucket}.{endpoint}/{key}"
 
 
-def make_storage_key(
-    *, kind: str, user_id: str, file_name: str
-) -> str:
+def make_storage_key(*, kind: str, user_id: str, file_name: str) -> str:
     """
     生成 OSS 对象 key,按日期 + 用户 + 类型分目录:
       attachments/{kind}/{YYYY}/{MM}/{DD}/{user_id}/{uuid}_{filename}
@@ -62,10 +60,7 @@ def make_storage_key(
     today = date.today()
     safe_name = Path(file_name).name.replace(" ", "_")  # 去掉路径分量
     unique = uuid.uuid4().hex[:12]
-    return (
-        f"attachments/{kind}/{today.year}/{today.month:02d}/{today.day:02d}/"
-        f"{user_id}/{unique}_{safe_name}"
-    )
+    return f"attachments/{kind}/{today.year}/{today.month:02d}/{today.day:02d}/{user_id}/{unique}_{safe_name}"
 
 
 # ────────────────────────────────────────────────────────────────
@@ -73,9 +68,7 @@ def make_storage_key(
 # ────────────────────────────────────────────────────────────────
 
 
-async def upload_bytes(
-    key: str, data: bytes, content_type: str = "application/octet-stream"
-) -> str:
+async def upload_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
     """
     上传字节流到 OSS,返回公网 URL。
     未配置 OSS 时自动降级到本地 LOCAL_UPLOAD_DIR。
@@ -136,6 +129,7 @@ async def delete(key: str) -> bool:
     if is_configured():
         try:
             import asyncio
+
             bucket = _get_bucket()
             await asyncio.to_thread(bucket.delete_object, key)
         except Exception:

@@ -3,6 +3,7 @@ tests/test_retro.py — AI 复盘服务测试
 
 不调用真实 LLM,所有 _call_llm 走 monkeypatch。
 """
+
 from __future__ import annotations
 
 import uuid
@@ -18,14 +19,17 @@ from app.database import Base
 from app.models.daily_report import DailyReport
 from app.models.knowledge import KnowledgeCategory, KnowledgeItem, RetroScope
 from app.models.okr import (
-    KeyResult, OKRCycle, OKRCycleType, OKRStatus, Objective,
+    KeyResult,
+    Objective,
+    OKRCycle,
+    OKRCycleType,
+    OKRStatus,
 )
 from app.models.risk_alert import RiskAlert
 from app.models.user import User, UserRole
 from app.services import retro
 from app.services.chat_tools import registry
 from app.services.retro import collectors, generator
-
 
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
@@ -48,7 +52,8 @@ async def seeded(db):
     """种子:一个完整的小型 OKR 周期 + 几份日报 + 一个风险"""
     user = User(
         wechat_userid=f"t_retro_{uuid.uuid4().hex[:8]}",
-        name="复盘负责人", department="软件研发部",
+        name="复盘负责人",
+        department="软件研发部",
         role=UserRole.manager,
     )
     db.add(user)
@@ -57,7 +62,8 @@ async def seeded(db):
 
     today = date.today()
     cycle = OKRCycle(
-        name="2026Q1", cycle_type=OKRCycleType.quarterly,
+        name="2026Q1",
+        cycle_type=OKRCycleType.quarterly,
         start_date=today - timedelta(days=90),
         end_date=today - timedelta(days=1),
         status=OKRStatus.active,
@@ -68,19 +74,27 @@ async def seeded(db):
     await db.refresh(cycle)
 
     obj = Objective(
-        cycle_id=cycle.id, owner_id=user.id,
-        title="提升 AI 推理效率", weight=1.0, progress=70.0,
-        status=OKRStatus.active, created_by=user.id,
+        cycle_id=cycle.id,
+        owner_id=user.id,
+        title="提升 AI 推理效率",
+        weight=1.0,
+        progress=70.0,
+        status=OKRStatus.active,
+        created_by=user.id,
     )
     db.add(obj)
     await db.commit()
     await db.refresh(obj)
 
     kr = KeyResult(
-        objective_id=obj.id, owner_id=user.id,
+        objective_id=obj.id,
+        owner_id=user.id,
         title="推理延迟降至 500ms",
-        target_value=500, current_value=450, unit="ms",
-        confidence=0.9, created_by=user.id,
+        target_value=500,
+        current_value=450,
+        unit="ms",
+        confidence=0.9,
+        created_by=user.id,
     )
     db.add(kr)
     await db.commit()
@@ -93,21 +107,20 @@ async def seeded(db):
                 user_id=user.id,
                 report_date=today - timedelta(days=i + 1),
                 raw_input_text=f"day{i}",
-                ai_score=80 + i, pass_check=True,
+                ai_score=80 + i,
+                pass_check=True,
                 parsed_content={"tasks": f"任务{i}", "progress": 60 + i * 10, "blocker": ""},
             )
         )
     await db.commit()
 
     # 一个风险
-    risk_report = (
-        await db.execute(
-            select(DailyReport).where(DailyReport.user_id == user.id).limit(1)
-        )
-    ).scalar_one()
+    risk_report = (await db.execute(select(DailyReport).where(DailyReport.user_id == user.id).limit(1))).scalar_one()
     risk = RiskAlert(
-        report_id=risk_report.id, user_id=user.id,
-        alert_type="blocker", description="GPU 资源不足",
+        report_id=risk_report.id,
+        user_id=user.id,
+        alert_type="blocker",
+        description="GPU 资源不足",
         status="resolved",
         days_unresolved=4,
         resolved_at=datetime.now(timezone.utc),
@@ -176,7 +189,9 @@ async def test_generate_okr_cycle_persists(seeded, monkeypatch):
     monkeypatch.setattr(generator, "_call_llm", fake_call)
 
     result = await retro.generate_retrospective(
-        db, scope="okr_cycle", target_id=str(seeded["cycle"].id),
+        db,
+        scope="okr_cycle",
+        target_id=str(seeded["cycle"].id),
         actor_id=seeded["user"].id,
     )
     await db.commit()
@@ -210,12 +225,17 @@ async def test_generate_okr_cycle_missing_target(db):
 @pytest.mark.asyncio
 async def test_generate_safe_swallows_exception(db, monkeypatch):
     """generate_retrospective_safe 即使 LLM 抛异常也不应让调用方挂"""
+
     async def boom(prompt: str) -> str:
         raise RuntimeError("LLM 网关挂了")
+
     monkeypatch.setattr(generator, "_call_llm", boom)
 
     result = await retro.generate_retrospective_safe(
-        db, scope="monthly", year=2026, month=5,
+        db,
+        scope="monthly",
+        year=2026,
+        month=5,
     )
     assert result is None
 
@@ -223,12 +243,18 @@ async def test_generate_safe_swallows_exception(db, monkeypatch):
 @pytest.mark.asyncio
 async def test_generate_monthly(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake(p): return "## 月度概览\n月度报告内容"
+
+    async def fake(p):
+        return "## 月度概览\n月度报告内容"
+
     monkeypatch.setattr(generator, "_call_llm", fake)
 
     today = date.today()
     result = await retro.generate_retrospective(
-        db, scope="monthly", year=today.year, month=today.month,
+        db,
+        scope="monthly",
+        year=today.year,
+        month=today.month,
     )
     await db.commit()
 
@@ -240,11 +266,16 @@ async def test_generate_monthly(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_generate_incident(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake(p): return "## 事件经过\n事故复盘内容"
+
+    async def fake(p):
+        return "## 事件经过\n事故复盘内容"
+
     monkeypatch.setattr(generator, "_call_llm", fake)
 
     result = await retro.generate_retrospective(
-        db, scope="incident", incident_id=str(seeded["risk"].id),
+        db,
+        scope="incident",
+        incident_id=str(seeded["risk"].id),
     )
     await db.commit()
 
@@ -268,10 +299,14 @@ def test_retro_tools_registered():
 async def test_tool_search_retros(seeded, monkeypatch):
     db = seeded["db"]
 
-    async def fake(p): return "复盘内容"
+    async def fake(p):
+        return "复盘内容"
+
     monkeypatch.setattr(generator, "_call_llm", fake)
     await retro.generate_retrospective(
-        db, scope="okr_cycle", target_id=str(seeded["cycle"].id),
+        db,
+        scope="okr_cycle",
+        target_id=str(seeded["cycle"].id),
     )
     await db.commit()
 
@@ -283,15 +318,22 @@ async def test_tool_search_retros(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_list_recent_retros_filter(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake(p): return "x"
+
+    async def fake(p):
+        return "x"
+
     monkeypatch.setattr(generator, "_call_llm", fake)
     await retro.generate_retrospective(
-        db, scope="okr_cycle", target_id=str(seeded["cycle"].id),
+        db,
+        scope="okr_cycle",
+        target_id=str(seeded["cycle"].id),
     )
     await db.commit()
 
     result = await registry.dispatch(
-        "list_recent_retros", db, {"scope": "okr_cycle", "limit": 5},
+        "list_recent_retros",
+        db,
+        {"scope": "okr_cycle", "limit": 5},
     )
     assert "items" in result
     assert all("okr_cycle" in (it["tags"] or "") for it in result["items"])
@@ -300,7 +342,9 @@ async def test_tool_list_recent_retros_filter(seeded, monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_list_recent_retros_invalid_scope(db):
     result = await registry.dispatch(
-        "list_recent_retros", db, {"scope": "not_a_scope"},
+        "list_recent_retros",
+        db,
+        {"scope": "not_a_scope"},
     )
     assert "error" in result
 
@@ -308,10 +352,15 @@ async def test_tool_list_recent_retros_invalid_scope(db):
 @pytest.mark.asyncio
 async def test_tool_get_retro_full_content(seeded, monkeypatch):
     db = seeded["db"]
-    async def fake(p): return "## 完整正文\n详情内容"
+
+    async def fake(p):
+        return "## 完整正文\n详情内容"
+
     monkeypatch.setattr(generator, "_call_llm", fake)
     res = await retro.generate_retrospective(
-        db, scope="okr_cycle", target_id=str(seeded["cycle"].id),
+        db,
+        scope="okr_cycle",
+        target_id=str(seeded["cycle"].id),
     )
     await db.commit()
 

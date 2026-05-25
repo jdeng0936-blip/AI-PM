@@ -11,23 +11,23 @@ retrospective JSONB 结构（Sprint 回顾三问）：
   "action_items": [{"item": "提高测试覆盖到80%", "owner": "张毅", "due": "2026-04-01"}]
 }
 """
+
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
 
 
 class SprintStatus(str, enum.Enum):
-    planning  = "planning"   # 规划中（未开始）
-    active    = "active"     # 进行中
+    planning = "planning"  # 规划中（未开始）
+    active = "active"  # 进行中
     completed = "completed"  # 已完成（含回顾）
 
 
@@ -45,7 +45,7 @@ class Sprint(BaseMixin, Base):
     )
 
     sprint_number: Mapped[int] = mapped_column(Integer, nullable=False)  # 1, 2, 3...
-    goal: Mapped[Optional[str]] = mapped_column(Text)   # Sprint 目标（1-2句话）
+    goal: Mapped[Optional[str]] = mapped_column(Text)  # Sprint 目标（1-2句话）
 
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)

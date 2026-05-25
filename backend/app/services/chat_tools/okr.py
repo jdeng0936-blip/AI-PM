@@ -7,6 +7,7 @@ chat_tools/okr.py — OKR 战略对齐查询 Tools(供总经理 AI 对话使用)
 - kr_at_risk               进度滞后的 KR(<某阈值)
 - objective_snapshot       单个 Objective 的完整快照(含 KR + 最近进度变更)
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -17,9 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.okr import (
     KeyResult,
     KRProgressLog,
+    Objective,
     OKRCycle,
     OKRStatus,
-    Objective,
 )
 from app.models.user import User
 from app.services.chat_tools import tool
@@ -28,10 +29,7 @@ from app.services.chat_tools import tool
 async def _active_cycle(db: AsyncSession) -> Optional[OKRCycle]:
     return (
         await db.execute(
-            select(OKRCycle)
-            .where(OKRCycle.status == OKRStatus.active)
-            .order_by(desc(OKRCycle.start_date))
-            .limit(1)
+            select(OKRCycle).where(OKRCycle.status == OKRStatus.active).order_by(desc(OKRCycle.start_date)).limit(1)
         )
     ).scalar_one_or_none()
 
@@ -46,11 +44,7 @@ async def list_active_objectives(
         cycle_name: 限定周期名称(如「2026Q2」),空=自动取最新 active 周期
     """
     if cycle_name:
-        cycle = (
-            await db.execute(
-                select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1)
-            )
-        ).scalar_one_or_none()
+        cycle = (await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1))).scalar_one_or_none()
     else:
         cycle = await _active_cycle(db)
 
@@ -67,8 +61,10 @@ async def list_active_objectives(
     ).all()
     return {
         "cycle": {
-            "id": str(cycle.id), "name": cycle.name,
-            "start": str(cycle.start_date), "end": str(cycle.end_date),
+            "id": str(cycle.id),
+            "name": cycle.name,
+            "start": str(cycle.start_date),
+            "end": str(cycle.end_date),
         },
         "count": len(rows),
         "objectives": [
@@ -101,12 +97,10 @@ async def kr_status(
         matched_objs = [obj] if obj else []
     elif objective_title:
         matched_objs = (
-            await db.execute(
-                select(Objective)
-                .where(Objective.title.ilike(f"%{objective_title}%"))
-                .limit(3)
-            )
-        ).scalars().all()
+            (await db.execute(select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(3)))
+            .scalars()
+            .all()
+        )
     else:
         return {"error": "请提供 objective_title 或 objective_id"}
 
@@ -115,11 +109,7 @@ async def kr_status(
 
     items = []
     for obj in matched_objs:
-        krs = (
-            await db.execute(
-                select(KeyResult).where(KeyResult.objective_id == obj.id)
-            )
-        ).scalars().all()
+        krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id))).scalars().all()
         items.append(
             {
                 "objective_id": str(obj.id),
@@ -158,11 +148,7 @@ async def kr_at_risk(
         limit: 返回前 N 条
     """
     if cycle_name:
-        cycle = (
-            await db.execute(
-                select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1)
-            )
-        ).scalar_one_or_none()
+        cycle = (await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1))).scalar_one_or_none()
     else:
         cycle = await _active_cycle(db)
     if not cycle:
@@ -214,31 +200,29 @@ async def objective_snapshot(
         recent_logs_limit: 取最近 N 条进度变更日志,默认 10
     """
     obj = (
-        await db.execute(
-            select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(1)
-        )
+        await db.execute(select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(1))
     ).scalar_one_or_none()
     if not obj:
         return {"error": f"未找到目标『{objective_title}』"}
 
     owner = await db.get(User, obj.owner_id) if obj.owner_id else None
-    krs = (
-        await db.execute(
-            select(KeyResult).where(KeyResult.objective_id == obj.id)
-        )
-    ).scalars().all()
+    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id))).scalars().all()
     kr_ids = [kr.id for kr in krs]
 
     logs = []
     if kr_ids:
         log_rows = (
-            await db.execute(
-                select(KRProgressLog)
-                .where(KRProgressLog.kr_id.in_(kr_ids))
-                .order_by(desc(KRProgressLog.created_at))
-                .limit(recent_logs_limit)
+            (
+                await db.execute(
+                    select(KRProgressLog)
+                    .where(KRProgressLog.kr_id.in_(kr_ids))
+                    .order_by(desc(KRProgressLog.created_at))
+                    .limit(recent_logs_limit)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for r in log_rows:
             logs.append(
                 {

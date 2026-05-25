@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """
 app/routers/auth.py — 认证路由
 POST /auth/login    — 登录
@@ -6,19 +7,23 @@ GET  /auth/me       — 当前用户信息
 POST /auth/change-password — 修改密码
 """
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, or_
-from sqlalchemy.ext.asyncio import AsyncSession
-from passlib.context import CryptContext
 
-from app.database import get_db
-from app.models.user import User, UserRole
-from app.models.audit_log import AuditLog
-from app.schemas.user import (
-    LoginRequest, LoginResponse, ChangePasswordRequest, UserOut,
-)
-from app.middleware.rbac import create_access_token, get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from passlib.context import CryptContext
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import settings
+from app.database import get_db
+from app.middleware.rbac import create_access_token, get_current_user
+from app.models.audit_log import AuditLog
+from app.models.user import User
+from app.schemas.user import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    UserOut,
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["认证"])
 
@@ -159,11 +164,12 @@ async def change_password(
 
     # 审计日志
     client_ip = request.client.host if request.client else "unknown"
-    db.add(AuditLog(
-        user_id=current_user.id,
-        action="change_password",
-        ip_address=client_ip,
-    ))
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="change_password",
+            ip_address=client_ip,
+        )
+    )
     await db.commit()
     return {"message": "密码修改成功"}
-

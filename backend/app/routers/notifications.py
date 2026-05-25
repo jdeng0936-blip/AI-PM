@@ -9,15 +9,16 @@ app/routers/notifications.py — 通知推送管理
 - POST   /notifications/test              测试发送(admin 专属,用于调通配置)
 - POST   /notifications/{id}/retry        失败重试(admin 专属)
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select, func
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -133,11 +134,7 @@ async def list_notifications(
 
     total = (await db.execute(count_query)).scalar_one()
 
-    query = (
-        query.order_by(desc(Notification.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    query = query.order_by(desc(Notification.created_at)).offset((page - 1) * page_size).limit(page_size)
     items = (await db.execute(query)).scalars().all()
 
     return NotificationListResponse(

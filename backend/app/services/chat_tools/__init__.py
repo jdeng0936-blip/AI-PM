@@ -23,6 +23,7 @@ app/services/chat_tools/ — 总经理 AI 对话的 Tool 集合
     # 执行:
     result = await registry.dispatch("count_reports", db, {"days": 7})
 """
+
 from __future__ import annotations
 
 import inspect
@@ -162,9 +163,7 @@ class ToolRegistry:
         items = self.all() if not only else [self._tools[n] for n in only if n in self._tools]
         return [t.to_openai_schema() for t in items]
 
-    async def dispatch(
-        self, name: str, db: AsyncSession, args: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def dispatch(self, name: str, db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
         """
         执行一个 Tool。失败时返回 {"error": "..."},而不是抛异常 —
         这样 LLM 可以在下一轮看到错误并自主决策(重试/换工具/告知用户)。
@@ -266,9 +265,16 @@ def tool(
 
 def _autoload() -> None:
     from importlib import import_module
+
     for mod in (
-        "reports", "projects", "people", "weekly_report",
-        "okr", "retro", "sprints", "capacity",
+        "reports",
+        "projects",
+        "people",
+        "weekly_report",
+        "okr",
+        "retro",
+        "sprints",
+        "capacity",
     ):
         try:
             import_module(f"app.services.chat_tools.{mod}")

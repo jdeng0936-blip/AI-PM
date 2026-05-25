@@ -3,16 +3,17 @@ app/routers/export.py — 数据导出 API
 
 GET /api/v1/export/daily-reports — 按日期范围导出日报为 Excel (.xlsx)
 """
+
 import io
 from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
@@ -41,10 +42,12 @@ async def export_daily_reports(
     stmt = (
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(
-            DailyReport.report_date >= start_date,
-            DailyReport.report_date <= end_date,
-        ))
+        .where(
+            and_(
+                DailyReport.report_date >= start_date,
+                DailyReport.report_date <= end_date,
+            )
+        )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
     )
     rows = (await db.execute(stmt)).all()
@@ -66,10 +69,21 @@ async def export_daily_reports(
     )
 
     headers = [
-        "日期", "姓名", "部门", "AI评分", "状态",
-        "今日任务", "完成进度", "验收标准", "所需支持",
-        "核心卡点", "解决方案", "预计解决", "验收人",
-        "Git版本", "AI评语",
+        "日期",
+        "姓名",
+        "部门",
+        "AI评分",
+        "状态",
+        "今日任务",
+        "完成进度",
+        "验收标准",
+        "所需支持",
+        "核心卡点",
+        "解决方案",
+        "预计解决",
+        "验收人",
+        "Git版本",
+        "AI评语",
     ]
 
     # 列宽
@@ -101,7 +115,7 @@ async def export_daily_reports(
             r.DailyReport.ai_score,
             "合格" if is_pass else "退回",
             pc.get("tasks", ""),
-            f"{pc.get('progress', '')}%"if pc.get("progress") is not None else "",
+            f"{pc.get('progress', '')}%" if pc.get("progress") is not None else "",
             pc.get("acceptance_criteria", ""),
             pc.get("support_needed", ""),
             pc.get("blocker", ""),
@@ -130,6 +144,7 @@ async def export_daily_reports(
     filename = f"AI日报_{start_date}_{end_date}.xlsx"
     # RFC 5987: use filename* for non-ASCII chars
     from urllib.parse import quote
+
     encoded_filename = quote(filename)
     return StreamingResponse(
         output,
@@ -160,40 +175,55 @@ async def export_daily_reports_csv(
     stmt = (
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(
-            DailyReport.report_date >= start_date,
-            DailyReport.report_date <= end_date,
-        ))
+        .where(
+            and_(
+                DailyReport.report_date >= start_date,
+                DailyReport.report_date <= end_date,
+            )
+        )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
     )
     rows = (await db.execute(stmt)).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "日期", "姓名", "部门", "AI评分", "状态",
-        "今日任务", "完成进度", "验收标准", "核心卡点",
-        "解决方案", "AI评语",
-    ])
+    writer.writerow(
+        [
+            "日期",
+            "姓名",
+            "部门",
+            "AI评分",
+            "状态",
+            "今日任务",
+            "完成进度",
+            "验收标准",
+            "核心卡点",
+            "解决方案",
+            "AI评语",
+        ]
+    )
 
     for r in rows:
         pc = r.DailyReport.parsed_content or {}
-        writer.writerow([
-            str(r.DailyReport.report_date),
-            r.name,
-            r.department,
-            r.DailyReport.ai_score,
-            "合格" if r.DailyReport.pass_check else "退回",
-            pc.get("tasks", ""),
-            f"{pc.get('progress', '')}%",
-            pc.get("acceptance_criteria", ""),
-            pc.get("blocker", ""),
-            pc.get("next_step", ""),
-            r.DailyReport.ai_comment or "",
-        ])
+        writer.writerow(
+            [
+                str(r.DailyReport.report_date),
+                r.name,
+                r.department,
+                r.DailyReport.ai_score,
+                "合格" if r.DailyReport.pass_check else "退回",
+                pc.get("tasks", ""),
+                f"{pc.get('progress', '')}%",
+                pc.get("acceptance_criteria", ""),
+                pc.get("blocker", ""),
+                pc.get("next_step", ""),
+                r.DailyReport.ai_comment or "",
+            ]
+        )
 
     csv_bytes = output.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
     from urllib.parse import quote
+
     filename = f"AI日报_{start_date}_{end_date}.csv"
     encoded_filename = quote(filename)
 
@@ -204,4 +234,3 @@ async def export_daily_reports_csv(
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
         },
     )
-

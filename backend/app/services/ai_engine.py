@@ -8,11 +8,12 @@ app/services/ai_engine.py — 大模型多模态处理引擎
 ⚠️ Rule 01-Stack-AI-Routing: 严禁硬编码物理模型名。
    所有模型选择通过 LLMSelector.get_model_for_task() 完成。
 """
-import json
-import re
+
 import logging
+import re
 
 import httpx
+
 from app.config import settings
 from app.schemas.report import AIParseResult
 from app.services.llm_selector import LLMSelector
@@ -183,28 +184,29 @@ async def parse_report_with_ai(
     if not settings.new_api_key:
         logger.warning("⚠️ NEW_API_KEY 未配置，降级到 Mock 引擎")
         from app.services.ai_engine_mock import mock_parse_report
+
         return await mock_parse_report(raw_text, media_urls)
 
     # 通过 LLMSelector 获取模型配置（Rule 01-Stack-AI-Routing）
     model_config = LLMSelector.get_model_for_task("report_parse")
 
     # 构建多模态消息体
-    content_parts: list[dict] = [
-        {"type": "text", "text": f"员工汇报内容：\n\n{raw_text}"}
-    ]
+    content_parts: list[dict] = [{"type": "text", "text": f"员工汇报内容：\n\n{raw_text}"}]
 
     # 添加图片（Gemini 支持公开 URL 直接引用）
     for url in media_urls:
-        content_parts.append({
-            "type": "image_url",
-            "image_url": {"url": url, "detail": "high"},
-        })
+        content_parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": url, "detail": "high"},
+            }
+        )
 
     payload = {
         "model": model_config["name"],
         "messages": [
             {"role": "system", "content": _get_prompt_for_job(job_title, department)},
-            {"role": "user",   "content": content_parts},
+            {"role": "user", "content": content_parts},
         ],
         "response_format": {"type": "json_object"},
         "temperature": model_config.get("temperature", 0.1),
@@ -229,11 +231,9 @@ async def parse_report_with_ai(
 
         # Gemini 2.5 thinking model: content 可能为 null（所有 tokens 用于推理）
         if not raw_json:
-            logger.error(
-                f"❌ Gemini 返回 content=null (reasoning_tokens 用尽 max_tokens)，降级到 Mock | "
-                f"usage={usage}"
-            )
+            logger.error(f"❌ Gemini 返回 content=null (reasoning_tokens 用尽 max_tokens)，降级到 Mock | usage={usage}")
             from app.services.ai_engine_mock import mock_parse_report
+
             return await mock_parse_report(raw_text, media_urls)
 
         # Gemini 容错：strip ```json ``` 代码块包裹
@@ -258,6 +258,7 @@ async def parse_report_with_ai(
         # ── 任何异常自动降级到 Mock ──
         logger.error(f"❌ Gemini API 调用失败，降级到 Mock: {e}")
         from app.services.ai_engine_mock import mock_parse_report
+
         return await mock_parse_report(raw_text, media_urls)
 
 

@@ -4,13 +4,14 @@ app/services/scheduled_tasks.py — 定时任务实现
 所有定时执行的业务逻辑集中在此文件。
 每个任务自行管理数据库会话（不依赖 FastAPI 的 Depends 注入）。
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, select
 
 from app.database import AsyncSessionLocal
 from app.models.daily_report import DailyReport
@@ -25,6 +26,7 @@ logger = logging.getLogger("aipm.tasks")
 # 催报机制
 # ═══════════════════════════════════════════════════════════════════
 
+
 async def _get_unreported_users(today: Optional[date] = None) -> list:
     """查询今日未提交日报的「在岗」用户。
 
@@ -37,11 +39,7 @@ async def _get_unreported_users(today: Optional[date] = None) -> list:
 
     async with AsyncSessionLocal() as db:
         # 今日已提交的 user_id 集合
-        reported = await db.execute(
-            select(DailyReport.user_id).where(
-                DailyReport.report_date == today
-            )
-        )
+        reported = await db.execute(select(DailyReport.user_id).where(DailyReport.report_date == today))
         reported_ids = {row[0] for row in reported.all()}
 
         # 在岗且未提交的用户(排除 on_leave/on_travel/sick_leave)
@@ -84,7 +82,9 @@ async def auto_recover_expired_status() -> None:
         for u in expired:
             logger.info(
                 "   恢复 %s: %s(截止 %s)→ active",
-                u.name, u.status, u.status_until,
+                u.name,
+                u.status,
+                u.status_until,
             )
             u.status = UserStatus.active
             u.status_until = None
@@ -169,12 +169,10 @@ async def remind_unreported_deadline() -> None:
         from app.services.notification_service import notify_safe
 
         absent_list = "\n".join(f"- {n}" for n in names)
-        
+
         async with AsyncSessionLocal() as db:
             admins_result = await db.execute(
-                select(User).where(
-                    and_(User.role.in_(["admin", "manager"]), User.is_active == True)
-                )
+                select(User).where(and_(User.role.in_(["admin", "manager"]), User.is_active == True))
             )
             admins = admins_result.scalars().all()
 
@@ -201,14 +199,13 @@ async def remind_unreported_deadline() -> None:
 # 跨日健康度全量重算
 # ═══════════════════════════════════════════════════════════════════
 
+
 async def run_health_refresh_all() -> None:
     """00:30 — 重算所有活跃项目健康度"""
     logger.info("⏰ [00:30] 健康度全量重算")
 
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(Project.id).where(Project.status == ProjectStatus.active)
-        )
+        result = await db.execute(select(Project.id).where(Project.status == ProjectStatus.active))
         project_ids = [row[0] for row in result.all()]
 
     count = 0
@@ -226,6 +223,7 @@ async def run_health_refresh_all() -> None:
 # ═══════════════════════════════════════════════════════════════════
 # 晨报 AI 自动生成 + 推送
 # ═══════════════════════════════════════════════════════════════════
+
 
 async def run_morning_briefing() -> None:
     """09:00 — AI 生成晨报 + 推送给管理层"""
@@ -261,10 +259,12 @@ async def run_morning_briefing() -> None:
 
         # 调 AI 生成晨报
         from app.services.ai_engine import generate_morning_briefing
+
         briefing = await generate_morning_briefing(summary_text)
 
         # 推送给管理层
         from app.services.wechat_api import send_markdown_message
+
         async with AsyncSessionLocal() as db:
             admins_result = await db.execute(
                 select(User).where(
@@ -287,6 +287,7 @@ async def run_morning_briefing() -> None:
 # ═══════════════════════════════════════════════════════════════════
 # 周一 09:00 — 上周管理周报 AI 生成 + 推送
 # ═══════════════════════════════════════════════════════════════════
+
 
 async def run_weekly_report() -> None:
     """周一 09:00 自动生成上周管理周报 → 推送企微/钉钉给 admin/manager"""
@@ -343,12 +344,14 @@ async def run_weekly_report() -> None:
 # 季度 OKR 汇总 + 自动归档
 # ═══════════════════════════════════════════════════════════════════
 
+
 async def run_quarterly_okr_summary() -> None:
     """
     每月 1 日 09:30 检查:如果昨天是季度末(3.31 / 6.30 / 9.30 / 12.31),
     则把刚结束的 active 季度 cycle 转为 completed,生成达成摘要并推送管理层。
     """
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     yesterday = _date.today() - timedelta(days=1)
     if not _is_quarter_end(yesterday):
@@ -358,10 +361,22 @@ async def run_quarterly_okr_summary() -> None:
     logger.info("⏰ 季度末 OKR 汇总:%s", yesterday)
 
     from sqlalchemy import select as _select
+
     from app.models.notification import NotificationChannel, NotificationTemplate
     from app.models.okr import (
-        KeyResult as _KR, OKRCycle as _Cycle,
-        OKRCycleType as _CT, OKRStatus as _Status, Objective as _Obj,
+        KeyResult as _KR,
+    )
+    from app.models.okr import (
+        Objective as _Obj,
+    )
+    from app.models.okr import (
+        OKRCycle as _Cycle,
+    )
+    from app.models.okr import (
+        OKRCycleType as _CT,
+    )
+    from app.models.okr import (
+        OKRStatus as _Status,
     )
     from app.services.notification_service import notify_safe
 
@@ -385,23 +400,13 @@ async def run_quarterly_okr_summary() -> None:
                 return
 
             # 聚合该 cycle 的统计
-            objs = (
-                await db.execute(
-                    _select(_Obj).where(_Obj.cycle_id == cycle.id)
-                )
-            ).scalars().all()
+            objs = (await db.execute(_select(_Obj).where(_Obj.cycle_id == cycle.id))).scalars().all()
             obj_ids = [o.id for o in objs]
             krs = []
             if obj_ids:
-                krs = (
-                    await db.execute(
-                        _select(_KR).where(_KR.objective_id.in_(obj_ids))
-                    )
-                ).scalars().all()
+                krs = (await db.execute(_select(_KR).where(_KR.objective_id.in_(obj_ids)))).scalars().all()
 
-            avg_obj_progress = (
-                round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
-            )
+            avg_obj_progress = round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
             kr_progresses = [k.progress for k in krs]
             achieved = sum(1 for p in kr_progresses if p >= 70)
             on_track = sum(1 for p in kr_progresses if 40 <= p < 70)
@@ -424,29 +429,33 @@ async def run_quarterly_okr_summary() -> None:
 
             # 触发 AI 复盘生成(沉淀到知识库)— 失败不影响归档
             from app.services.retro import generate_retrospective_safe
+
             retro_result = await generate_retrospective_safe(
-                db, scope="okr_cycle",
+                db,
+                scope="okr_cycle",
                 target_id=str(cycle.id),
                 persist=True,
             )
 
             # 推送给管理层
             admins = (
-                await db.execute(
-                    _select(User).where(
-                        User.role.in_(["admin", "manager"]),
-                        User.is_active == True,
+                (
+                    await db.execute(
+                        _select(User).where(
+                            User.role.in_(["admin", "manager"]),
+                            User.is_active == True,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
             # 推送内容:简短的达成总结 + 复盘报告链接提示
             push_content = summary_md
             if retro_result and retro_result.knowledge_item_id:
                 push_content += (
-                    f"\n\n📖 **AI 复盘报告已沉淀到知识库**\n"
-                    f"标题:{retro_result.title}\n"
-                    f"前往「AI 复盘库」查看完整复盘"
+                    f"\n\n📖 **AI 复盘报告已沉淀到知识库**\n标题:{retro_result.title}\n前往「AI 复盘库」查看完整复盘"
                 )
 
             for admin in admins:
@@ -466,7 +475,10 @@ async def run_quarterly_okr_summary() -> None:
 
         logger.info(
             "   %s 已归档,推送 %d 位管理层 (objs=%d, krs=%d, retro=%s)",
-            cycle.name, len(admins), len(objs), len(krs),
+            cycle.name,
+            len(admins),
+            len(objs),
+            len(krs),
             "yes" if retro_result and retro_result.knowledge_item_id else "no",
         )
 

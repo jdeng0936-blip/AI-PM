@@ -11,6 +11,7 @@ CRUD for OKR Cycles, Objectives, Key Results + KR 进度变更日志。
 - 任何 KR.current_value 的写入都必须写入 kr_progress_logs(审计要求)
 - Objective.progress 由所属 KR 的加权平均自动计算
 """
+
 from __future__ import annotations
 
 import uuid
@@ -28,8 +29,8 @@ from app.models.okr import (
     KeyResult,
     KRProgressLog,
     KRProgressSource,
-    OKRCycle,
     Objective,
+    OKRCycle,
     OKRStatus,
 )
 from app.models.user import User, UserRole
@@ -189,11 +190,7 @@ async def _log_kr_progress(
 
 async def _recalc_objective_progress(db: AsyncSession, objective_id: uuid.UUID) -> float:
     """根据 KR 进度的加权平均(暂等权)重算 Objective.progress"""
-    krs = (
-        await db.execute(
-            select(KeyResult).where(KeyResult.objective_id == objective_id)
-        )
-    ).scalars().all()
+    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id))).scalars().all()
     obj = await db.get(Objective, objective_id)
     if not obj:
         return 0.0
@@ -214,9 +211,7 @@ async def list_cycles(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(OKRCycle).order_by(desc(OKRCycle.start_date))
-    )
+    result = await db.execute(select(OKRCycle).order_by(desc(OKRCycle.start_date)))
     cycles = result.scalars().all()
     return [
         CycleOut(
@@ -249,9 +244,11 @@ async def create_cycle(
     await db.commit()
     await db.refresh(cycle)
     return CycleOut(
-        id=str(cycle.id), name=cycle.name,
+        id=str(cycle.id),
+        name=cycle.name,
         cycle_type=cycle.cycle_type.value,
-        start_date=str(cycle.start_date), end_date=str(cycle.end_date),
+        start_date=str(cycle.start_date),
+        end_date=str(cycle.end_date),
         status=cycle.status.value,
     )
 
@@ -277,9 +274,11 @@ async def update_cycle(
     await db.commit()
     await db.refresh(cycle)
     return CycleOut(
-        id=str(cycle.id), name=cycle.name,
+        id=str(cycle.id),
+        name=cycle.name,
         cycle_type=cycle.cycle_type.value,
-        start_date=str(cycle.start_date), end_date=str(cycle.end_date),
+        start_date=str(cycle.start_date),
+        end_date=str(cycle.end_date),
         status=cycle.status.value,
     )
 
@@ -315,10 +314,14 @@ async def list_objectives(
     rows = (await db.execute(stmt)).all()
     return [
         ObjectiveOut(
-            id=str(o.id), cycle_id=str(o.cycle_id),
-            title=o.title, description=o.description,
-            owner_id=str(o.owner_id), owner_name=owner_name,
-            weight=o.weight, progress=o.progress,
+            id=str(o.id),
+            cycle_id=str(o.cycle_id),
+            title=o.title,
+            description=o.description,
+            owner_id=str(o.owner_id),
+            owner_name=owner_name,
+            weight=o.weight,
+            progress=o.progress,
             status=o.status.value,
         )
         for o, owner_name in rows
@@ -345,10 +348,13 @@ async def create_objective(
     await db.commit()
     await db.refresh(obj)
     return ObjectiveOut(
-        id=str(obj.id), cycle_id=str(obj.cycle_id),
-        title=obj.title, description=obj.description,
+        id=str(obj.id),
+        cycle_id=str(obj.cycle_id),
+        title=obj.title,
+        description=obj.description,
         owner_id=str(obj.owner_id),
-        weight=obj.weight, progress=obj.progress,
+        weight=obj.weight,
+        progress=obj.progress,
         status=obj.status.value,
     )
 
@@ -374,10 +380,13 @@ async def update_objective(
     await db.commit()
     await db.refresh(obj)
     return ObjectiveOut(
-        id=str(obj.id), cycle_id=str(obj.cycle_id),
-        title=obj.title, description=obj.description,
+        id=str(obj.id),
+        cycle_id=str(obj.cycle_id),
+        title=obj.title,
+        description=obj.description,
         owner_id=str(obj.owner_id),
-        weight=obj.weight, progress=obj.progress,
+        weight=obj.weight,
+        progress=obj.progress,
         status=obj.status.value,
     )
 
@@ -402,11 +411,16 @@ async def delete_objective(
 
 def _kr_out(kr: KeyResult) -> KROut:
     return KROut(
-        id=str(kr.id), objective_id=str(kr.objective_id),
-        title=kr.title, description=kr.description,
-        metric_type=kr.metric_type, unit=kr.unit,
-        target_value=kr.target_value, current_value=kr.current_value,
-        progress=kr.progress, confidence=kr.confidence,
+        id=str(kr.id),
+        objective_id=str(kr.objective_id),
+        title=kr.title,
+        description=kr.description,
+        metric_type=kr.metric_type,
+        unit=kr.unit,
+        target_value=kr.target_value,
+        current_value=kr.current_value,
+        progress=kr.progress,
+        confidence=kr.confidence,
     )
 
 
@@ -473,7 +487,10 @@ async def update_key_result(
         prev = kr.current_value
         kr.current_value = req.current_value
         await _log_kr_progress(
-            db, kr=kr, previous_value=prev, new_value=req.current_value,
+            db,
+            kr=kr,
+            previous_value=prev,
+            new_value=req.current_value,
             source=KRProgressSource.manual,
             note=req.note or "手工更新",
             actor_id=user.id,
@@ -514,19 +531,27 @@ async def list_kr_progress_logs(
     _user=Depends(get_current_user),
 ):
     rows = (
-        await db.execute(
-            select(KRProgressLog)
-            .where(KRProgressLog.kr_id == uuid.UUID(kr_id))
-            .order_by(desc(KRProgressLog.created_at))
-            .limit(limit)
+        (
+            await db.execute(
+                select(KRProgressLog)
+                .where(KRProgressLog.kr_id == uuid.UUID(kr_id))
+                .order_by(desc(KRProgressLog.created_at))
+                .limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         ProgressLogOut(
-            id=str(r.id), kr_id=str(r.kr_id),
+            id=str(r.id),
+            kr_id=str(r.kr_id),
             report_id=str(r.report_id) if r.report_id else None,
-            previous_value=r.previous_value, new_value=r.new_value,
-            source=r.source.value, confidence=r.confidence, note=r.note,
+            previous_value=r.previous_value,
+            new_value=r.new_value,
+            source=r.source.value,
+            confidence=r.confidence,
+            note=r.note,
             created_at=r.created_at.isoformat() if r.created_at else None,
         )
         for r in rows
@@ -551,19 +576,18 @@ async def okr_tree(
     else:
         cycle = (
             await db.execute(
-                select(OKRCycle)
-                .where(OKRCycle.status == OKRStatus.active)
-                .order_by(desc(OKRCycle.start_date))
-                .limit(1)
+                select(OKRCycle).where(OKRCycle.status == OKRStatus.active).order_by(desc(OKRCycle.start_date)).limit(1)
             )
         ).scalar_one_or_none()
     if not cycle:
         raise HTTPException(404, "未找到 OKR 周期")
 
     cycle_out = CycleOut(
-        id=str(cycle.id), name=cycle.name,
+        id=str(cycle.id),
+        name=cycle.name,
         cycle_type=cycle.cycle_type.value,
-        start_date=str(cycle.start_date), end_date=str(cycle.end_date),
+        start_date=str(cycle.start_date),
+        end_date=str(cycle.end_date),
         status=cycle.status.value,
     )
 
@@ -579,16 +603,13 @@ async def okr_tree(
 
     if not obj_rows:
         return TreeOut(
-            cycle=cycle_out, objectives=[],
+            cycle=cycle_out,
+            objectives=[],
             summary={"objective_count": 0, "kr_count": 0, "avg_progress": 0},
         )
 
     obj_ids = [o.id for o, _ in obj_rows]
-    krs = (
-        await db.execute(
-            select(KeyResult).where(KeyResult.objective_id.in_(obj_ids))
-        )
-    ).scalars().all()
+    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all()
 
     kr_by_obj: dict[uuid.UUID, list[KeyResult]] = {}
     for kr in krs:
@@ -600,10 +621,14 @@ async def okr_tree(
         tree_objectives.append(
             TreeObjective(
                 objective=ObjectiveOut(
-                    id=str(obj.id), cycle_id=str(obj.cycle_id),
-                    title=obj.title, description=obj.description,
-                    owner_id=str(obj.owner_id), owner_name=owner_name,
-                    weight=obj.weight, progress=obj.progress,
+                    id=str(obj.id),
+                    cycle_id=str(obj.cycle_id),
+                    title=obj.title,
+                    description=obj.description,
+                    owner_id=str(obj.owner_id),
+                    owner_name=owner_name,
+                    weight=obj.weight,
+                    progress=obj.progress,
                     status=obj.status.value,
                 ),
                 key_results=[_kr_out(kr) for kr in kr_by_obj.get(obj.id, [])],

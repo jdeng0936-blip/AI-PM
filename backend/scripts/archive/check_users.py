@@ -1,6 +1,9 @@
 import asyncio
-from app.database import engine
+
 from sqlalchemy import text
+
+from app.database import engine
+
 
 async def run():
     async with engine.begin() as conn:
@@ -8,6 +11,7 @@ async def run():
         users = res.fetchall()
         for u in users:
             print(f"ID: {u.id}, Name: {u.name}, Role: {u.role}, Tenant: {u.tenant_id}")
-            
+
+
 if __name__ == "__main__":
     asyncio.run(run())

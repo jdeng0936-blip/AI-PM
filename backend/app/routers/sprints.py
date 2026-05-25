@@ -10,27 +10,31 @@ app/routers/sprints.py — 软件轨 Sprint 敏捷管理 API
 
 Sprint 健康度来源：该 Sprint 期间所有软件轨成员的日报 ai_score 均值。
 """
+
 import uuid
-from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.sprint import Sprint, SprintStatus
 from app.models.sprint_task import (
-    BurndownSnapshot, SprintTask, TaskPriority, TaskStatus,
+    SprintTask,
+    TaskPriority,
+    TaskStatus,
 )
 from app.models.user import User, UserRole
-from app.schemas.project import SprintCreate, SprintComplete
+from app.schemas.project import SprintComplete, SprintCreate
 from app.services.critical_path import compute_critical_path
 from app.services.health_engine import refresh_sprint_health
 from app.services.sprint_aggregator import (
-    compute_burndown_series, compute_velocity_history, snapshot_burndown,
+    compute_burndown_series,
+    compute_velocity_history,
+    snapshot_burndown,
 )
 
 router = APIRouter(prefix="/api/v1/sprints", tags=["Sprints (Software Track)"])
@@ -75,11 +79,7 @@ async def list_sprints(
     _user=Depends(_mgr),
 ):
     """查看项目所有 Sprint 列表（速度趋势数据）"""
-    result = await db.execute(
-        select(Sprint)
-        .where(Sprint.project_id == project_id)
-        .order_by(Sprint.sprint_number)
-    )
+    result = await db.execute(select(Sprint).where(Sprint.project_id == project_id).order_by(Sprint.sprint_number))
     sprints = result.scalars().all()
 
     return [
@@ -94,9 +94,7 @@ async def list_sprints(
             "planned_sp": s.planned_story_points,
             "completed_sp": s.completed_story_points,
             "velocity_pct": (
-                round(s.completed_story_points / s.planned_story_points * 100)
-                if s.planned_story_points
-                else None
+                round(s.completed_story_points / s.planned_story_points * 100) if s.planned_story_points else None
             ),
             "retrospective": s.retrospective,
         }
@@ -217,13 +215,16 @@ class TaskOut(BaseModel):
 
 def _task_out(t: SprintTask) -> TaskOut:
     return TaskOut(
-        id=str(t.id), sprint_id=str(t.sprint_id),
-        title=t.title, description=t.description,
+        id=str(t.id),
+        sprint_id=str(t.sprint_id),
+        title=t.title,
+        description=t.description,
         kr_id=str(t.kr_id) if t.kr_id else None,
         assignee_id=str(t.assignee_id) if t.assignee_id else None,
         story_points=t.story_points,
         actual_story_points=t.actual_story_points,
-        status=t.status.value, priority=t.priority.value,
+        status=t.status.value,
+        priority=t.priority.value,
         is_on_critical_path=t.is_on_critical_path,
         depends_on=list(t.depends_on or []),
         planned_start=t.planned_start.isoformat() if t.planned_start else None,
@@ -237,6 +238,7 @@ def _parse_date(s: Optional[str]):
     if not s:
         return None
     from datetime import date as _date
+
     return _date.fromisoformat(s)
 
 
@@ -246,11 +248,7 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    rows = (
-        await db.execute(
-            select(SprintTask).where(SprintTask.sprint_id == sprint_id)
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
     return [_task_out(t) for t in rows]
 
 
@@ -305,6 +303,7 @@ async def update_task(
         new_status = TaskStatus(payload.status)
         # done 时若没填 actual_end,自动补今天
         from datetime import date as _date
+
         if new_status == TaskStatus.done and not t.actual_end:
             t.actual_end = _date.today()
         if new_status == TaskStatus.in_progress and not t.actual_start:

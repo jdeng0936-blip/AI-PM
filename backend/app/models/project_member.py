@@ -10,14 +10,14 @@ app/models/project_member.py — 项目成员分配表
   硬件轨：林跃文（采购/物料）、郑韬慧（贴片测试）
   软件轨：张毅（研发）、郭震（研发）、新雷（AI 集成）
 """
+
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Date, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
@@ -26,7 +26,7 @@ from app.models.base_mixin import BaseMixin
 class MemberTrack(str, enum.Enum):
     hardware = "hardware"
     software = "software"
-    both     = "both"      # 如 PM / 技术负责人兼跨双轨
+    both = "both"  # 如 PM / 技术负责人兼跨双轨
 
 
 class ProjectMember(BaseMixin, Base):
@@ -37,9 +37,7 @@ class ProjectMember(BaseMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
 
     track: Mapped[MemberTrack] = mapped_column(Enum(MemberTrack), nullable=False)
 

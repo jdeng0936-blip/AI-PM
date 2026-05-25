@@ -3,6 +3,7 @@ tests/test_okr.py — OKR CRUD + 进度日志 + Chat Tool + AI 提取测试
 
 不依赖真实 LLM,所有外部调用走 monkeypatch。
 """
+
 from __future__ import annotations
 
 import uuid
@@ -20,15 +21,14 @@ from app.models.okr import (
     KeyResult,
     KRProgressLog,
     KRProgressSource,
+    Objective,
     OKRCycle,
     OKRCycleType,
     OKRStatus,
-    Objective,
 )
 from app.models.user import User, UserRole
 from app.services import kr_progress_extractor
 from app.services.chat_tools import registry
-
 
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
@@ -51,7 +51,8 @@ async def seeded_okr(db):
     """种子:1 个用户、1 个 active 季度、1 Objective、2 KR"""
     user = User(
         wechat_userid=f"t_okr_{uuid.uuid4().hex[:8]}",
-        name="OKR负责人", department="软件研发部",
+        name="OKR负责人",
+        department="软件研发部",
         role=UserRole.manager,
     )
     db.add(user)
@@ -72,10 +73,12 @@ async def seeded_okr(db):
     await db.refresh(cycle)
 
     obj = Objective(
-        cycle_id=cycle.id, owner_id=user.id,
+        cycle_id=cycle.id,
+        owner_id=user.id,
         title="206 样机具备行业参展能力",
         description="完成 206 样机的展会就绪状态",
-        weight=1.0, progress=0.0,
+        weight=1.0,
+        progress=0.0,
         status=OKRStatus.active,
         created_by=user.id,
     )
@@ -84,18 +87,26 @@ async def seeded_okr(db):
     await db.refresh(obj)
 
     kr1 = KeyResult(
-        objective_id=obj.id, owner_id=user.id,
+        objective_id=obj.id,
+        owner_id=user.id,
         title="大模型推理延迟降至 500ms 内",
         description="衡量端到端响应时间",
-        metric_type="number", target_value=500, current_value=800,
-        unit="ms", confidence=0.5,
+        metric_type="number",
+        target_value=500,
+        current_value=800,
+        unit="ms",
+        confidence=0.5,
         created_by=user.id,
     )
     kr2 = KeyResult(
-        objective_id=obj.id, owner_id=user.id,
+        objective_id=obj.id,
+        owner_id=user.id,
         title="完成 5 项客户场景演示",
-        metric_type="count", target_value=5, current_value=0,
-        unit="项", confidence=0.5,
+        metric_type="count",
+        target_value=5,
+        current_value=0,
+        unit="项",
+        confidence=0.5,
         created_by=user.id,
     )
     db.add_all([kr1, kr2])
@@ -124,17 +135,18 @@ async def test_progress_log_creation(seeded_okr):
     db = seeded_okr["db"]
     kr = seeded_okr["kr1"]
     log = KRProgressLog(
-        kr_id=kr.id, previous_value=800, new_value=450,
-        source=KRProgressSource.ai_extracted, confidence=0.85,
+        kr_id=kr.id,
+        previous_value=800,
+        new_value=450,
+        source=KRProgressSource.ai_extracted,
+        confidence=0.85,
         note="日报提到推理延迟从 800ms 降到 450ms",
         created_by=seeded_okr["user"].id,
     )
     db.add(log)
     await db.commit()
 
-    rows = (
-        await db.execute(select(KRProgressLog).where(KRProgressLog.kr_id == kr.id))
-    ).scalars().all()
+    rows = (await db.execute(select(KRProgressLog).where(KRProgressLog.kr_id == kr.id))).scalars().all()
     assert len(rows) == 1
     assert rows[0].source == KRProgressSource.ai_extracted
     assert rows[0].confidence == 0.85
@@ -150,7 +162,8 @@ async def test_ai_extract_returns_empty_when_no_active_kr(db):
     """该用户没有 active KR 时,直接返回空列表(不调 LLM)"""
     user = User(
         wechat_userid=f"t_no_kr_{uuid.uuid4().hex[:8]}",
-        name="无KR用户", department="测试部",
+        name="无KR用户",
+        department="测试部",
         role=UserRole.employee,
     )
     db.add(user)
@@ -158,9 +171,11 @@ async def test_ai_extract_returns_empty_when_no_active_kr(db):
     await db.refresh(user)
 
     fake_report = DailyReport(
-        user_id=user.id, report_date=date.today(),
+        user_id=user.id,
+        report_date=date.today(),
         raw_input_text="今天没什么进度",
-        pass_check=True, ai_score=70,
+        pass_check=True,
+        ai_score=70,
         parsed_content={},
     )
     db.add(fake_report)
@@ -168,7 +183,9 @@ async def test_ai_extract_returns_empty_when_no_active_kr(db):
     await db.refresh(fake_report)
 
     result = await kr_progress_extractor.extract_and_update_kr_progress(
-        db, report=fake_report, raw_text="今天没什么进度",
+        db,
+        report=fake_report,
+        raw_text="今天没什么进度",
     )
     assert result == []
 
@@ -188,11 +205,15 @@ async def test_ai_extract_low_confidence_skipped(seeded_okr, monkeypatch):
                 "evidence": "模糊",
             }
         ]
+
     monkeypatch.setattr(kr_progress_extractor, "_ask_llm_for_kr_updates", fake_llm)
 
     report = DailyReport(
-        user_id=seeded_okr["user"].id, report_date=date.today(),
-        raw_input_text="模糊", pass_check=True, ai_score=80,
+        user_id=seeded_okr["user"].id,
+        report_date=date.today(),
+        raw_input_text="模糊",
+        pass_check=True,
+        ai_score=80,
         parsed_content={},
     )
     db.add(report)
@@ -200,7 +221,9 @@ async def test_ai_extract_low_confidence_skipped(seeded_okr, monkeypatch):
     await db.refresh(report)
 
     result = await kr_progress_extractor.extract_and_update_kr_progress(
-        db, report=report, raw_text="今天大概优化了一下延迟",
+        db,
+        report=report,
+        raw_text="今天大概优化了一下延迟",
     )
     assert result == []
     # KR 没变
@@ -225,19 +248,25 @@ async def test_ai_extract_high_confidence_updates(seeded_okr, monkeypatch):
                 "evidence": "推理延迟从 800ms 降到 450ms",
             }
         ]
+
     monkeypatch.setattr(kr_progress_extractor, "_ask_llm_for_kr_updates", fake_llm)
 
     report = DailyReport(
-        user_id=user.id, report_date=date.today(),
+        user_id=user.id,
+        report_date=date.today(),
         raw_input_text="优化了模型,推理延迟从 800ms 降到 450ms",
-        pass_check=True, ai_score=90, parsed_content={},
+        pass_check=True,
+        ai_score=90,
+        parsed_content={},
     )
     db.add(report)
     await db.commit()
     await db.refresh(report)
 
     result = await kr_progress_extractor.extract_and_update_kr_progress(
-        db, report=report, raw_text=report.raw_input_text,
+        db,
+        report=report,
+        raw_text=report.raw_input_text,
     )
     await db.commit()
 
@@ -248,11 +277,7 @@ async def test_ai_extract_high_confidence_updates(seeded_okr, monkeypatch):
     assert fresh.current_value == 450
 
     # 日志已写入
-    logs = (
-        await db.execute(
-            select(KRProgressLog).where(KRProgressLog.kr_id == kr1.id)
-        )
-    ).scalars().all()
+    logs = (await db.execute(select(KRProgressLog).where(KRProgressLog.kr_id == kr1.id))).scalars().all()
     assert len(logs) == 1
     assert logs[0].source == KRProgressSource.ai_extracted
     assert logs[0].report_id == report.id
@@ -267,7 +292,9 @@ async def test_ai_extract_blocks_cross_user_update(seeded_okr, monkeypatch):
     # 第二个用户
     other = User(
         wechat_userid=f"t_other_{uuid.uuid4().hex[:8]}",
-        name="另一个人", department="测试部", role=UserRole.employee,
+        name="另一个人",
+        department="测试部",
+        role=UserRole.employee,
     )
     db.add(other)
     await db.commit()
@@ -275,11 +302,16 @@ async def test_ai_extract_blocks_cross_user_update(seeded_okr, monkeypatch):
 
     async def fake_llm(raw_text, krs):
         return [{"kr_id": str(kr1.id), "new_value": 100, "confidence": 0.99, "evidence": "x"}]
+
     monkeypatch.setattr(kr_progress_extractor, "_ask_llm_for_kr_updates", fake_llm)
 
     report = DailyReport(
-        user_id=other.id, report_date=date.today(),
-        raw_input_text="x", pass_check=True, ai_score=80, parsed_content={},
+        user_id=other.id,
+        report_date=date.today(),
+        raw_input_text="x",
+        pass_check=True,
+        ai_score=80,
+        parsed_content={},
     )
     db.add(report)
     await db.commit()
@@ -287,7 +319,9 @@ async def test_ai_extract_blocks_cross_user_update(seeded_okr, monkeypatch):
 
     # other 没有 active KR,fetch 返回空,extractor 提前 return
     result = await kr_progress_extractor.extract_and_update_kr_progress(
-        db, report=report, raw_text="x",
+        db,
+        report=report,
+        raw_text="x",
     )
     assert result == []
 
@@ -323,7 +357,9 @@ async def test_tool_list_active_objectives(seeded_okr):
 async def test_tool_kr_status_by_title(seeded_okr):
     db = seeded_okr["db"]
     result = await registry.dispatch(
-        "kr_status", db, {"objective_title": "206 样机"},
+        "kr_status",
+        db,
+        {"objective_title": "206 样机"},
     )
     assert "matched" in result
     assert len(result["matched"]) >= 1
@@ -342,7 +378,9 @@ async def test_tool_kr_at_risk(seeded_okr):
     db = seeded_okr["db"]
     # kr1 progress = 100(>40),kr2 progress = 0
     result = await registry.dispatch(
-        "kr_at_risk", db, {"progress_threshold": 40},
+        "kr_at_risk",
+        db,
+        {"progress_threshold": 40},
     )
     titles = [k["kr_title"] for k in result["at_risk"]]
     assert "完成 5 项客户场景演示" in titles
@@ -353,7 +391,9 @@ async def test_tool_kr_at_risk(seeded_okr):
 async def test_tool_objective_snapshot(seeded_okr):
     db = seeded_okr["db"]
     result = await registry.dispatch(
-        "objective_snapshot", db, {"objective_title": "206 样机"},
+        "objective_snapshot",
+        db,
+        {"objective_title": "206 样机"},
     )
     assert "objective" in result
     assert result["objective"]["title"] == "206 样机具备行业参展能力"

@@ -4,16 +4,17 @@ app/routers/reports.py — 日报 CRUD API
 提供管理后台查询、手动创建、导出等功能。
 员工提交走企微网关（wechat.py），此路由供管理端使用。
 """
+
 import uuid
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select, and_
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
+from app.middleware.rbac import get_current_user
 from app.models.daily_report import DailyReport
 from app.models.user import User, UserRole
 
@@ -44,18 +45,12 @@ async def list_reports(
         conditions.append(DailyReport.user_id == current_user.id)
     if report_date:
         conditions.append(DailyReport.report_date == report_date)
-    if pass_check is not None and pass_check != '':
-        conditions.append(DailyReport.pass_check == (pass_check == 'true'))
+    if pass_check is not None and pass_check != "":
+        conditions.append(DailyReport.pass_check == (pass_check == "true"))
 
     # 基础查询
-    stmt = (
-        select(DailyReport, User.name, User.department)
-        .join(User, DailyReport.user_id == User.id)
-    )
-    count_stmt = (
-        select(func.count(DailyReport.id))
-        .join(User, DailyReport.user_id == User.id)
-    )
+    stmt = select(DailyReport, User.name, User.department).join(User, DailyReport.user_id == User.id)
+    count_stmt = select(func.count(DailyReport.id)).join(User, DailyReport.user_id == User.id)
     if user_name:
         stmt = stmt.where(User.name.ilike(f"%{user_name}%"))
         count_stmt = count_stmt.where(User.name.ilike(f"%{user_name}%"))
@@ -68,8 +63,7 @@ async def list_reports(
 
     # 分页数据
     stmt = (
-        stmt
-        .order_by(DailyReport.report_date.desc(), DailyReport.created_at.desc())
+        stmt.order_by(DailyReport.report_date.desc(), DailyReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -104,7 +98,6 @@ async def get_today_plan(
     获取当前用户今日的晨规划记录（最近一条）。
     用于晚复核时展示对应的计划内容作为参考。
     """
-    from sqlalchemy import func
 
     today = date.today()
     result = await db.execute(
@@ -157,8 +150,7 @@ async def get_report_detail(
         raise HTTPException(status_code=404, detail="日报不存在")
 
     # 员工只能查自己的报告
-    if (current_user.role == UserRole.employee and
-            row.DailyReport.user_id != current_user.id):
+    if current_user.role == UserRole.employee and row.DailyReport.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权查看他人日报")
 
     return {
@@ -177,5 +169,3 @@ async def get_report_detail(
         "management_alert": row.DailyReport.management_alert,
         "created_at": row.DailyReport.created_at.isoformat() if row.DailyReport.created_at else None,
     }
-
-

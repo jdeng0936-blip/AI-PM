@@ -12,6 +12,7 @@ app/routers/chat.py — 总经理 AI 对话查询(Function Calling 多轮编排)
 - 所有 Tool 失败都返回 {"error": ...} 而不是抛异常,LLM 自主决策
 - 记录每次调用 trace(tool_name + args + result_summary),前端可展开"思考过程"
 """
+
 from __future__ import annotations
 
 import json
@@ -141,10 +142,7 @@ async def list_tools(_user=Depends(_admin_only)) -> dict:
     """暴露当前所有可用 Tool 列表(管理员调试用)"""
     return {
         "count": len(registry.all()),
-        "tools": [
-            {"name": t.name, "description": t.description}
-            for t in registry.all()
-        ],
+        "tools": [{"name": t.name, "description": t.description} for t in registry.all()],
     }
 
 
@@ -160,6 +158,7 @@ async def trigger_weekly_report(
 ):
     """手工触发周报生成(管理员从前端按钮调用,不走 LLM tool calling)"""
     from app.services.chat_tools.weekly_report import generate_weekly_report
+
     result = await generate_weekly_report(db, scope=req.scope)
     return result
 
@@ -188,7 +187,9 @@ async def admin_ai_chat(
     for round_idx in range(MAX_TOOL_ROUNDS):
         try:
             assistant_msg = await _call_llm(
-                model_config=model_config, messages=messages, tools=tools,
+                model_config=model_config,
+                messages=messages,
+                tools=tools,
             )
         except httpx.HTTPError as exc:
             logger.exception("LLM call failed at round %d", round_idx)
@@ -250,7 +251,9 @@ async def admin_ai_chat(
         )
         try:
             final_msg = await _call_llm(
-                model_config=model_config, messages=messages, tools=[],
+                model_config=model_config,
+                messages=messages,
+                tools=[],
             )
             final_answer = final_msg.get("content") or "无法在限定轮数内得到答案。"
         except Exception:

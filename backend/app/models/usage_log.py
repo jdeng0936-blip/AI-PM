@@ -4,12 +4,12 @@ app/models/usage_log.py — 大模型成本风控表
 每次调用 AI 后写入本表。Token 熔断守卫（token_guard.py）
 读取本表当日累计量，超过 DAILY_TOKEN_LIMIT 时拒绝服务。
 """
-import uuid
-from datetime import date, datetime
 
-from sqlalchemy import Integer, String, Date, DateTime
+import uuid
+from datetime import date
+
+from sqlalchemy import Date, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin

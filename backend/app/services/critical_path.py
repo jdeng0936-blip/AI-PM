@@ -9,6 +9,7 @@ app/services/critical_path.py — 关键路径分析
 
 注意:本实现假设 DAG。若 depends_on 出现环,会跳过环上节点(而不是抛异常)。
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +26,10 @@ logger = logging.getLogger("aipm.critical_path")
 
 
 async def compute_critical_path(
-    db: AsyncSession, sprint_id: UUID, *, persist: bool = True,
+    db: AsyncSession,
+    sprint_id: UUID,
+    *,
+    persist: bool = True,
 ) -> dict[str, Any]:
     """
     返回:
@@ -37,15 +41,13 @@ async def compute_critical_path(
         "has_cycle": false,
       }
     """
-    tasks = (
-        await db.execute(
-            select(SprintTask).where(SprintTask.sprint_id == sprint_id)
-        )
-    ).scalars().all()
+    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
     if not tasks:
         return {
-            "tasks": [], "edges": [],
-            "critical_path": [], "critical_length": 0,
+            "tasks": [],
+            "edges": [],
+            "critical_path": [],
+            "critical_length": 0,
             "has_cycle": False,
         }
 

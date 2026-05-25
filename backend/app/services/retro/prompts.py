@@ -6,11 +6,11 @@ app/services/retro/prompts.py — 复盘 Prompt 工程
 - 强制要求归因 + 经验提炼 + 下一步建议
 - 要求引用具体数据(防止 LLM 编造)
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any
-
 
 SYSTEM_BASE = (
     "你是徽远成科技的 AI 复盘官,擅长基于客观数据进行根因分析与经验提炼。"

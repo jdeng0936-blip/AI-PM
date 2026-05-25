@@ -9,6 +9,7 @@ tests/test_attachments.py — 附件上传/查询/删除测试
 
 注:不依赖真实 OSS / 讯飞凭证,所有外部调用走本地降级。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,6 @@ from app.models.attachment import Attachment, AttachmentKind
 from app.models.user import User, UserRole
 from app.routers.attachments import _classify
 from app.services import oss_service
-
 
 TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
@@ -79,7 +79,9 @@ def test_classify_other_fallback():
 
 def test_make_storage_key_format():
     key = oss_service.make_storage_key(
-        kind="image", user_id="u123", file_name="photo.png",
+        kind="image",
+        user_id="u123",
+        file_name="photo.png",
     )
     assert key.startswith("attachments/image/")
     assert "u123" in key
@@ -89,7 +91,9 @@ def test_make_storage_key_format():
 def test_make_storage_key_strips_path():
     """文件名中的目录分量应被剥离,防止路径穿越"""
     key = oss_service.make_storage_key(
-        kind="image", user_id="u1", file_name="../../etc/passwd",
+        kind="image",
+        user_id="u1",
+        file_name="../../etc/passwd",
     )
     assert "../" not in key
     assert key.endswith("_passwd")
@@ -173,11 +177,7 @@ async def test_attachment_persists(isolated_db):
     await isolated_db.commit()
     await isolated_db.refresh(att)
 
-    rows = (
-        await isolated_db.execute(
-            select(Attachment).where(Attachment.uploaded_by == user.id)
-        )
-    ).scalars().all()
+    rows = (await isolated_db.execute(select(Attachment).where(Attachment.uploaded_by == user.id))).scalars().all()
     assert len(rows) == 1
     assert rows[0].kind == AttachmentKind.image
     assert rows[0].file_name == "photo.png"

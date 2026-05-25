@@ -11,6 +11,7 @@ app/models/base_mixin.py — 通用字段 Mixin
 
 注意：BaseMixin 必须放在 Base 前面（MRO 顺序）。
 """
+
 import uuid
 from datetime import datetime
 from typing import Optional

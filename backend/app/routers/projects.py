@@ -10,6 +10,7 @@ app/routers/projects.py — 项目生命周期管理 API
   PATCH  /api/v1/stages/{id}         更新阶段进度/里程碑
   POST   /api/v1/projects/{id}/members 添加项目成员
 """
+
 import uuid
 from datetime import date, timedelta
 from typing import Optional
@@ -19,16 +20,15 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import require_role, get_current_user
+from app.middleware.rbac import get_current_user, require_role
 from app.models.project import Project, ProjectStatus
 from app.models.project_member import ProjectMember
-from app.models.project_stage import ProjectStage, STAGE_DEFINITIONS, STAGE_DEFINITIONS_BY_TRACK
+from app.models.project_stage import STAGE_DEFINITIONS_BY_TRACK, ProjectStage
 from app.models.user import UserRole
 from app.schemas.project import (
     GanttStage,
     ProjectCreate,
     ProjectMemberAdd,
-    ProjectOverviewItem,
     ProjectUpdate,
     StageUpdate,
 )
@@ -115,11 +115,7 @@ async def create_project(
     track_key = data.track if data.track in STAGE_DEFINITIONS_BY_TRACK else "dual"
     stage_defs = STAGE_DEFINITIONS_BY_TRACK[track_key]
     total_days = sum(d for _, _, _, d in stage_defs)
-    stage_start = (
-        data.planned_launch_date - timedelta(days=total_days)
-        if data.planned_launch_date
-        else date.today()
-    )
+    stage_start = data.planned_launch_date - timedelta(days=total_days) if data.planned_launch_date else date.today()
 
     for num, name, track_str, duration in stage_defs:
         stage_end = stage_start + timedelta(days=duration - 1)
@@ -133,12 +129,14 @@ async def create_project(
             else:
                 offset = duration // 2
             ms_date = stage_start + timedelta(days=offset)
-            milestones.append({
-                "name": ms_name,
-                "planned_date": ms_date.isoformat(),
-                "actual_date": None,
-                "status": "pending",
-            })
+            milestones.append(
+                {
+                    "name": ms_name,
+                    "planned_date": ms_date.isoformat(),
+                    "actual_date": None,
+                    "status": "pending",
+                }
+            )
 
         stage = ProjectStage(
             project_id=project.id,
@@ -179,6 +177,7 @@ async def projects_overview(
     三色计数始终基于"当前 status 范围内的全表"统计，不受 health_status 影响。
     """
     from sqlalchemy import func
+
     from app.models.project import ProjectHealthStatus
 
     # ── 1. status 过滤(可见范围)──────────────────────────────
@@ -190,16 +189,17 @@ async def projects_overview(
 
     # ── 2. 全表三色聚合(GROUP BY health_status)─────────────
     color_rows = await db.execute(
-        select(Project.health_status, func.count(Project.id))
-        .where(base_filter)
-        .group_by(Project.health_status)
+        select(Project.health_status, func.count(Project.id)).where(base_filter).group_by(Project.health_status)
     )
     color_map = {str(getattr(k, "value", k)): v for k, v in color_rows.all()}
     green_count = color_map.get("green", 0)
     yellow_count = color_map.get("yellow", 0)
     red_count = color_map.get("red", 0)
-    total = green_count + yellow_count + red_count + sum(
-        v for k, v in color_map.items() if k not in {"green", "yellow", "red"}
+    total = (
+        green_count
+        + yellow_count
+        + red_count
+        + sum(v for k, v in color_map.items() if k not in {"green", "yellow", "red"})
     )
 
     # ── 3. 列表查询：可选 health_status 过滤 ───────────────────
@@ -211,7 +211,8 @@ async def projects_overview(
 
     offset = (page - 1) * page_size
     result = await db.execute(
-        select(Project).where(list_filter)
+        select(Project)
+        .where(list_filter)
         .order_by(Project.health_score.asc())  # 最差的排最前
         .offset(offset)
         .limit(page_size)
@@ -232,34 +233,28 @@ async def projects_overview(
         stage = stage_result.scalar_one_or_none()
 
         today = date.today()
-        days_to_deadline = (
-            (p.planned_launch_date - today).days
-            if p.planned_launch_date
-            else None
-        )
-        budget_pct = (
-            float(p.budget_spent / p.budget_total * 100)
-            if p.budget_total and p.budget_spent
-            else None
-        )
+        days_to_deadline = (p.planned_launch_date - today).days if p.planned_launch_date else None
+        budget_pct = float(p.budget_spent / p.budget_total * 100) if p.budget_total and p.budget_spent else None
 
-        items.append({
-            "project_id": str(p.id),
-            "code": p.code,
-            "name": p.name,
-            "description": p.description,
-            "current_stage": p.current_stage,
-            "stage_name": stage.stage_name if stage else "—",
-            "track": p.track,
-            "health_status": p.health_status,
-            "health_score": p.health_score,
-            "progress_pct": stage.progress_pct if stage else 0,
-            "planned_launch_date": p.planned_launch_date,
-            "days_to_deadline": days_to_deadline,
-            "budget_total": str(p.budget_total) if p.budget_total else None,
-            "budget_usage_pct": round(budget_pct, 1) if budget_pct else None,
-            "status": p.status,
-        })
+        items.append(
+            {
+                "project_id": str(p.id),
+                "code": p.code,
+                "name": p.name,
+                "description": p.description,
+                "current_stage": p.current_stage,
+                "stage_name": stage.stage_name if stage else "—",
+                "track": p.track,
+                "health_status": p.health_status,
+                "health_score": p.health_score,
+                "progress_pct": stage.progress_pct if stage else 0,
+                "planned_launch_date": p.planned_launch_date,
+                "days_to_deadline": days_to_deadline,
+                "budget_total": str(p.budget_total) if p.budget_total else None,
+                "budget_usage_pct": round(budget_pct, 1) if budget_pct else None,
+                "status": p.status,
+            }
+        )
 
     return {
         "total": total,
@@ -285,9 +280,7 @@ async def get_project(
         raise HTTPException(404, "项目不存在")
 
     stages_result = await db.execute(
-        select(ProjectStage)
-        .where(ProjectStage.project_id == project_id)
-        .order_by(ProjectStage.stage_number)
+        select(ProjectStage).where(ProjectStage.project_id == project_id).order_by(ProjectStage.stage_number)
     )
     stages = stages_result.scalars().all()
 
@@ -404,9 +397,7 @@ async def get_gantt_data(
     推荐前端搭配 react-gantt-chart 或 dhtmlx-gantt 使用。
     """
     stages_result = await db.execute(
-        select(ProjectStage)
-        .where(ProjectStage.project_id == project_id)
-        .order_by(ProjectStage.stage_number)
+        select(ProjectStage).where(ProjectStage.project_id == project_id).order_by(ProjectStage.stage_number)
     )
     stages = stages_result.scalars().all()
 
@@ -455,6 +446,7 @@ async def list_project_members(
 ):
     """项目团队成员列表"""
     from app.models.user import User
+
     result = await db.execute(
         select(ProjectMember, User.name, User.department)
         .join(User, ProjectMember.user_id == User.id)
@@ -517,32 +509,40 @@ async def update_stage(
 
         # 1. 自动写入对应的 GateReview 为 pass (假设门禁号和阶段号对应)
         from app.models.gate_review import GateReview
-        existing_gate = await db.execute(select(GateReview).where(
-            (GateReview.project_id == stage.project_id) & (GateReview.gate_number == stage.stage_number)
-        ))
+
+        existing_gate = await db.execute(
+            select(GateReview).where(
+                (GateReview.project_id == stage.project_id) & (GateReview.gate_number == stage.stage_number)
+            )
+        )
         if not existing_gate.scalar_one_or_none():
-            db.add(GateReview(
-                project_id=stage.project_id,
-                gate_number=stage.stage_number,
-                gate_name=f"G{stage.stage_number} 自动评审",
-                decision="pass",
-                decision_notes="进度达到100%，轻量级敏捷流自动放行",
-                ai_summary="（系统自动流转）",
-            ))
+            db.add(
+                GateReview(
+                    project_id=stage.project_id,
+                    gate_number=stage.stage_number,
+                    gate_name=f"G{stage.stage_number} 自动评审",
+                    decision="pass",
+                    decision_notes="进度达到100%，轻量级敏捷流自动放行",
+                    ai_summary="（系统自动流转）",
+                )
+            )
 
         # 2. 解锁下一阶段 (如果存在)
         if stage.stage_number < 5:
-            next_stage_result = await db.execute(select(ProjectStage).where(
-                (ProjectStage.project_id == stage.project_id) & (ProjectStage.stage_number == stage.stage_number + 1)
-            ))
+            next_stage_result = await db.execute(
+                select(ProjectStage).where(
+                    (ProjectStage.project_id == stage.project_id)
+                    & (ProjectStage.stage_number == stage.stage_number + 1)
+                )
+            )
             next_stage = next_stage_result.scalar_one_or_none()
             if next_stage and next_stage.health_status == "locked":
                 next_stage.health_status = "green"
-        
+
         # 3. 如果正在当前阶段，则自动把项目指针推向下一阶段
         if project and project.current_stage == stage.stage_number and project.current_stage < 5:
             project.current_stage += 1
-            
+
         await db.commit()
 
     # 重算项目整体健康度
