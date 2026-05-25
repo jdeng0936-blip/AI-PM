@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.daily_report import DailyReport
 from app.models.risk_alert import RiskAlert
 from app.models.usage_log import TenantUsageLog
+from app.models.audit_log import AuditLog
 
 # --- IPD 项目管理模型 ---
 from app.models.project import Project
@@ -37,7 +38,7 @@ from app.models.notification import (
 from app.models.attachment import Attachment, AttachmentKind
 
 __all__ = [
-    "User", "DailyReport", "RiskAlert", "TenantUsageLog",
+    "User", "DailyReport", "RiskAlert", "TenantUsageLog", "AuditLog",
     "Project", "ProjectStage", "GateReview", "Sprint", "SprintStatus",
     "SprintTask", "BurndownSnapshot", "TaskStatus", "TaskPriority",
     "CapacitySnapshot", "CapacityLevel",
