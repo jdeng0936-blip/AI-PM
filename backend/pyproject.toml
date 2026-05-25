@@ -1,0 +1,57 @@
+# backend/pyproject.toml — 工具配置(依赖仍由 requirements.txt 管理)
+#
+# Stage 4 引入:ruff / mypy / pytest 配置统一在这里。
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    ".venv",
+    ".venv311",
+    "_archive",
+    "alembic/versions",  # 自动生成的迁移文件,不参与 lint
+]
+
+[tool.ruff.lint]
+# 初期保守:只开 E(pycodestyle)、F(pyflakes)、W(warnings)、I(import 排序)
+# 待 Stage 1 技术债清理时再逐步加 B/UP/SIM 等
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — 交给 formatter,且历史代码 long line 较多
+]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/env.py" = ["E402"]                # alembic 需要 sys.path 注入后再 import
+"app/models/__init__.py" = ["F401"]        # __init__.py 的 re-export 是有意为之
+"app/routers/__init__.py" = ["F401"]
+"app/services/__init__.py" = ["F401"]
+"tests/*" = ["F401", "E402"]               # 测试里允许局部 import + 灵活
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ─────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false       # 初期不要求 type hint 全覆盖
+warn_unused_ignores = true
+warn_redundant_casts = true
+exclude = [
+    "\\.venv",
+    "\\.venv311",
+    "alembic",
+    "tests",
+    "_archive",
+]
+
+# ─────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+pythonpath = ["."]              # 之后跑 pytest 不需要再写 PYTHONPATH=.
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:passlib.*",
+    "ignore::DeprecationWarning:crypt.*",
+]

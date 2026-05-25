@@ -1,0 +1,43 @@
+# Pre-commit hooks — 本地提交时的质量门禁
+# 安装:cd backend && .venv/bin/pip install pre-commit && cd .. && pre-commit install
+# 全量跑:pre-commit run --all-files
+repos:
+  # ─── ruff:Python lint + 自动格式化 ───────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        files: ^backend/.*\.py$
+
+  # ─── 通用基础 hooks ─────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.md|.*\.sql)$
+      - id: end-of-file-fixer
+        exclude: ^.*\.(md|json)$
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+
+  # ─── 项目特定 hooks(本地脚本) ─────────────────────────
+  - repo: local
+    hooks:
+      # 拦截 Alembic 迁移中的 template docstring 占位
+      - id: alembic-no-template-placeholder
+        name: Alembic 迁移不允许保留模板 docstring 占位
+        entry: bash -c 'for f in "$@"; do if grep -q "Alembic migrations script template" "$f"; then echo "❌ $f 含模板 docstring 占位,请补真实迁移说明"; exit 1; fi; done' --
+        language: system
+        files: ^backend/alembic/versions/.*\.py$
+
+      # 拦截 .env / 密钥泄漏
+      - id: no-real-env-files
+        name: 拒绝提交 .env 实值文件(只允许 .env.example/.env.production.template)
+        entry: bash -c 'for f in "$@"; do case "$f" in *.env.example|*.env.production.template) ;; *.env|.env|*/.env) echo "❌ 禁止提交 $f"; exit 1 ;; esac; done' --
+        language: system
+        files: \.env$
