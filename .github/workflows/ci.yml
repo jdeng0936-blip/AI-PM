@@ -98,21 +98,11 @@ jobs:
         # 需要外部 uvicorn 在 8001 端口运行,CI 环境不适用,Stage 1 重构后移除该 ignore
         run: pytest -v --tb=short --ignore=tests/test_e2e_ipd.py
 
-      - name: Alembic 诊断(失败时定位用)
-        run: |
-          echo "=== .env DATABASE_URL ==="
-          grep -E "^DATABASE_URL=" .env
-          echo "=== pg ping ==="
-          PGPASSWORD=aipm psql -h localhost -U aipm -d aipm_db -c "SELECT version();" 2>&1 | head -3
-          echo "=== aipm_db tables(应该是空的)==="
-          PGPASSWORD=aipm psql -h localhost -U aipm -d aipm_db -c "\dt" 2>&1 | head -10
-          echo "=== alembic history ==="
-          alembic history --verbose 2>&1 | tail -20
-          echo "=== alembic current ==="
-          alembic current 2>&1 | tail -5
-
       - name: Alembic upgrade head(硬门禁)
-        # Stage 1 已修复:后续迁移全部幂等化,本地 fresh postgres:16 已验证全链路通过
+        # Stage 1 已修复:
+        # 1) 所有迁移幂等化(inspector 检测后再操作)
+        # 2) alembic.ini 加 prepend_sys_path=. → env.py 能 import app.models
+        # 本地 fresh postgres:16 已验证全链路通过
         run: alembic upgrade head
 
       - name: Alembic check(硬门禁,ORM↔DB schema 零漂移)
