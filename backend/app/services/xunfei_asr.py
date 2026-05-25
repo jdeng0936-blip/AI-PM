@@ -196,9 +196,7 @@ async def transcribe(audio_pcm16k: bytes, timeout: float = 30.0) -> Optional[str
                 # wpgs 模式下 pgs=apd 是追加,pgs=rpl 是替换
                 pgs = data.get("result", {}).get("pgs")
                 if pgs == "rpl":
-                    # 替换前面的部分段
-                    rg = data.get("result", {}).get("rg", [0, 0])
-                    # 简化处理:直接保留最后一段
+                    # 替换前面的部分段(简化处理:直接保留最后一段,忽略 rg 区间)
                     last_segment = segment
                 else:
                     if last_segment:

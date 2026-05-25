@@ -268,14 +268,12 @@ async def get_resource_load(
     _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """获取全员资源负载水位（故事点容量 vs 已分配）"""
-    from datetime import date
 
     from app.models.project_member import ProjectMember
 
     users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.department))
     users = users_result.scalars().all()
 
-    today = date.today()
     load_data = []
     for u in users:
         # 计算当前 Sprint 已分配点数（简化：按项目成员数估算）

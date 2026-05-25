@@ -236,7 +236,6 @@ async def test_ai_extract_high_confidence_updates(seeded_okr, monkeypatch):
     """高置信度时正确写入 KR + 进度日志 + 更新 Objective"""
     db = seeded_okr["db"]
     kr1 = seeded_okr["kr1"]
-    obj = seeded_okr["obj"]
     user = seeded_okr["user"]
 
     async def fake_llm(raw_text, krs):
