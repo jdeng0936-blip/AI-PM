@@ -38,10 +38,13 @@ async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str = Query("", description="按姓名/部门/企微ID模糊搜索"),
+    role: str = Query("", description="按角色筛选: admin/manager/employee"),  # V2.4 Stage 3 C2
+    department: str = Query("", description="按部门精确匹配"),  # V2.4 Stage 3 C2
+    is_active: str = Query("", description="按在职筛选: true/false/(空)"),  # V2.4 Stage 3 C2
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
-    """用户列表，分页 + 搜索"""
+    """用户列表，分页 + 搜索 + 多维筛选(V2.4 Stage 3 C2)"""
     base_query = select(User)
     if search:
         like_pat = f"%{search}%"
@@ -52,6 +55,17 @@ async def list_users(
                 User.wechat_userid.ilike(like_pat),
             )
         )
+
+    # V2.4 Stage 3 C2:多维 query 筛选
+    if role:
+        try:
+            base_query = base_query.where(User.role == UserRole(role))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"无效角色: {role}")
+    if department:
+        base_query = base_query.where(User.department == department)
+    if is_active in ("true", "false"):
+        base_query = base_query.where(User.is_active.is_(is_active == "true"))
 
     # 总数
     count_q = select(func.count()).select_from(base_query.subquery())
