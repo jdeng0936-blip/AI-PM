@@ -7,8 +7,11 @@ DELETE /users/{id}      — 停用用户（软删除）
 POST   /users/{id}/reset-password — 重置密码
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+import uuid
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -23,6 +26,11 @@ from app.schemas.user import (
 )
 
 router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
+
+
+# V2.4 Stage 2 批量启/停用请求体
+class UserBatchBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=100, description="待操作的用户 ID 列表")
 
 
 @router.get("", response_model=UserListResponse)
@@ -197,6 +205,45 @@ async def deactivate_user(
     user.is_active = False
     await db.commit()
     return {"message": f"用户 '{user.name}' 已停用"}
+
+
+# V2.4 Stage 2:批量禁用 / 启用用户(不允许真删,避免破坏 daily_report.user_id FK)
+@router.post("/batch-disable")
+async def batch_disable_users(
+    body: UserBatchBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
+):
+    """批量停用用户(SET is_active=false);historical daily_reports 不受影响。"""
+    result = await db.execute(
+        update(User).where(User.id.in_(body.ids), User.is_active.is_(True)).values(is_active=False).returning(User.id)
+    )
+    disabled_ids = [r[0] for r in result.all()]
+    await db.commit()
+    return {
+        "requested": len(body.ids),
+        "disabled_count": len(disabled_ids),
+        "disabled_ids": [str(i) for i in disabled_ids],
+    }
+
+
+@router.post("/batch-enable")
+async def batch_enable_users(
+    body: UserBatchBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(UserRole.admin)),
+):
+    """批量启用用户(SET is_active=true)。仅 admin。"""
+    result = await db.execute(
+        update(User).where(User.id.in_(body.ids), User.is_active.is_(False)).values(is_active=True).returning(User.id)
+    )
+    enabled_ids = [r[0] for r in result.all()]
+    await db.commit()
+    return {
+        "requested": len(body.ids),
+        "enabled_count": len(enabled_ids),
+        "enabled_ids": [str(i) for i in enabled_ids],
+    }
 
 
 @router.post("/{user_id}/reset-password")

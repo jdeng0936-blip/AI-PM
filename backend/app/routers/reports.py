@@ -6,11 +6,12 @@ app/routers/reports.py — 日报 CRUD API
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -21,6 +22,11 @@ from app.models.sprint_task import SprintTask
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"], redirect_slashes=False)
+
+
+# V2.4 Stage 2 批量软删请求体
+class BatchDeleteBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="待软删的日报 ID 列表")
 
 
 @router.get("")
@@ -41,7 +47,7 @@ async def list_reports(
     """
     from sqlalchemy import func
 
-    conditions = []
+    conditions = [DailyReport.deleted_at.is_(None)]  # V2.4 Stage 2:默认过滤软删
     # 员工只能看自己的
     if current_user.role == UserRole.employee:
         conditions.append(DailyReport.user_id == current_user.id)
@@ -64,7 +70,11 @@ async def list_reports(
         .outerjoin(Project, DailyReport.project_id == Project.id)
         .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
     )
-    count_stmt = select(func.count(DailyReport.id)).join(User, DailyReport.user_id == User.id)
+    count_stmt = (
+        select(func.count(DailyReport.id))
+        .join(User, DailyReport.user_id == User.id)
+        .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
+    )
     if user_name:
         stmt = stmt.where(User.name.ilike(f"%{user_name}%"))
         count_stmt = count_stmt.where(User.name.ilike(f"%{user_name}%"))
@@ -109,6 +119,44 @@ async def list_reports(
     return {"items": items, "total": total}
 
 
+# V2.4 Stage 2:批量软删日报
+@router.delete("/batch")
+async def batch_soft_delete_reports(
+    body: BatchDeleteBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    批量软删除日报(SET deleted_at = now())。
+
+    权限规则:
+    - admin / manager 可以删任意人的日报
+    - employee 只能删自己的(server 端再校验一次,不信前端)
+
+    返回:实际成功标记软删的条数(已被删的不会重复 deleted_at)
+    """
+    # 拼条件:已经软删过的不再动(避免覆盖时间戳)
+    cond = and_(
+        DailyReport.id.in_(body.ids),
+        DailyReport.deleted_at.is_(None),
+    )
+    if current_user.role == UserRole.employee:
+        # 员工只能删自己的
+        cond = and_(cond, DailyReport.user_id == current_user.id)
+
+    result = await db.execute(
+        update(DailyReport).where(cond).values(deleted_at=datetime.now(timezone.utc)).returning(DailyReport.id)
+    )
+    deleted_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
 @router.get("/today-plan")
 async def get_today_plan(
     db: AsyncSession = Depends(get_db),
@@ -128,6 +176,7 @@ async def get_today_plan(
                 DailyReport.report_date == today,
                 DailyReport.raw_input_text.like("[晨规划]%"),
                 DailyReport.pass_check == True,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
         .order_by(DailyReport.created_at.desc())
@@ -175,7 +224,10 @@ async def get_report_detail(
         .join(User, DailyReport.user_id == User.id)
         .outerjoin(Project, DailyReport.project_id == Project.id)
         .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
-        .where(DailyReport.id == report_id)
+        .where(
+            DailyReport.id == report_id,
+            DailyReport.deleted_at.is_(None),  # V2.4 Stage 2:软删的也不能查
+        )
     )
     row = result.first()
     if not row:

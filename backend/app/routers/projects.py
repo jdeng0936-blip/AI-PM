@@ -12,11 +12,12 @@ app/routers/projects.py — 项目生命周期管理 API
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, select
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -39,6 +40,60 @@ router = APIRouter(prefix="/api/v1/projects", tags=["Projects (IPD)"])
 stages_router = APIRouter(prefix="/api/v1/stages", tags=["Stages"])
 
 _mgr = require_role(UserRole.manager, UserRole.admin)
+
+
+# V2.4 Stage 2 批量软删请求体
+class ProjectBatchDeleteBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=50, description="待软删的项目 ID 列表")
+
+
+# V2.4 Stage 2:批量软删项目(仅允许临时工单项目;主干项目走 archive 路径)
+@router.delete("/batch")
+async def batch_soft_delete_projects(
+    body: ProjectBatchDeleteBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr),
+):
+    """
+    批量软删除项目。**严格只允许临时工单项目(is_temporary=true)**;
+    若 ids 里含任何主干项目,整个请求被拒绝(400)避免歧义 — 主干项目
+    请用 /api/v1/projects/{id} 单条 archive 接口。
+
+    返回 deleted_count / non_temp_ids(被拒绝的主干 id 列表方便前端提示)
+    """
+    # 1. 检查 ids 中是否有非临时项目
+    check = await db.execute(
+        select(Project.id, Project.is_temporary, Project.deleted_at).where(Project.id.in_(body.ids))
+    )
+    rows = check.all()
+    if not rows:
+        raise HTTPException(404, "传入的项目 ID 都不存在")
+
+    non_temp = [str(r[0]) for r in rows if not r[1]]
+    if non_temp:
+        raise HTTPException(
+            400,
+            {
+                "message": "存在主干项目,不允许批量删除;请逐个走归档(archive)流程",
+                "non_temp_ids": non_temp,
+            },
+        )
+
+    # 2. 软删(已删的跳过)
+    result = await db.execute(
+        update(Project)
+        .where(Project.id.in_(body.ids), Project.is_temporary.is_(True), Project.deleted_at.is_(None))
+        .values(deleted_at=datetime.now(timezone.utc))
+        .returning(Project.id)
+    )
+    deleted_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": [str(i) for i in deleted_ids],
+    }
 
 
 # ── 立项（自动初始化5个 IPD 阶段）────────────────────────────────
@@ -239,7 +294,12 @@ async def projects_overview(
     if include_archived:
         visible_statuses += [ProjectStatus.cancelled, ProjectStatus.completed]
 
-    base_filter = Project.status.in_(visible_statuses)
+    # V2.4 Stage 2:overview 默认过滤掉软删项目(deleted_at IS NULL)
+    # 三色聚合 + 列表查询都共用同一个 base_filter,自动继承
+    base_filter = and_(
+        Project.status.in_(visible_statuses),
+        Project.deleted_at.is_(None),
+    )
     if not include_temporary:
         base_filter = and_(base_filter, Project.is_temporary.is_(False))
 
@@ -331,7 +391,8 @@ async def get_project(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    result = await db.execute(select(Project).where(Project.id == project_id))
+    # V2.4 Stage 2:软删项目不能查
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "项目不存在")
@@ -394,7 +455,8 @@ async def update_project(
     更新项目基础信息。manager+ 权限。
     只更新传入的字段（部分更新语义）。
     """
-    result = await db.execute(select(Project).where(Project.id == project_id))
+    # V2.4 Stage 2:软删项目不能编辑
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "项目不存在")
@@ -429,8 +491,12 @@ async def archive_project(
     """
     归档（软删除）项目：将 status 置为 cancelled。
     保留所有历史数据（阶段、成员、日报关联等）。manager+ 权限。
+
+    注:V2.4 Stage 2 起,主干项目仍走"归档(status=cancelled)"路径不动;
+    临时工单项目走 deleted_at 软删,不走本接口。
     """
-    result = await db.execute(select(Project).where(Project.id == project_id))
+    # V2.4 Stage 2:已经被软删的项目不能再归档
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(404, "项目不存在")

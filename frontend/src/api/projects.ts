@@ -25,3 +25,7 @@ export const archiveProject = (id: string) => request.delete(`/projects/${id}`)
 export const getGateReviews = (projectId: string) => request.get(`/gates/project/${projectId}`)
 export const submitGateReview = (data: any) => request.post('/gates/review', data)
 export const updateStage = (stageId: string, data: any) => request.patch(`/stages/${stageId}`, data)
+
+// V2.4 Stage 2:批量软删项目(仅允许临时工单)
+export const batchSoftDeleteProjects = (ids: string[]) =>
+  request.delete('/projects/batch', { data: { ids } })

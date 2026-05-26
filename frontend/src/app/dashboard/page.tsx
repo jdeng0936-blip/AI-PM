@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
 import { getProjectsOverview, createProject } from '@/api/projects'
+import { batchSoftDeleteReports } from '@/api/reports'
 import {
   MAIN_TRACK_OPTIONS,
   TEMP_TRACK_OPTIONS,
@@ -23,7 +24,9 @@ import {
   trackLabel,
 } from '@/lib/project-track'
 import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
+import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
 import {
   LayoutDashboard,
@@ -35,6 +38,7 @@ import {
   Plus,
   Ticket,
   Trophy,
+  Trash2,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -147,6 +151,36 @@ export default function DashboardPage() {
     clearAll: clearReportAll,
     activeCount: reportActiveCount,
   } = useListFilters(morningReports, reportFilterSpec, { urlPrefix: 'rep_' })
+
+  // V2.4 Stage 2:dashboard 日报明细多选 + 批量软删(走 filteredReports,filter 变即清空)
+  const {
+    selectedIds: reportSelectedIds,
+    selectedCount: reportSelectedCount,
+    isSelected: isReportSelected,
+    isAllSelected: isAllReportsSelected,
+    isIndeterminate: isReportIndeterminate,
+    toggle: toggleReport,
+    selectAll: selectAllReports,
+    clearAll: clearReportSelection,
+  } = useMultiSelect(filteredReports)
+  const [reportDeleting, setReportDeleting] = useState(false)
+
+  async function handleReportBatchDelete() {
+    if (reportSelectedCount === 0) return
+    if (!confirm(`确定软删除选中的 ${reportSelectedCount} 条日报?\n(历史 AI 评分 / 关联保留,不影响聚合数据)`)) return
+    setReportDeleting(true)
+    try {
+      const ids = Array.from(reportSelectedIds)
+      const res: any = await batchSoftDeleteReports(ids)
+      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 条日报`)
+      clearReportSelection()
+      await fetchAll()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setReportDeleting(false)
+    }
+  }
 
   async function handleCreateProject() {
     if (!projectForm.name) {
@@ -290,11 +324,21 @@ export default function DashboardPage() {
       {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
       {morningReports.length > 0 && (
         <div className="mb-8 animate-in relative z-50" style={{ animationDelay: '0.35s' }}>
-          <div className="section-title">
+          <div className="section-title flex items-center gap-2">
             📋 AI 日报明细（{morningBriefingDate}）
             <span className="text-[11px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
               共 {morningReports.length} 条 · 显示 {filteredReports.length} 条
             </span>
+            {filteredReports.length > 0 && (
+              <button
+                onClick={() => (isAllReportsSelected ? clearReportSelection() : selectAllReports())}
+                className="ml-auto text-[11px] px-2 py-0.5 rounded"
+                style={{ color: '#a855f7', border: '1px solid rgba(168,85,247,0.3)' }}
+                title="全选 / 取消全选 当前显示的日报"
+              >
+                {isAllReportsSelected ? '取消全选' : '全选'}
+              </button>
+            )}
           </div>
           <FilterBar
             spec={reportFilterSpec}
@@ -304,6 +348,20 @@ export default function DashboardPage() {
             clearAll={clearReportAll}
             activeCount={reportActiveCount}
           />
+          <ListActionBar
+            selectedCount={reportSelectedCount}
+            onClear={clearReportSelection}
+          >
+            <button
+              onClick={handleReportBatchDelete}
+              disabled={reportDeleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+              style={{ background: '#ef4444', color: '#fff' }}
+            >
+              <Trash2 size={13} />
+              {reportDeleting ? '删除中...' : '批量软删'}
+            </button>
+          </ListActionBar>
           <div className="grid grid-cols-1 gap-3">
             {filteredReports.length === 0 && (
               <div className="stat-card text-center py-8 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
@@ -311,7 +369,25 @@ export default function DashboardPage() {
               </div>
             )}
             {filteredReports.map((r: any) => (
-              <div key={r.member} className="stat-card flex items-start gap-4" style={{ padding: '14px 18px' }}>
+              <div
+                key={r.id || r.member}
+                className="stat-card flex items-start gap-3"
+                style={{
+                  padding: '14px 18px',
+                  borderColor: r.id && isReportSelected(r.id) ? '#a855f7' : undefined,
+                  borderWidth: r.id && isReportSelected(r.id) ? 1 : undefined,
+                  borderStyle: r.id && isReportSelected(r.id) ? 'solid' : undefined,
+                }}
+              >
+                {r.id && (
+                  <input
+                    type="checkbox"
+                    checked={isReportSelected(r.id)}
+                    onChange={() => toggleReport(r.id)}
+                    className="mt-1 cursor-pointer shrink-0"
+                    title="选中该条日报"
+                  />
+                )}
                 <div className="text-center shrink-0" style={{ minWidth: 48 }}>
                   <div className="text-2xl font-bold" style={{ color: scoreColor(r.ai_score) }}>
                     {r.ai_score ?? '-'}

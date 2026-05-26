@@ -6,12 +6,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   getUsers, createUser, updateUser, deleteUser, resetPassword,
-  updateUserStatus, type UserStatus,
+  updateUserStatus, batchDisableUsers, batchEnableUsers, type UserStatus,
 } from '@/api/users'
+import { useAuthStore } from '@/stores/use-auth-store'
 import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
+import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Ban, CheckSquare } from 'lucide-react'
 
 // V2.4 Stage 1 TECH DEBT:后端 users 列表暂无 role/department/is_active query params,
 // Stage 1 临时把 pageSize 从 20 调到 100 一次拉全(公司当前人数 ~15 远不到 100),
@@ -37,6 +40,7 @@ const STATUS_OPTIONS: { value: UserStatus; label: string; color: string }[] = [
 const statusMeta = (s: string) => STATUS_OPTIONS.find((o) => o.value === s) || STATUS_OPTIONS[0]
 
 export default function UsersPage() {
+  const { isAdmin } = useAuthStore()
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -108,6 +112,56 @@ export default function UsersPage() {
     clearAll: clearUserAll,
     activeCount: userActiveCount,
   } = useListFilters(users, userFilterSpec, { urlPrefix: 'usr_' })
+
+  // V2.4 Stage 2:用户多选 + 批量启/禁用(不暴露真删除)
+  const {
+    selectedIds: userSelectedIds,
+    selectedCount: userSelectedCount,
+    selectedItems: selectedUsers,
+    isSelected: isUserSelected,
+    isAllSelected: isAllUsersSelected,
+    isIndeterminate: isUserIndeterminate,
+    toggle: toggleUser,
+    selectAll: selectAllUsers,
+    clearAll: clearUserSelection,
+  } = useMultiSelect(filteredUsers)
+  const [bulkUserActing, setBulkUserActing] = useState(false)
+
+  // 选中里全部为"启用"或全部为"停用",决定按钮显示
+  const allActive = userSelectedCount > 0 && selectedUsers.every((u) => u.is_active)
+  const allInactive = userSelectedCount > 0 && selectedUsers.every((u) => !u.is_active)
+
+  async function handleBatchDisable() {
+    if (!confirm(`确定批量停用选中的 ${userSelectedCount} 个用户?\n(is_active=false,历史日报与关联不动)`)) return
+    setBulkUserActing(true)
+    try {
+      const ids = Array.from(userSelectedIds)
+      const res: any = await batchDisableUsers(ids)
+      toast.success(`已停用 ${res?.disabled_count ?? ids.length} 个用户`)
+      clearUserSelection()
+      await fetchUsers()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量停用失败')
+    } finally {
+      setBulkUserActing(false)
+    }
+  }
+
+  async function handleBatchEnable() {
+    if (!confirm(`确定批量启用选中的 ${userSelectedCount} 个用户?`)) return
+    setBulkUserActing(true)
+    try {
+      const ids = Array.from(userSelectedIds)
+      const res: any = await batchEnableUsers(ids)
+      toast.success(`已启用 ${res?.enabled_count ?? ids.length} 个用户`)
+      clearUserSelection()
+      await fetchUsers()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量启用失败')
+    } finally {
+      setBulkUserActing(false)
+    }
+  }
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
@@ -223,11 +277,51 @@ export default function UsersPage() {
         />
       </div>
 
+      {/* V2.4 Stage 2:批量启 / 停用栏(只允许 admin/manager) */}
+      <ListActionBar
+        selectedCount={userSelectedCount}
+        onClear={clearUserSelection}
+        hint={allActive ? '全部为启用 — 可批量停用' : allInactive ? '全部为停用 — 可批量启用' : '混合状态 — 请按单一状态选中'}
+      >
+        {allActive && (
+          <button
+            onClick={handleBatchDisable}
+            disabled={bulkUserActing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+            style={{ background: '#ef4444', color: '#fff' }}
+          >
+            <Ban size={13} />
+            {bulkUserActing ? '处理中...' : '批量停用'}
+          </button>
+        )}
+        {allInactive && isAdmin && (
+          <button
+            onClick={handleBatchEnable}
+            disabled={bulkUserActing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+            style={{ background: '#22c55e', color: '#fff' }}
+          >
+            <CheckSquare size={13} />
+            {bulkUserActing ? '处理中...' : '批量启用'}
+          </button>
+        )}
+      </ListActionBar>
+
       {/* Table */}
       <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ background: 'var(--color-bg-secondary)' }}>
+              <th className="py-3 px-3 w-8">
+                <input
+                  type="checkbox"
+                  checked={isAllUsersSelected}
+                  ref={(el) => { if (el) el.indeterminate = isUserIndeterminate }}
+                  onChange={() => (isAllUsersSelected ? clearUserSelection() : selectAllUsers())}
+                  className="cursor-pointer"
+                  title="全选当前页"
+                />
+              </th>
               {['姓名', '部门', '手机号', '邮箱', '企微ID', '角色', '出勤', '状态', '操作'].map((h) => (
                 <th key={h} className="text-left py-3 px-4 text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{h}</th>
               ))}
@@ -236,13 +330,27 @@ export default function UsersPage() {
           <tbody>
             {filteredUsers.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-center py-8 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                <td colSpan={10} className="text-center py-8 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   {users.length === 0 ? '暂无用户数据' : '无符合筛选条件的用户'}
                 </td>
               </tr>
             )}
             {filteredUsers.map((u: any) => (
-              <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <tr
+                key={u.id}
+                style={{
+                  borderBottom: '1px solid var(--color-border-subtle)',
+                  background: isUserSelected(u.id) ? 'rgba(168,85,247,0.06)' : undefined,
+                }}
+              >
+                <td className="py-3 px-3">
+                  <input
+                    type="checkbox"
+                    checked={isUserSelected(u.id)}
+                    onChange={() => toggleUser(u.id)}
+                    className="cursor-pointer"
+                  />
+                </td>
                 <td className="py-3 px-4 text-sm">{u.name}</td>
                 <td className="py-3 px-4 text-sm">{u.department}</td>
                 <td className="py-3 px-4 text-sm">{u.phone || '-'}</td>

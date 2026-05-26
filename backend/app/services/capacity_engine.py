@@ -624,6 +624,7 @@ async def compute_project_capacity(
                     DailyReport.project_id == project_id,
                     DailyReport.report_date >= start_d,
                     DailyReport.report_date <= end_d,
+                    DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
                 )
             )
             .group_by(DailyReport.user_id, User.name, User.department)

@@ -39,7 +39,12 @@ async def _get_unreported_users(today: Optional[date] = None) -> list:
 
     async with AsyncSessionLocal() as db:
         # 今日已提交的 user_id 集合
-        reported = await db.execute(select(DailyReport.user_id).where(DailyReport.report_date == today))
+        reported = await db.execute(
+            select(DailyReport.user_id).where(
+                DailyReport.report_date == today,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2:软删的不算"已交"
+            )
+        )
         reported_ids = {row[0] for row in reported.all()}
 
         # 在岗且未提交的用户(排除 on_leave/on_travel/sick_leave)
@@ -237,6 +242,7 @@ async def run_morning_briefing() -> None:
                 select(DailyReport, User.name, User.department)
                 .join(User, DailyReport.user_id == User.id)
                 .where(DailyReport.report_date == yesterday)
+                .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
                 .order_by(DailyReport.ai_score.desc())
             )
             rows = (await db.execute(stmt)).all()

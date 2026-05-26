@@ -44,6 +44,7 @@ async def get_morning_briefing(
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
         .where(DailyReport.report_date == report_date)
+        .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
         .order_by(DailyReport.ai_score.desc().nulls_last())
     )
     # 员工只看自己的
@@ -86,6 +87,7 @@ async def get_morning_briefing(
         "management_alerts": alerts,
         "reports": [
             {
+                "id": str(r.DailyReport.id),  # V2.4 Stage 2:供前端多选批量软删用
                 "member": r.name,
                 "department": r.department,
                 # 对应 Excel 各列
@@ -199,6 +201,8 @@ async def get_temp_ticket_summary(
             .where(
                 and_(
                     Project.is_temporary.is_(True),
+                    Project.deleted_at.is_(None),  # V2.4 Stage 2
+                    DailyReport.deleted_at.is_(None),
                     DailyReport.report_date >= start_d,
                     DailyReport.report_date <= end_d,
                 )
@@ -232,6 +236,8 @@ async def get_temp_ticket_summary(
                 and_(
                     DailyReport.report_date >= start_d,
                     DailyReport.report_date <= end_d,
+                    DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
+                    Project.deleted_at.is_(None),
                 )
             )
             .group_by(Project.is_temporary)
@@ -287,6 +293,7 @@ async def get_weekly_stats(
             and_(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
         .group_by(DailyReport.report_date)

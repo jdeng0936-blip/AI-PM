@@ -4,10 +4,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { getReports, getReportDetail } from '@/api/reports'
+import { getReports, getReportDetail, batchSoftDeleteReports } from '@/api/reports'
 import { useAuthStore } from '@/stores/use-auth-store'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
+import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
-import { RefreshCw, Download, Search, X } from 'lucide-react'
+import { RefreshCw, Download, Search, X, Trash2 } from 'lucide-react'
 
 function DetailSection({ title, content, type }: { title: string; content?: string; type?: string }) {
   if (!content) return null
@@ -67,6 +69,30 @@ export default function ReportsPage() {
   }, [page, filterDate, filterStatus, filterName])
 
   useEffect(() => { fetchReports() }, [fetchReports])
+
+  // V2.4 Stage 2:多选 + 批量软删
+  const {
+    selectedIds, selectedCount, isSelected, isAllSelected, isIndeterminate,
+    toggle, selectAll, clearAll,
+  } = useMultiSelect(reports)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleBatchDelete() {
+    if (selectedCount === 0) return
+    if (!confirm(`确定软删除选中的 ${selectedCount} 条日报?\n(数据库标 deleted_at,不真删,历史 AI 评分 / 关联保留)`)) return
+    setDeleting(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const res: any = await batchSoftDeleteReports(ids)
+      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 条日报`)
+      clearAll()
+      await fetchReports()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   async function handleRowClick(row: any) {
     setDrawerOpen(true)
@@ -132,11 +158,34 @@ export default function ReportsPage() {
         )}
       </div>
 
+      {/* V2.4 Stage 2:批量操作栏(选中 > 0 才显示) */}
+      <ListActionBar selectedCount={selectedCount} onClear={clearAll}>
+        <button
+          onClick={handleBatchDelete}
+          disabled={deleting}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+          style={{ background: '#ef4444', color: '#fff' }}
+        >
+          <Trash2 size={13} />
+          {deleting ? '删除中...' : '批量软删'}
+        </button>
+      </ListActionBar>
+
       {/* Table */}
       <div className="stat-card animate-in overflow-x-auto" style={{ animationDelay: '0.1s' }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+              <th className="py-3 px-3 w-8">
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  ref={(el) => { if (el) el.indeterminate = isIndeterminate }}
+                  onChange={() => (isAllSelected ? clearAll() : selectAll())}
+                  className="cursor-pointer"
+                  title="全选当前页"
+                />
+              </th>
               {['日期', '类型', '姓名', '部门', 'AI 评分', '今日进展', '🔗 关联', 'AI 评语', '状态'].map((h) => (
                 <th key={h} className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
               ))}
@@ -144,9 +193,17 @@ export default function ReportsPage() {
           </thead>
           <tbody>
             {reports.length === 0 ? (
-              <tr><td colSpan={9} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
+              <tr><td colSpan={10} className="text-center py-12 text-sm" style={{ color: 'var(--color-text-secondary)' }}>暂无日报数据</td></tr>
             ) : reports.map((r: any) => (
               <tr key={r.id} className="cursor-pointer transition-colors hover:bg-white/[0.02]" onClick={() => handleRowClick(r)} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected(r.id)}
+                    onChange={() => toggle(r.id)}
+                    className="cursor-pointer"
+                  />
+                </td>
                 <td className="py-3 px-3 text-xs">{r.report_date}</td>
                 <td className="py-3 px-3">
                   {(() => {

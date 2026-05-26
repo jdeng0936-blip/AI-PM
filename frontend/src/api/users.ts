@@ -54,3 +54,10 @@ export const updateUserStatus = (
   if (statusUntil) params.status_until = statusUntil
   return request.patch(`/users/${userId}/status`, null, { params })
 }
+
+// V2.4 Stage 2:批量启 / 禁用用户(不允许真删,避免破坏 daily_report FK)
+export const batchDisableUsers = (ids: string[]) =>
+  request.post('/users/batch-disable', { ids })
+
+export const batchEnableUsers = (ids: string[]) =>
+  request.post('/users/batch-enable', { ids })

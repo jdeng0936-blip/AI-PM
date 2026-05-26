@@ -109,6 +109,7 @@ async def compute_stage_health(
                 DailyReport.user_id.in_(member_ids),
                 DailyReport.report_date >= since,
                 DailyReport.pass_check.is_not(None),
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
     )
@@ -223,6 +224,7 @@ async def refresh_sprint_health(
                 DailyReport.user_id.in_(member_ids),
                 DailyReport.report_date >= sprint.start_date,
                 DailyReport.report_date <= sprint.end_date,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
     )

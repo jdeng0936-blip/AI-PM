@@ -7,11 +7,11 @@ health_status 由 health_engine.py 每日自动聚合日报数据后更新。
 
 import enum
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, Enum, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, Enum, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -79,6 +79,16 @@ class Project(BaseMixin, Base):
     budget_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     budget_spent: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), default=0)
     budget_alert_threshold: Mapped[float] = mapped_column(default=0.8)  # 超过80%触发预警
+
+    # ── V2.4 Stage 2 软删标识 ──────────────────────────────────────
+    # 主干项目走 archive(status=cancelled),临时项目走 deleted_at 软删
+    # list query 默认过滤 deleted_at IS NULL
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="软删除时间(V2.4):非 NULL 表示已删除,list 默认过滤",
+    )
 
     # NOTE: created_by 由 BaseMixin 提供（FK → users.id）
     # NOTE: created_at, updated_at, tenant_id 由 BaseMixin 提供

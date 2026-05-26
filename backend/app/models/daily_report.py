@@ -16,10 +16,10 @@ parsed_content JSONB 结构（严格对齐原始 Excel 列）：
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -74,6 +74,16 @@ class DailyReport(BaseMixin, Base):
         nullable=True,
         index=True,
         comment="日报关联的主任务(可选,通过 task→kr 间接挂 OKR)",
+    )
+
+    # ── V2.4 Stage 2 软删标识 ──────────────────────────────────────
+    # 非 NULL 代表已被软删除;list query 默认过滤 IS NULL
+    # 不真删避免破坏 ai_score / RiskAlert / Capacity 等历史聚合
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="软删除时间(V2.4):非 NULL 表示已删除,list 默认过滤",
     )
 
     def __repr__(self) -> str:

@@ -500,6 +500,88 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 
 ---
 
+## 14. 金路径 #14 — V2.4 Stage 2 批量软删与多选联动(10 min)
+
+> 验证三个列表页(/reports / /projects / /users)的多选 + 批量软删/归档/禁用,以及后端 deleted_at 字段对全局聚合的隔离效果。
+> 相关变更:`backend/alembic/versions/20260526_1000_v2_4_add_deleted_at.py` + 三个 batch endpoints + `useMultiSelect` Hook + `<ListActionBar />`。
+
+### 操作 A:/reports 批量软删 + 全局聚合不受影响
+1. 用 **admin / admin2026** 登录,进 `/reports`
+2. 表头第一列新出现一个 **全选 checkbox**;每行最左也是 checkbox
+3. 勾选 2-3 条日报 → 顶部 sticky **紫色 ActionBar** 出现:`已选 N 项 · [清除] · [🗑 批量软删]`
+4. 点 [批量软删] → confirm → toast `已删除 N 条`
+5. **关键回归**:
+   - 同一页面列表中那 N 条立刻消失
+   - 切到 `/dashboard`,"今日 AI 日报"统计的总数应**等于删除前 - 实际删除条数(限当日)**
+   - 切到 `/stats` 或 `/trends`,部门评分均值**不应该**因为删除而暴跌(被删的也参与了历史平均)— 注:实际趋势接口已经加了 `deleted_at IS NULL` 过滤,所以是会从趋势中消失,符合预期
+
+### 预期结果 A ☐
+- [ ] 选中态有视觉反馈(行背景或紫色边框)
+- [ ] FilterBar 切换 / 翻页时,选中态**自动清空**(防止跨页"鬼影"选中)
+- [ ] 直接查 DB:`docker exec aipm-postgres psql -U aipm -d aipm_db -c "select id, report_date, deleted_at from daily_reports where deleted_at is not null limit 5;"` 应看到被删的几条 `deleted_at` 非 NULL
+- [ ] AI 评分关联数据(ai_score / management_alert)**仍在 DB 里**,只是不再被前端列表 / 聚合接口读到
+
+### 操作 B:Dashboard "AI 日报明细" 区块同步可批量软删
+1. 进 `/dashboard`,滚到 **AI 日报明细** section
+2. 标题右侧应有 **"全选 / 取消全选"** 小按钮(只对当前 FilterBar 后剩下的行有效)
+3. 勾选若干条 → 同样的 ActionBar 出现 → [批量软删]
+4. 删除后 dashboard 自动 refetch,该 section 列表收缩
+
+### 预期结果 B ☐
+- [ ] FilterBar 改部门 / 分数区间 → 选中态自动清空(因为 filteredReports 引用变了)
+- [ ] 选中态高亮(紫色边框)
+- [ ] 与 /reports 走同一个 `DELETE /api/v1/reports/batch` 端点(Network 面板验证)
+
+### 操作 C:/projects 严格分路批量(临时软删 / 主干归档)
+1. 进 `/projects`,右上"显示临时工单"打开
+2. **场景 1 — 全是临时**:勾选 P2026-T01 + 你前面建的 P2026-T02 → ActionBar 显示 `[🗑 批量软删]` + hint "全部为临时工单 — 可批量软删"
+3. 点删除 → confirm → toast `已删除 N 个临时项目`
+4. **场景 2 — 全是主干**:勾选 P2026-001 + P2026-002 → ActionBar 显示 `[📦 批量归档]`(背景灰色)+ hint "全部为主干项目 — 仅批量归档"
+5. **场景 3 — 混合**:勾选 1 个临时 + 1 个主干 → ActionBar 显示 `[📦 批量归档]` + hint "混合选中 — 只能批量归档(临时项目也走归档,避免歧义)"
+6. **场景 4 — 后端硬保护**:打开 Network 面板,手工 curl 测一下混合 ids 直接调 `/projects/batch`:
+   ```bash
+   # 拿 token 后
+   curl -X DELETE http://localhost:8000/api/v1/projects/batch \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"ids": ["<临时项目id>", "<主干项目id>"]}'
+   # 应返回 400 + non_temp_ids: ["<主干项目id>"]
+   ```
+
+### 预期结果 C ☐
+- [ ] 三种场景按钮颜色和文案正确切换
+- [ ] 临时项目批量软删后,主干项目"红黄绿矩阵"(`/projects/overview` 三色统计)**仍然准确**(临时项目本来就不进矩阵)
+- [ ] 删完临时项目后,挂在它下面的历史日报 `project_id` 仍指向它,但前端 dashboard 临时工单看板的 TOP5 工时会减少(被删的项目不进聚合)
+- [ ] 后端 400 拦截混合 ids 生效
+
+### 操作 D:/users 批量禁用 + 启用(只允许 admin/manager)
+1. 进 `/users`,勾选 2-3 个**启用**的员工 → ActionBar 显示 `[🚫 批量停用]`(hint "全部为启用 — 可批量停用")
+2. 点停用 → confirm → toast `已停用 N 个用户`
+3. 切 FilterBar 的"账号" → 选"停用" → 勾选刚停的几个 + 其它历史停用的 → ActionBar 显示 `[✅ 批量启用]`(只 admin 可见)
+4. 点启用 → 还原
+5. **关键**:全程**没有任何"批量删除"按钮**(策略:user 真删会破坏 daily_report.user_id FK)
+
+### 预期结果 D ☐
+- [ ] 表头有全选 / indeterminate(部分选中)状态
+- [ ] 停用后被禁员工的 daily_report 历史**仍可在 /reports 查到**
+- [ ] manager 看不到"批量启用"(只 admin 可见)
+- [ ] DB 验证:`select id, name, is_active from users where is_active = false;` 包含刚禁用的
+
+### ❌ 失败排查
+- 删完前端列表没更新 → 检查 batch 调用后是否触发 fetch 重拉;不要做乐观更新
+- 全选 checkbox 没 indeterminate → 看 ref={(el) => el.indeterminate = ...} 是否生效
+- ActionBar 不出现 → 看 selectedCount 是否正确(useMultiSelect 依赖 items 引用稳定,filter 变会自动清空,这是预期行为)
+- 后端混合 ids 没拦截 → curl 直接打 `/projects/batch` 看返回;前端按钮逻辑 + 后端硬保护双重防护
+- /trends 数据消失 → 检查趋势接口的 deleted_at 过滤是否加上(本 Stage B2 已加)
+
+### 已知限制(Stage 3 / V2.5 修复)
+- 不支持"撤销"(toast 内 5 秒撤回);删错只能 admin 直接改 DB `UPDATE ... SET deleted_at = NULL`
+- 没有"已删除回收站"页面(`include_deleted=true` query param)
+- chat_tools / kr_progress_extractor 等 AI 工具读 daily_reports 时**没有**加 deleted_at 过滤(AI 会看到"已删的"数据),Stage 3 补
+- 其它列表(Sprint 任务 / 项目成员 / RiskAlert / KnowledgeItem)的批量操作 → V2.5
+- 用户列表 pageSize=100 兜底(Stage 1 引入)**仍未还原**;Stage 3 补后端 query params 时一并做
+
+---
+
 ## 最终判定
 
 ```
@@ -516,18 +598,19 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 ☐ 金路径 #11 — V2.2 项目/任务结构化关联
 ☐ 金路径 #12 — V2.3 临时工单项目化
 ☐ 金路径 #13 — V2.4 Stage 1 全站统一筛选
+☐ 金路径 #14 — V2.4 Stage 2 批量软删与多选联动
 
-通过数:____ / 13
+通过数:____ / 14
 ```
 
 ### 决策
 
 | 通过数 | 决策 | 下一步 |
 |---|---|---|
-| **13** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
-| **11-12** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
-| **8-10** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
-| **≤ 7** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
+| **14** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
+| **12-13** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
+| **9-11** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
+| **≤ 8** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
 
 ### ❌ 项记录模板
 

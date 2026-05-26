@@ -8,7 +8,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
-import { getProjectsOverview, createProject, updateProject, archiveProject } from '@/api/projects'
+import {
+  getProjectsOverview, createProject, updateProject, archiveProject,
+  batchSoftDeleteProjects,
+} from '@/api/projects'
 import {
   MAIN_TRACK_OPTIONS,
   TEMP_TRACK_OPTIONS,
@@ -16,12 +19,14 @@ import {
   trackLabel,
 } from '@/lib/project-track'
 import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
+import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
 import {
   FolderKanban, Plus, ArrowRight, RefreshCw, Search, Calendar, Wallet,
   MoreVertical, Pencil, PauseCircle, PlayCircle, Archive, ArchiveRestore,
-  Ticket,
+  Ticket, Trash2,
 } from 'lucide-react'
 
 const STAGE_LABELS = ['', '概念与立项期', '计划与设计期', '开发与执行期', '验证与试产期', '发布与收尾期']
@@ -289,6 +294,65 @@ export default function ProjectsPage() {
     return !q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)
   })
 
+  // V2.4 Stage 2:项目多选 + 严格分路批量操作(临时软删 / 主干归档)
+  const {
+    selectedIds: projSelectedIds,
+    selectedCount: projSelectedCount,
+    selectedItems: selectedProjects,
+    isSelected: isProjSelected,
+    toggle: toggleProj,
+    clearAll: clearProjSelection,
+  } = useMultiSelect(filtered, { idKey: 'project_id' as any })
+  const [bulkActing, setBulkActing] = useState(false)
+
+  // 按选中类型决定 ActionBar 按钮
+  const allTempSelected = projSelectedCount > 0 && selectedProjects.every((p) => p.is_temporary)
+  const allMainSelected = projSelectedCount > 0 && selectedProjects.every((p) => !p.is_temporary)
+
+  async function handleBatchSoftDelete() {
+    if (!allTempSelected) {
+      toast.error('仅允许批量删除临时工单项目;选中里包含主干项目')
+      return
+    }
+    if (!confirm(`确定软删除选中的 ${projSelectedCount} 个临时工单项目?\n(数据库标 deleted_at,挂在它下面的历史日报不受影响)`)) return
+    setBulkActing(true)
+    try {
+      const ids = Array.from(projSelectedIds)
+      const res: any = await batchSoftDeleteProjects(ids)
+      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 个临时项目`)
+      clearProjSelection()
+      await fetchProjects()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setBulkActing(false)
+    }
+  }
+
+  async function handleBatchArchive() {
+    if (!confirm(`确定归档选中的 ${projSelectedCount} 个项目?\n(status → cancelled,可在"显示已归档"中恢复)`)) return
+    setBulkActing(true)
+    let okCount = 0
+    let failCount = 0
+    try {
+      for (const p of selectedProjects) {
+        if (p.status === 'cancelled') continue
+        try {
+          await archiveProject(p.project_id)
+          okCount++
+        } catch {
+          failCount++
+        }
+      }
+      if (okCount > 0) toast.success(`已归档 ${okCount} 个项目${failCount > 0 ? `(${failCount} 个失败)` : ''}`)
+      else if (failCount > 0) toast.error('批量归档全部失败')
+      clearProjSelection()
+      await fetchProjects()
+    } finally {
+      setBulkActing(false)
+    }
+  }
+
   return (
     <div className="page-container">
       <div className="flex items-center justify-between mb-6 animate-in">
@@ -430,6 +494,41 @@ export default function ProjectsPage() {
         </button>
       </div>
 
+      {/* V2.4 Stage 2:批量操作栏 — 按选中类型严格分路 */}
+      <ListActionBar
+        selectedCount={projSelectedCount}
+        onClear={clearProjSelection}
+        hint={
+          allTempSelected
+            ? '全部为临时工单 — 可批量软删'
+            : allMainSelected
+              ? '全部为主干项目 — 仅批量归档'
+              : '混合选中 — 只能批量归档(临时项目也走归档,避免歧义)'
+        }
+      >
+        {allTempSelected ? (
+          <button
+            onClick={handleBatchSoftDelete}
+            disabled={bulkActing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+            style={{ background: '#ef4444', color: '#fff' }}
+          >
+            <Trash2 size={13} />
+            {bulkActing ? '处理中...' : '批量软删'}
+          </button>
+        ) : (
+          <button
+            onClick={handleBatchArchive}
+            disabled={bulkActing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+            style={{ background: '#9ca3af', color: '#fff' }}
+          >
+            <Archive size={13} />
+            {bulkActing ? '处理中...' : '批量归档'}
+          </button>
+        )}
+      </ListActionBar>
+
       {/* 项目卡片列表 */}
       <div className="grid grid-cols-1 gap-4">
         {filtered.length === 0 && (
@@ -450,12 +549,26 @@ export default function ProjectsPage() {
                 opacity: isCancelled ? 0.55 : 1,
                 position: 'relative',
                 zIndex: menuOpenId === p.project_id ? 40 : 1,
+                borderColor: isProjSelected(p.project_id) ? '#a855f7' : undefined,
+                borderWidth: isProjSelected(p.project_id) ? 1 : undefined,
+                borderStyle: isProjSelected(p.project_id) ? 'solid' : undefined,
               }}
               onClick={(e) => {
                 if (menuOpenId === p.project_id) { setMenuOpenId(null); return }
                 router.push(`/project/${p.project_id}`)
               }}
             >
+              {/* V2.4 Stage 2:多选 checkbox(点击不冒泡到卡片导航) */}
+              {isAdmin && (
+                <input
+                  type="checkbox"
+                  checked={isProjSelected(p.project_id)}
+                  onChange={() => toggleProj(p.project_id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 cursor-pointer"
+                  title="选中该项目用于批量操作"
+                />
+              )}
               <div className="w-3 h-3 rounded-full shrink-0" style={{ background: healthColor(p.health_status) }} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">

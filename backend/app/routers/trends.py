@@ -42,6 +42,7 @@ async def my_score_trend(
             and_(
                 DailyReport.user_id == current_user.id,
                 DailyReport.report_date >= since,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
         .order_by(DailyReport.report_date)
@@ -94,6 +95,7 @@ async def department_stats(
         )
         .join(User, DailyReport.user_id == User.id)
         .where(DailyReport.report_date >= since)
+        .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
         .group_by(User.department)
         .order_by(func.avg(DailyReport.ai_score).desc())
     )
@@ -140,6 +142,7 @@ async def generate_weekly_report(
             and_(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )
         .order_by(DailyReport.report_date, User.department)
