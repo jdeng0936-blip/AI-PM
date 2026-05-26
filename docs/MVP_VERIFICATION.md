@@ -578,7 +578,77 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 - 没有"已删除回收站"页面(`include_deleted=true` query param)
 - chat_tools / kr_progress_extractor 等 AI 工具读 daily_reports 时**没有**加 deleted_at 过滤(AI 会看到"已删的"数据),Stage 3 补
 - 其它列表(Sprint 任务 / 项目成员 / RiskAlert / KnowledgeItem)的批量操作 → V2.5
-- 用户列表 pageSize=100 兜底(Stage 1 引入)**仍未还原**;Stage 3 补后端 query params 时一并做
+- 用户列表 pageSize=100 兜底(Stage 1 引入)→ **V2.4 Stage 3 已还原为 20 + 后端 query 支持**
+
+---
+
+## 15. 金路径 #15 — V2.4 Stage 3 软删配套(过滤长尾 + users 还原 + 撤销 + 回收站,8 min)
+
+**前置**:V2.4 Stage 2(#14)已通过;backend 已重启加载新端点(`/reports/batch-restore` / `/projects/batch-restore` / `/projects/deleted` / `/users?role=...`)。
+
+### 15.1 软删过滤长尾(C1,~1 min)
+
+后端 grep 验证 7 个文件已加 `deleted_at IS NULL` 过滤:
+
+```bash
+for f in backend/app/services/chat_tools/{reports,weekly_report,people}.py \
+         backend/app/services/retro/collectors.py \
+         backend/app/routers/{gates,simulate,export}.py; do
+  s=$(grep -c "select(DailyReport\|join(DailyReport\|DailyReport.user_id.in_" "$f")
+  d=$(grep -c "DailyReport.deleted_at.is_(None)" "$f")
+  echo "$f → select-ref:$s / filter:$d"
+done
+```
+
+预期:每行 `filter >= 1`(至少 1 处过滤;部分文件 select 多于 filter 是因为同一 query 多列引用算多次)。
+
+端到端:删一条日报 → `/chat` 调 AI 周报"上周谁交了日报"→ 已删的不出现在回答里。
+
+### 15.2 users 还原(C2,~2 min)
+
+1. 看 `frontend/src/app/users/page.tsx:22` `USERS_PAGE_SIZE = 20` ✅
+2. /users 页面切 FilterBar:
+   - 切"角色 = 部门经理" → Network 触发 `?role=manager`,返回总数减少
+   - 切"账号 = 停用" → Network 触发 `?is_active=false`,看到已禁用用户
+   - 多选"角色 = 经理 + 员工" → Network `?role=manager,employee`(csv)正常返回
+3. curl 验证(从浏览器 localStorage 取 admin JWT):
+   ```bash
+   TOKEN="<admin-jwt>"
+   curl -s -H "Authorization: Bearer $TOKEN" \
+     "http://localhost:8000/api/v1/users?role=manager&is_active=true" | jq '.total'
+   ```
+4. 翻页:< 20 人时不显示分页按钮(预期);> 20 人时显示
+
+### 15.3 撤销(C3,~2 min)
+
+四处 toast undo 全验:
+
+1. /reports 勾 2 条 → 批量删 → toast 出现"撤销"按钮 → 5 秒内点 → 列表恢复 ✅
+2. /dashboard 早班日报勾 2 条(若 dashboard 显示日报)→ 批量删 → toast 撤销 → 恢复 ✅
+3. /projects 勾 2 个临时项目 → 批量删 → toast 撤销 → 恢复(此处需 admin 角色)✅
+4. /projects 勾 2 个主干项目 → 批量归档 → toast 撤销 → 状态变回"进行中"✅
+5. 等 5 秒后 toast 消失,撤销按钮不可点(预期,回收站是兜底)
+
+### 15.4 回收站(C4,~2 min)
+
+1. admin 登录 → 侧边栏"管理"分组看到"🗑 回收站"图标项 → 点击进入
+2. 默认显示"已删日报" Tab,看到上方一步删的日报(若未被撤销)
+3. 切"已删临时项目" Tab,看到已软删的临时工单
+4. 勾 2 条日报 → 顶部紫色 ActionBar 出现 → 点"恢复选中" → toast "已恢复 2 条" → 列表自动刷新去掉那两条
+5. 回到 /reports 验证恢复的日报又出现在主列表 ✅
+6. **权限测试**:logout → employee 登录 → 直接访问 `http://localhost:3000/admin/recycle-bin` → toast "需 admin 权限" + 跳走 ✅
+7. **服务端兜底**:仍以 employee 身份 curl
+   ```bash
+   curl -s -H "Authorization: Bearer $EMP_TOKEN" \
+     "http://localhost:8000/api/v1/reports?include_deleted=true" | jq '.total'
+   ```
+   预期:返回的是该员工**未软删**的日报数(后端强制 fallback,非 admin 的 include_deleted=true 不生效)
+
+### 15.5 总验收
+
+- [ ] 15.1-15.4 全部通过
+- [ ] backend pre-commit hook 全过;tsc 无 error
+- [ ] V2.4 大需求至此关单(Stage 1 筛选 + Stage 2 软删 + Stage 3 配套)
 
 ---
 
@@ -599,8 +669,9 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 ☐ 金路径 #12 — V2.3 临时工单项目化
 ☐ 金路径 #13 — V2.4 Stage 1 全站统一筛选
 ☐ 金路径 #14 — V2.4 Stage 2 批量软删与多选联动
+☐ 金路径 #15 — V2.4 Stage 3 软删配套(长尾过滤 + 撤销 + 回收站)
 
-通过数:____ / 14
+通过数:____ / 15
 ```
 
 ### 决策
