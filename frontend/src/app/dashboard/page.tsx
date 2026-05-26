@@ -16,7 +16,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
 import { getProjectsOverview, createProject } from '@/api/projects'
-import { batchSoftDeleteReports } from '@/api/reports'
+import { batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
 import {
   MAIN_TRACK_OPTIONS,
   TEMP_TRACK_OPTIONS,
@@ -172,9 +172,25 @@ export default function DashboardPage() {
     try {
       const ids = Array.from(reportSelectedIds)
       const res: any = await batchSoftDeleteReports(ids)
-      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 条日报`)
+      const deletedIds: string[] = res?.deleted_ids ?? ids
       clearReportSelection()
       await fetchAll()
+      // V2.4 Stage 3 C3:toast 内 5 秒撤销
+      toast.success(`已删除 ${deletedIds.length} 条日报`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r: any = await batchRestoreReports(deletedIds)
+              await fetchAll()
+              toast.success(`已撤销恢复 ${r?.restored_count ?? deletedIds.length} 条`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败')
+            }
+          },
+        },
+      })
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '批量删除失败')
     } finally {

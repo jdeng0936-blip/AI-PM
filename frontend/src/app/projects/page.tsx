@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/use-auth-store'
 import {
   getProjectsOverview, createProject, updateProject, archiveProject,
   batchSoftDeleteProjects,
+  batchRestoreProjects,
 } from '@/api/projects'
 import {
   MAIN_TRACK_OPTIONS,
@@ -321,9 +322,25 @@ export default function ProjectsPage() {
     try {
       const ids = Array.from(projSelectedIds)
       const res: any = await batchSoftDeleteProjects(ids)
-      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 个临时项目`)
+      const deletedIds: string[] = res?.deleted_ids ?? ids
       clearProjSelection()
       await fetchProjects()
+      // V2.4 Stage 3 C3:toast 内 5 秒撤销(仅 admin 后端会接受恢复)
+      toast.success(`已删除 ${deletedIds.length} 个临时项目`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r: any = await batchRestoreProjects(deletedIds)
+              await fetchProjects()
+              toast.success(`已撤销恢复 ${r?.restored_count ?? deletedIds.length} 个`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败(需 admin)')
+            }
+          },
+        },
+      })
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '批量删除失败')
     } finally {
@@ -346,8 +363,34 @@ export default function ProjectsPage() {
           failCount++
         }
       }
-      if (okCount > 0) toast.success(`已归档 ${okCount} 个项目${failCount > 0 ? `(${failCount} 个失败)` : ''}`)
-      else if (failCount > 0) toast.error('批量归档全部失败')
+      // V2.4 Stage 3 C3:批量归档撤销 — 复用 updateProject 把 status 改回 active
+      const archivedIds = selectedProjects
+        .filter((p) => p.status !== 'cancelled')
+        .map((p) => p.project_id)
+      if (okCount > 0) {
+        toast.success(
+          `已归档 ${okCount} 个项目${failCount > 0 ? `(${failCount} 个失败)` : ''}`,
+          {
+            duration: 5000,
+            action: {
+              label: '撤销',
+              onClick: async () => {
+                try {
+                  await Promise.all(
+                    archivedIds.map((id) => updateProject(id, { status: 'active' })),
+                  )
+                  await fetchProjects()
+                  toast.success(`已撤销归档 ${archivedIds.length} 个`)
+                } catch (e: any) {
+                  toast.error(e?.response?.data?.detail || '撤销归档失败')
+                }
+              },
+            },
+          },
+        )
+      } else if (failCount > 0) {
+        toast.error('批量归档全部失败')
+      }
       clearProjSelection()
       await fetchProjects()
     } finally {

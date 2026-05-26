@@ -29,3 +29,7 @@ export const updateStage = (stageId: string, data: any) => request.patch(`/stage
 // V2.4 Stage 2:批量软删项目(仅允许临时工单)
 export const batchSoftDeleteProjects = (ids: string[]) =>
   request.delete('/projects/batch', { data: { ids } })
+
+// V2.4 Stage 3 C3:批量恢复临时项目(仅 admin)
+export const batchRestoreProjects = (ids: string[]) =>
+  request.patch('/projects/batch-restore', { ids })

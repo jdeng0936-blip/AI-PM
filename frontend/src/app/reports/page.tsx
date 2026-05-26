@@ -4,7 +4,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { getReports, getReportDetail, batchSoftDeleteReports } from '@/api/reports'
+import { getReports, getReportDetail, batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import ListActionBar from '@/components/list-action-bar'
@@ -84,9 +84,25 @@ export default function ReportsPage() {
     try {
       const ids = Array.from(selectedIds)
       const res: any = await batchSoftDeleteReports(ids)
-      toast.success(`已删除 ${res?.deleted_count ?? ids.length} 条日报`)
+      const deletedIds: string[] = res?.deleted_ids ?? ids
       clearAll()
       await fetchReports()
+      // V2.4 Stage 3 C3:toast 内 5 秒撤销
+      toast.success(`已删除 ${deletedIds.length} 条日报`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r: any = await batchRestoreReports(deletedIds)
+              await fetchReports()
+              toast.success(`已撤销恢复 ${r?.restored_count ?? deletedIds.length} 条`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败')
+            }
+          },
+        },
+      })
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '批量删除失败')
     } finally {
