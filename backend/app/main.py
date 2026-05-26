@@ -160,16 +160,113 @@ if settings.aipm_env == "dev":
 
 @app.get("/health")
 async def health_check():
-    """健康检查接口，供 Docker health check 使用"""
+    """Liveness probe — 仅验进程活,不依赖任何外部资源。
+
+    Docker / K8s 用本端点判断"是否需要重启容器"。**不能**做 DB / Redis
+    检查,否则外部资源短暂抖动会导致整个容器被无谓重启。
+    """
     return {"status": "ok", "service": "huiyuancheng-ai-pm"}
+
+
+# V2.5 Stage 1 P1 #7:alembic head revision 缓存(读 alembic 脚本目录一次)
+from functools import lru_cache
+from pathlib import Path
+
+_ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
+
+
+@lru_cache(maxsize=1)
+def _alembic_head_revision() -> str | None:
+    """读 alembic 脚本目录的 head revision;无法读取返回 None(健康检查 fallback)。"""
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        cfg = Config(str(_ALEMBIC_INI))
+        script = ScriptDirectory.from_config(cfg)
+        return script.get_current_head()
+    except Exception:
+        return None
+
+
+async def _check_alembic_version(db) -> dict:
+    """对比 DB alembic_version vs 脚本 head — schema 不匹配视为未就绪。"""
+    from sqlalchemy import text
+
+    head = _alembic_head_revision()
+    if head is None:
+        # 脚本目录读不出 head(本地 / 测试环境):跳过该 check,不视为不健康
+        return {"ok": True, "head": None, "current": None, "skipped": True}
+    try:
+        row = (await db.execute(text("SELECT version_num FROM alembic_version"))).first()
+        current = row[0] if row else None
+    except Exception as e:
+        return {"ok": False, "error": f"alembic_version 表不可读: {str(e)[:120]}"}
+    if current != head:
+        return {"ok": False, "head": head, "current": current, "error": "schema 未升级到 head"}
+    return {"ok": True, "head": head, "current": current}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Readiness probe — DB + Redis + alembic schema 都 ok 才返 200。
+
+    任一关键依赖失败 → 503 + 详细 reason。Docker / K8s 用本端点决定
+    "是否把流量路由进来"。schema 未升级 / DB 挂 / Redis 挂均视为未就绪。
+
+    V2.5 Stage 1 P1 #7:补 Stage 2 之前的 docker healthcheck 盲点
+    (生产容器即使迁移未跑也被视为健康)。
+    """
+    import time
+
+    import redis.asyncio as redis_async
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+
+    from app.database import AsyncSessionLocal
+
+    checks: dict = {}
+    ready = True
+
+    # DB
+    t0 = time.perf_counter()
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+            # alembic 版本对比(同一 session 复用)
+            checks["alembic"] = await _check_alembic_version(db)
+        checks["database"] = {"ok": True, "latency_ms": round((time.perf_counter() - t0) * 1000, 2)}
+        if not checks["alembic"]["ok"]:
+            ready = False
+    except Exception as e:
+        checks["database"] = {"ok": False, "error": str(e)[:200]}
+        checks["alembic"] = {"ok": False, "skipped": True, "error": "依赖 DB"}
+        ready = False
+
+    # Redis(分布式锁 + 缓存)
+    t0 = time.perf_counter()
+    try:
+        r = redis_async.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2)
+        await r.ping()
+        await r.aclose()
+        checks["redis"] = {"ok": True, "latency_ms": round((time.perf_counter() - t0) * 1000, 2)}
+    except Exception as e:
+        checks["redis"] = {"ok": False, "error": str(e)[:200]}
+        ready = False
+
+    body = {"status": "ready" if ready else "not_ready", "checks": checks}
+    return JSONResponse(content=body, status_code=200 if ready else 503)
 
 
 @app.get("/health/detailed")
 async def health_detailed():
-    """生产监控用的多维度健康检查 — DB / Redis / Sentry / Scheduler。
+    """生产监控用的多维度健康检查 — DB / Redis / Sentry / Scheduler / alembic。
 
     返回每个依赖的 ok/down + 关键指标。任何 down 整体 status="degraded"。
     canary / oncall / Sentry 关联告警可基于本端点轮询。
+
+    与 /health/ready 区别:本端点用于 observability(永远返回 200 + 详情);
+    /health/ready 用于 k8s readiness 路由判断(失败返 503)。
     """
     import time
 
@@ -185,17 +282,21 @@ async def health_detailed():
         "checks": {},
     }
 
-    # ─── DB ping ──────────────────────────────────────────────────
+    # ─── DB ping + alembic 版本对比 ────────────────────────────────
     t0 = time.perf_counter()
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(text("SELECT 1"))
+            result["checks"]["alembic"] = await _check_alembic_version(db)
         result["checks"]["database"] = {
             "ok": True,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
         }
+        if not result["checks"]["alembic"]["ok"]:
+            result["status"] = "degraded"
     except Exception as e:
         result["checks"]["database"] = {"ok": False, "error": str(e)[:200]}
+        result["checks"]["alembic"] = {"ok": False, "skipped": True, "error": "依赖 DB"}
         result["status"] = "degraded"
 
     # ─── Redis ping(分布式锁 + 缓存依赖)───────────────────────

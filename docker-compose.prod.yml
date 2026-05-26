@@ -67,11 +67,14 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      # V2.5 Stage 1 P1 #7:/health 仅 liveness(进程活);readiness 用 /health/ready
+      # /health/ready 验 DB + Redis + alembic schema,迁移未跑则 503,K8s/compose
+      # 自动等到迁移完成才把流量路由进来
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health/ready" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 60s   # 留足时间给 alembic upgrade head + 应用启动
 
   # ── Next.js 前端（standalone 模式）────────────────────────────
   frontend:
