@@ -38,12 +38,27 @@ def event_loop():
 async def setup_test_db():
     """
     测试会话开始时创建所有表，结束后清理。
+
+    V2.5 Stage 1 P1 #6:测试库不可达时(本地没起 PG / CI 没配测试库)
+    pytest.skip 整个 session,而不是让所有依赖 fixture 的测试报 ConnectionError。
+    无 DB 依赖的单元测试(如 test_models_init / test_distributed_lock 等 mock
+    驱动)仍能跑,因为它们不 request db_session/client fixture。
     """
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        pytest.skip(
+            f"测试数据库不可达 ({TEST_DATABASE_URL.rsplit('@', 1)[-1]}): {type(e).__name__}: "
+            f"{str(e)[:120]}。请先 `createdb aipm_db_test` 或在 .env 配 DATABASE_URL_TEST。",
+            allow_module_level=True,
+        )
     yield
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    except Exception:
+        pass  # 清理失败不影响测试结论
     await test_engine.dispose()
 
 

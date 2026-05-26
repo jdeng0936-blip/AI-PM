@@ -1,10 +1,18 @@
 """
 端到端测试脚本 — 测试 IPD 全流程
+
+注意:这是手动跑的脚本,**不是** pytest 测试用例(模块级代码 + 直接发 HTTP)。
+V2.5 Stage 1 P1 #6:在 pytest collection 阶段 skip 掉,避免污染 CI 信号。
+本地手动运行方法:  python backend/tests/test_e2e_ipd.py
 """
 
-import json
+import pytest
 
-import httpx
+pytest.skip("manual e2e script (not a pytest test)", allow_module_level=True)
+
+import json  # noqa: E402
+
+import httpx  # noqa: E402
 
 BASE = "http://127.0.0.1:8001"
 TOKEN = (
