@@ -6,14 +6,13 @@ on:
   pull_request:
     branches: [main]
 
-# 同分支多次 push 时,取消旧的运行
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
-    name: Backend (pytest + alembic check + ruff)
+    name: Backend Quality Gate
     runs-on: ubuntu-latest
 
     services:
@@ -41,6 +40,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      AIPM_ENV: dev
+      DATABASE_URL: postgresql+asyncpg://aipm:aipm@localhost:5432/aipm_db
+      DATABASE_URL_TEST: postgresql+asyncpg://aipm:aipm@localhost:5432/aipm_db_test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ci-test-only-not-secret
+      CI_REQUIRE_TEST_DB: "1"
+      ASR_PROVIDER: none
+      NEW_API_BASE_URL: ""
+      NEW_API_KEY: ""
+      WECHAT_BOT_WEBHOOK: ""
+      DINGTALK_BOT_WEBHOOK: ""
+      DINGTALK_BOT_SECRET: ""
+
     defaults:
       run:
         working-directory: backend
@@ -51,66 +64,74 @@ jobs:
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Wait for Postgres
-        run: |
-          for i in {1..30}; do
-            pg_isready -h localhost -U aipm && break
-            sleep 1
-          done
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
       - name: Create test database
-        env:
-          PGPASSWORD: aipm
         run: |
-          psql -h localhost -U aipm -d aipm_db \
-            -c "CREATE DATABASE aipm_db_test OWNER aipm;"
+          python - <<'PY'
+          import asyncio
+          import asyncpg
 
-      - name: Write CI .env
-        # 覆盖关键基础设施 URL → 用 CI services 提供的 postgres / redis
-        # 清空所有 *_WEBHOOK 字段 → 让 notification_service 走 `skipped` 分支,
-        #   避免测试真去打第三方 API(占位 key 会被拒绝,导致 status=failed)
-        run: |
-          cp .env.example .env
-          sed -i \
-            -e 's|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://aipm:aipm@localhost:5432/aipm_db|' \
-            -e 's|^REDIS_URL=.*|REDIS_URL=redis://localhost:6379/0|' \
-            -e 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=ci-test-only-not-secret|' \
-            -e 's|^WECHAT_BOT_WEBHOOK=.*|WECHAT_BOT_WEBHOOK=|' \
-            -e 's|^DINGTALK_BOT_WEBHOOK=.*|DINGTALK_BOT_WEBHOOK=|' \
-            -e 's|^DINGTALK_BOT_SECRET=.*|DINGTALK_BOT_SECRET=|' \
-            .env
+          async def main() -> None:
+              for attempt in range(30):
+                  try:
+                      conn = await asyncpg.connect(
+                          user="aipm",
+                          password="aipm",
+                          database="aipm_db",
+                          host="localhost",
+                          port=5432,
+                      )
+                      break
+                  except OSError:
+                      if attempt == 29:
+                          raise
+                      await asyncio.sleep(1)
+              else:
+                  raise RuntimeError("Postgres did not become ready")
 
-      - name: Ruff lint(non-blocking — 历史违规留待 Stage 1 清理)
-        # 临时 `continue-on-error`:Stage 4 阶段只观察,不阻塞 CI
-        # 全部 normalize 后由后续 PR 移除该 flag
-        continue-on-error: true
+              exists = await conn.fetchval(
+                  "SELECT 1 FROM pg_database WHERE datname = 'aipm_db_test'"
+              )
+              if not exists:
+                  await conn.execute("CREATE DATABASE aipm_db_test OWNER aipm")
+              await conn.close()
+
+          asyncio.run(main())
+          PY
+
+      - name: Ruff
         run: ruff check .
 
-      - name: Run pytest
-        # tests/test_e2e_ipd.py 是 module 级直接 HTTP 调用的"脚本",非纯测试 —
-        # 需要外部 uvicorn 在 8001 端口运行,CI 环境不适用,Stage 1 重构后移除该 ignore
-        run: pytest -v --tb=short --ignore=tests/test_e2e_ipd.py
+      - name: Mypy
+        run: mypy .
 
-      - name: Alembic upgrade head(硬门禁)
-        # Stage 1 已修复:
-        # 1) 所有迁移幂等化(inspector 检测后再操作)
-        # 2) alembic.ini 加 prepend_sys_path=. → env.py 能 import app.models
-        # 本地 fresh postgres:16 已验证全链路通过
+      - name: Pytest
+        run: pytest -q
+
+      - name: Alembic upgrade
         run: alembic upgrade head
 
-      - name: Alembic check(硬门禁,ORM↔DB schema 零漂移)
+      - name: Alembic schema check
         run: alembic check
 
   frontend:
-    name: Frontend (typecheck + build)
+    name: Frontend Quality Gate
     runs-on: ubuntu-latest
+
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_SENTRY_DSN: ""
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ci
+      NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0"
+      SENTRY_DSN: ""
+      SENTRY_ENVIRONMENT: ci
+      SENTRY_TRACES_SAMPLE_RATE: "0"
 
     defaults:
       run:
@@ -119,23 +140,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 22
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run typecheck
-
-      - name: ESLint(Stage 1 已迁移到 ESLint CLI flat config)
-        # 0 errors 是硬门禁;warnings 留给 Stage 1 后续子任务清理
+      - name: ESLint
         run: npm run lint
 
-      - name: Build
-        # Next.js build 做实际编译验证
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Next build
         run: npm run build

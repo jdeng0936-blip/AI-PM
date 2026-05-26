@@ -8,6 +8,7 @@ tests/conftest.py — pytest 全局 Fixtures (Rule 01-Stack-Backend)
 """
 
 import asyncio
+import os
 from typing import AsyncGenerator
 
 import pytest
@@ -20,7 +21,8 @@ from app.database import Base, get_db
 from app.main import app
 
 # ── 使用独立测试数据库（生产数据库名追加 _test）──────────────────
-TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
+# CI 显式传 DATABASE_URL_TEST;本地未配置时沿用历史规则。
+TEST_DATABASE_URL = os.getenv("DATABASE_URL_TEST") or settings.database_url.replace("/aipm_db", "/aipm_db_test")
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
@@ -48,11 +50,13 @@ async def setup_test_db():
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     except Exception as e:
-        pytest.skip(
+        message = (
             f"测试数据库不可达 ({TEST_DATABASE_URL.rsplit('@', 1)[-1]}): {type(e).__name__}: "
-            f"{str(e)[:120]}。请先 `createdb aipm_db_test` 或在 .env 配 DATABASE_URL_TEST。",
-            allow_module_level=True,
+            f"{str(e)[:120]}。请先 `createdb aipm_db_test` 或设置 DATABASE_URL_TEST。"
         )
+        if os.getenv("CI_REQUIRE_TEST_DB") == "1":
+            pytest.exit(message, returncode=1)
+        pytest.skip(message, allow_module_level=True)
     yield
     try:
         async with test_engine.begin() as conn:
