@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
+import { FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
 
 export default function ExportPage() {
   const today = new Date().toISOString().split('T')[0]

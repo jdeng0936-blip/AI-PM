@@ -69,6 +69,9 @@ export default function SprintsPage() {
         if (list.length > 0 && !projectId) setProjectId(list[0].id || list[0].code)
       })
       .catch(() => toast.error('加载项目列表失败'))
+    // 故意不把 projectId 列入依赖:本 effect 是"加载项目列表 + 默认选中第一个"
+    // 一次性副作用,projectId 变化时不该重 fetch 整个 projects 列表
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── 项目切换 → 加载 Sprint + 速率 ──

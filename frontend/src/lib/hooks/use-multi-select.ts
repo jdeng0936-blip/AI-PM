@@ -60,7 +60,6 @@ export function useMultiSelect<T>(
   // (useListFilters 的 filteredItems 走 useMemo,引用稳定)
   useEffect(() => {
     setSelectedIds(new Set())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
   const toggle = useCallback((id: string) => {

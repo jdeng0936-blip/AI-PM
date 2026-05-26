@@ -93,8 +93,6 @@ export default function ChatPage() {
     }
     setMessages((prev) => [...prev, initial])
 
-    const msgIndex = -1 // 取最后一条
-
     // Step 1: 逐个揭示 tool_calls
     let toolIdx = 0
     const revealTool = () => {

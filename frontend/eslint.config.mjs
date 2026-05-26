@@ -14,7 +14,8 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 })
 
-export default [
+// V2.5 Stage 1 大扫除 #3:命名后导出,消除 import/no-anonymous-default-export warning
+const eslintConfig = [
   {
     ignores: [
       '.next/**',
@@ -22,11 +23,12 @@ export default [
       'dist/**',
       'out/**',
       'next-env.d.ts',
-      'env.d.ts',          // process.env 类型扩展,用 {} 是 declaration merging 习惯
-      'next.config.js',    // CommonJS 配置文件,无法用 ESM import
+      'env.d.ts',                    // process.env 类型扩展,用 {} 是 declaration merging 习惯
+      'next.config.js',              // CommonJS 配置文件,无法用 ESM import
       // Sentry config 文件 import @sentry/nextjs,某些规则不适用
       'sentry.*.config.ts',
       'instrumentation.ts',
+      'instrumentation-client.ts',   // V2.5 大扫除 #2 迁移后的客户端 Sentry init
     ],
   },
   ...compat.config({
@@ -42,3 +44,5 @@ export default [
     },
   },
 ]
+
+export default eslintConfig

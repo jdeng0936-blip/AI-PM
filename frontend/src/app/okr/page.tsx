@@ -10,7 +10,7 @@
  */
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   ChevronDown,
@@ -30,7 +30,6 @@ import {
   fetchTree,
   createCycle,
   createObjective,
-  updateObjective,
   deleteObjective,
   createKR,
   updateKR,
@@ -87,6 +86,8 @@ export default function OKRPage() {
 
   useEffect(() => {
     if (activeCycleId) void reloadTree(activeCycleId)
+    // reloadTree 是稳定的 fn,不进依赖避免触发额外 fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCycleId])
 
   async function loadCycles() {

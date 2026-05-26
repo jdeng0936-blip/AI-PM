@@ -5,9 +5,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import { getProject, getProjectMembers, getGateReviews, submitGateReview, addProjectMember, updateStage } from '@/api/projects'
+import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage } from '@/api/projects'
 import { getUsers } from '@/api/users'
-import { getProjectSprints, createSprint, startSprint, completeSprint } from '@/api/sprints'
+import { getProjectSprints } from '@/api/sprints'
 import { trackLabel } from '@/lib/project-track'
 import { toast } from 'sonner'
 import { RefreshCw, Users, CheckCircle, Shield, Plus, Play, Check, Lock, Target, Calendar, Pencil } from 'lucide-react'

@@ -30,7 +30,6 @@ import {
   Ticket, Trash2,
 } from 'lucide-react'
 
-const STAGE_LABELS = ['', '概念与立项期', '计划与设计期', '开发与执行期', '验证与试产期', '发布与收尾期']
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   active:    { label: '进行中', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
@@ -598,7 +597,7 @@ export default function ProjectsPage() {
                 borderWidth: isProjSelected(p.project_id) ? 1 : undefined,
                 borderStyle: isProjSelected(p.project_id) ? 'solid' : undefined,
               }}
-              onClick={(e) => {
+              onClick={() => {
                 if (menuOpenId === p.project_id) { setMenuOpenId(null); return }
                 router.push(`/project/${p.project_id}`)
               }}

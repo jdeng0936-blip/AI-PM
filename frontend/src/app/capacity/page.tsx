@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   ArrowRight, Loader2, RefreshCw, Sparkles, TrendingUp, Users, Zap,
-  AlertOctagon, ThermometerSun, Activity, ArrowDownToLine,
+  AlertOctagon, ThermometerSun, Activity,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,

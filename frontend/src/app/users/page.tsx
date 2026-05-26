@@ -41,7 +41,7 @@ const statusMeta = (s: string) => STATUS_OPTIONS.find((o) => o.value === s) || S
 export default function UsersPage() {
   const { isAdmin } = useAuthStore()
   const [users, setUsers] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
+  const [, setLoading] = useState(false)  // 只用 setter(给 fetchUsers 做开关),不显示 loading 态
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [total, setTotal] = useState(0)

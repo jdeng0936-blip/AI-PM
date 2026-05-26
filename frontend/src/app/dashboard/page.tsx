@@ -158,7 +158,6 @@ export default function DashboardPage() {
     selectedCount: reportSelectedCount,
     isSelected: isReportSelected,
     isAllSelected: isAllReportsSelected,
-    isIndeterminate: isReportIndeterminate,
     toggle: toggleReport,
     selectAll: selectAllReports,
     clearAll: clearReportSelection,

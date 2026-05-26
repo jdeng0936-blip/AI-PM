@@ -13,7 +13,6 @@ import { toast } from 'sonner'
 import {
   BookOpen,
   Loader2,
-  Plus,
   Search,
   Sparkles,
   Trash2,
@@ -72,7 +71,8 @@ export default function RetroPage() {
         page_size: 50,
       })
       setItems(res.items)
-      // 默认选中第一条
+      // 默认选中第一条 — 故意不把 selectedId 列入依赖:
+      // selectedId 变化时不该触发重新 reload,否则会陷入 fetch 循环
       if (!selectedId && res.items.length > 0) {
         setSelectedId(res.items[0].id)
       }
@@ -81,6 +81,7 @@ export default function RetroPage() {
     } finally {
       setLoading(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeFilter])
 
   useEffect(() => {

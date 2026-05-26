@@ -58,7 +58,7 @@ export default function SubmitReportPage() {
   const recognitionRef = useRef<any>(null)
   const [morningPlan, setMorningPlan] = useState<any>(null)
   const [planLoading, setPlanLoading] = useState(false)
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [, setAttachments] = useState<Attachment[]>([])  // attachments 值仅用 setter,不读
 
   // ─── V2.2 结构化关联:项目 + Sprint 任务联动选择器 ───────────
   const [projects, setProjects] = useState<ProjectOption[]>([])
@@ -235,7 +235,6 @@ export default function SubmitReportPage() {
   }
 
   const fields = FORM_FIELDS[mode]
-  const modeLabel = mode === 'plan' ? '晨规划' : '晚复核'
 
   return (
     <div className="space-y-6">
