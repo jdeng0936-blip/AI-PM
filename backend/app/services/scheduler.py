@@ -15,6 +15,7 @@ Redis 不可用时 graceful 降级为单实例语义,不阻塞业务。
   - 周一 08:30 资源水位刷新 + 过载预警(Week 8)
   - 周一 09:00 上周管理周报 AI 生成 + 推送给管理层
   - 每日 18:00 Sprint 燃尽快照(Week 7)
+  - 每日 01:30 删除治理 dry-run(V2.6)
   - 每月 1 日  季度 OKR 汇总归档
   - 每月 1 日 02:00 审计日志月度归档(>12 个月) (Stage 1)
 """
@@ -42,6 +43,7 @@ def start_scheduler() -> None:
         remind_unreported_deadline,
         remind_unreported_friendly,
         remind_unreported_urgent,
+        run_deletion_cleanup_dry_run,
         run_health_refresh_all,
         run_morning_briefing,
         run_quarterly_okr_summary,
@@ -90,6 +92,15 @@ def start_scheduler() -> None:
         CronTrigger(hour=0, minute=30),
         id="health_refresh",
         name="健康度全量重算",
+        replace_existing=True,
+    )
+
+    # ── V2.6 删除治理 dry-run(观察期内只统计/通知,不硬删)────────────
+    scheduler.add_job(
+        with_distributed_lock("deletion_cleanup_dry_run", _LOCK_TTL)(run_deletion_cleanup_dry_run),
+        CronTrigger(hour=1, minute=30),
+        id="deletion_cleanup_dry_run",
+        name="删除治理dry-run",
         replace_existing=True,
     )
 

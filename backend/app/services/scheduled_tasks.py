@@ -8,15 +8,21 @@ app/services/scheduled_tasks.py — 定时任务实现
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import and_, select
 
 from app.database import AsyncSessionLocal
+from app.models.audit_log import AuditLog
 from app.models.daily_report import DailyReport
 from app.models.project import Project, ProjectStatus
-from app.models.user import User, UserStatus
+from app.models.user import User, UserRole, UserStatus
+from app.services.deletion_cleanup import (
+    DELETION_CLEANUP_RETENTION_DAYS,
+    build_deletion_cleanup_dry_run,
+    render_deletion_cleanup_dry_run_markdown,
+)
 from app.services.health_engine import refresh_project_health
 
 logger = logging.getLogger("aipm.tasks")
@@ -514,7 +520,7 @@ async def archive_old_audit_logs(retention_months: int = 12) -> None:
     async with AsyncSessionLocal() as db:
         # 1. 先查待归档数量,日志透明
         count_result = await db.execute(
-            text("SELECT count(*) FROM audit_logs " "WHERE created_at < (now() - (:months || ' months')::interval)"),
+            text("SELECT count(*) FROM audit_logs WHERE created_at < (now() - (:months || ' months')::interval)"),
             {"months": str(retention_months)},
         )
         to_archive = count_result.scalar() or 0
@@ -544,7 +550,7 @@ async def archive_old_audit_logs(retention_months: int = 12) -> None:
         )
 
         delete_result = await db.execute(
-            text("DELETE FROM audit_logs " "WHERE created_at < (now() - (:months || ' months')::interval)"),
+            text("DELETE FROM audit_logs WHERE created_at < (now() - (:months || ' months')::interval)"),
             {"months": str(retention_months)},
         )
 
@@ -555,4 +561,59 @@ async def archive_old_audit_logs(retention_months: int = 12) -> None:
             # CursorResult.rowcount(text() 执行的 DELETE 仍是 CursorResult);
             # mypy 推断为 Result[Any](无 rowcount),运行时实际有
             delete_result.rowcount or 0,  # type: ignore[attr-defined]
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# V2.6 删除治理 dry-run
+# ═══════════════════════════════════════════════════════════════════
+
+
+async def run_deletion_cleanup_dry_run(retention_days: int = DELETION_CLEANUP_RETENTION_DAYS) -> None:
+    """每日 01:30 — 统计过期软删对象与 FK 影响,只记录/通知,不硬删。"""
+    logger.info("⏰ [01:30] 删除治理 dry-run(>%d 天)", retention_days)
+
+    from app.models.notification import NotificationChannel, NotificationTemplate
+    from app.services.notification_service import notify_safe
+
+    async with AsyncSessionLocal() as db:
+        stats = await build_deletion_cleanup_dry_run(db, retention_days=retention_days)
+        markdown = render_deletion_cleanup_dry_run_markdown(stats)
+
+        admins_result = await db.execute(select(User).where(and_(User.role == UserRole.admin, User.is_active == True)))
+        admins = admins_result.scalars().all()
+
+        if admins:
+            db.add(
+                AuditLog(
+                    user_id=admins[0].id,
+                    action="deletion_cleanup_dry_run",
+                    detail=stats,
+                    created_by=admins[0].id,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        else:
+            logger.warning("   未找到启用中的 admin,跳过 audit_log 写入")
+
+        for admin in admins:
+            await notify_safe(
+                db,
+                template=NotificationTemplate.weekly_report,
+                context={"weekly_summary": markdown},
+                user=admin,
+                channels=[
+                    NotificationChannel.wechat,
+                    NotificationChannel.dingtalk,
+                    NotificationChannel.in_app,
+                ],
+                related_type="deletion_cleanup",
+            )
+
+        await db.commit()
+        logger.info(
+            "   dry-run 完成:候选 %d 条,history 批次 %d,已通知 admin %d 人",
+            stats["total_candidates"],
+            stats["open_history_batches"],
+            len(admins),
         )
