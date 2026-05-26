@@ -10,7 +10,8 @@ app/routers/wechat.py — 企业微信消息网关（核心主流水线）
 import xml.etree.ElementTree as ET
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,12 +39,24 @@ async def verify_wechat_server(
     echostr: str = Query(...),
 ):
     """
-    Step 1: 企微服务器地址验证（配置回调URL时调用一次）
-    校验通过后原样返回 echostr，完成验证握手。
+    Step 1: 企微服务器地址验证(配置回调 URL 时调用一次)
+
+    V2.5 Stage 1 Fix #2 — 企微"加密模式"规范:
+    1. echostr 必须作为第 4 项参与 sha1(sorted([token, ts, nonce, echostr]))
+    2. 验签通过后,echostr 是 AES-CBC 加密字符串,需用 wechat_encoding_aes_key
+       解密后返回明文 random_str(原代码 int(echostr) 在加密模式下会抛 ValueError)
+    3. 必须用 PlainTextResponse 原样返回(JSON 不合规)
     """
-    if verify_signature(msg_signature, timestamp, nonce):
-        return int(echostr)
-    return {"error": "signature mismatch"}
+    # 1. 签名校验(echostr 必须参与计算)
+    if not verify_signature(msg_signature, timestamp, nonce, echostr):
+        raise HTTPException(status_code=401, detail="signature mismatch")
+    # 2. AES 解密 echostr 还原明文
+    try:
+        plaintext = decrypt_message(echostr)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"echostr decrypt failed: {e}")
+    # 3. 原样返回(plain/text,非 JSON)
+    return PlainTextResponse(plaintext)
 
 
 @router.post("/callback")
