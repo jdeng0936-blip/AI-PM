@@ -64,6 +64,17 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("🏭 生产模式：跳过 init_db()，请确保已执行 alembic upgrade head")
 
+    # V2.5 Stage 1 Fix #4:生产环境必须配置 ERP webhook secret
+    # 否则任何外部请求都能 POST /api/v1/erp/webhook/status_update 触发风险解卡
+    from app.config import settings
+
+    if env != "dev" and not settings.erp_webhook_secret:
+        raise RuntimeError(
+            "ERP_WEBHOOK_SECRET 未配置 — 生产环境(AIPM_ENV != 'dev')必须设置该密钥,"
+            "否则 ERP webhook 鉴权会被跳过,外部请求可触发风险解除逻辑。"
+            "请在 .env 中配置 ERP_WEBHOOK_SECRET,或将 AIPM_ENV 设为 'dev'。"
+        )
+
     logger.info("✅ 徽远成 AI-PM 后端启动成功")
 
     # ── 启动定时任务调度器 ────────────────────────────────────────
