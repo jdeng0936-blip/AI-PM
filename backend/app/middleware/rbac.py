@@ -51,6 +51,14 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise credentials_exception
+    # V2.5 Stage 1 Fix #3:停用账号即使持有有效 JWT 也立即失效
+    # 否则 admin 停用某员工后,该员工旧 token 仍可访问任何端点,违反"停用 = 立即生效"语义
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号已被停用,请联系管理员",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
