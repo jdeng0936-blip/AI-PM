@@ -47,6 +47,11 @@ class ProjectBatchDeleteBody(BaseModel):
     ids: list[uuid.UUID] = Field(..., min_length=1, max_length=50, description="待软删的项目 ID 列表")
 
 
+# V2.4 Stage 3 C3:批量恢复(仅临时项目)— 撤销 / 回收站共用
+class ProjectBatchRestoreBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=50, description="待恢复的项目 ID 列表")
+
+
 # V2.4 Stage 2:批量软删项目(仅允许临时工单项目;主干项目走 archive 路径)
 @router.delete("/batch")
 async def batch_soft_delete_projects(
@@ -93,6 +98,37 @@ async def batch_soft_delete_projects(
         "requested": len(body.ids),
         "deleted_count": len(deleted_ids),
         "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
+# V2.4 Stage 3 C3:批量恢复已软删的临时项目
+@router.patch("/batch-restore")
+async def batch_restore_projects(
+    body: ProjectBatchRestoreBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(UserRole.admin)),
+):
+    """
+    批量恢复已软删的临时项目(SET deleted_at = NULL)。
+    仅 admin 可调;主干项目的"撤销归档"复用 unarchive_project 端点。
+    """
+    result = await db.execute(
+        update(Project)
+        .where(
+            Project.id.in_(body.ids),
+            Project.deleted_at.is_not(None),
+            Project.is_temporary.is_(True),
+        )
+        .values(deleted_at=None)
+        .returning(Project.id)
+    )
+    restored_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "restored_count": len(restored_ids),
+        "restored_ids": [str(i) for i in restored_ids],
     }
 
 

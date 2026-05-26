@@ -29,6 +29,11 @@ class BatchDeleteBody(BaseModel):
     ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="待软删的日报 ID 列表")
 
 
+# V2.4 Stage 3 C3:批量恢复请求体(撤销 / 回收站共用)
+class BatchRestoreBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="待恢复的日报 ID 列表")
+
+
 @router.get("")
 @router.get("/")
 async def list_reports(
@@ -154,6 +159,40 @@ async def batch_soft_delete_reports(
         "requested": len(body.ids),
         "deleted_count": len(deleted_ids),
         "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
+# V2.4 Stage 3 C3:批量恢复日报
+@router.patch("/batch-restore")
+async def batch_restore_reports(
+    body: BatchRestoreBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    批量恢复已软删日报(SET deleted_at = NULL)。
+
+    权限规则:
+    - admin / manager 可恢复任意人的日报
+    - employee 只能恢复自己的(server 端再校验一次,不信前端)
+
+    返回:实际成功恢复的条数(已 deleted_at IS NULL 的不会被重复恢复)
+    """
+    cond = and_(
+        DailyReport.id.in_(body.ids),
+        DailyReport.deleted_at.is_not(None),
+    )
+    if current_user.role == UserRole.employee:
+        cond = and_(cond, DailyReport.user_id == current_user.id)
+
+    result = await db.execute(update(DailyReport).where(cond).values(deleted_at=None).returning(DailyReport.id))
+    restored_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "restored_count": len(restored_ids),
+        "restored_ids": [str(i) for i in restored_ids],
     }
 
 
