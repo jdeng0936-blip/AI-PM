@@ -287,8 +287,9 @@ export default function DashboardPage() {
       </div>
 
       {/* AI 日报明细 */}
+      {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
       {morningReports.length > 0 && (
-        <div className="mb-8 animate-in" style={{ animationDelay: '0.35s' }}>
+        <div className="mb-8 animate-in relative z-50" style={{ animationDelay: '0.35s' }}>
           <div className="section-title">
             📋 AI 日报明细（{morningBriefingDate}）
             <span className="text-[11px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>

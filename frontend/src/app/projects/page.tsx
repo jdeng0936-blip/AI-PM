@@ -383,7 +383,8 @@ export default function ProjectsPage() {
       </div>
 
       {/* V2.4 Stage 1:统一筛选条(track / status / 阶段);搜索/三色/归档/临时走独立路径 */}
-      <div className="animate-in" style={{ animationDelay: '0.18s' }}>
+      {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 multi-select 下拉能盖住兄弟节点 */}
+      <div className="relative z-50 animate-in" style={{ animationDelay: '0.18s' }}>
         <FilterBar
           spec={PROJECT_FILTER_SPEC}
           filters={filters}

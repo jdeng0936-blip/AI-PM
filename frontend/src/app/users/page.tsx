@@ -211,14 +211,17 @@ export default function UsersPage() {
       </div>
 
       {/* V2.4 Stage 1 — 多维筛选 */}
-      <FilterBar
-        spec={userFilterSpec}
-        filters={userFilters}
-        setFilter={setUserFilter}
-        clearFilter={clearUserFilter}
-        clearAll={clearUserAll}
-        activeCount={userActiveCount}
-      />
+      {/* relative z-50 — 防止下方 table 创建的层叠上下文困住 FilterBar 的下拉 */}
+      <div className="relative z-50">
+        <FilterBar
+          spec={userFilterSpec}
+          filters={userFilters}
+          setFilter={setUserFilter}
+          clearFilter={clearUserFilter}
+          clearAll={clearUserAll}
+          activeCount={userActiveCount}
+        />
+      </div>
 
       {/* Table */}
       <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}>

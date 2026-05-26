@@ -41,7 +41,7 @@ export default function FilterBar({
 }: FilterBarProps) {
   return (
     <div
-      className="rounded-xl p-3 mb-4"
+      className="rounded-xl p-3 mb-4 relative z-50"
       style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}
     >
       {/* 控件区 */}
