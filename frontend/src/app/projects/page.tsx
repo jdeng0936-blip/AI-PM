@@ -5,7 +5,7 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import {
@@ -289,10 +289,12 @@ export default function ProjectsPage() {
   } = useListFilters(projects, PROJECT_FILTER_SPEC, { urlPrefix: 'proj_' })
 
   // 搜索框叠加在 FilterBar 之后过滤(不进 spec,因为是模糊匹配多字段)
-  const filtered = filteredByBar.filter((p) => {
-    const q = searchQuery.toLowerCase()
-    return !q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)
-  })
+  const filtered = useMemo(() => {
+    return filteredByBar.filter((p) => {
+      const q = searchQuery.toLowerCase()
+      return !q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)
+    })
+  }, [filteredByBar, searchQuery])
 
   // V2.4 Stage 2:项目多选 + 严格分路批量操作(临时软删 / 主干归档)
   const {
