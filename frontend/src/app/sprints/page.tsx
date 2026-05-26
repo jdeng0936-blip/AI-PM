@@ -17,16 +17,19 @@ import {
 } from 'recharts'
 import {
   Activity, AlertTriangle, CheckCircle2, Clock, Flame, Loader2,
-  PauseCircle, Plus, Sparkles, Target, Zap, X,
+  PauseCircle, Plus, Sparkles, Target, Trash2, Zap, X,
 } from 'lucide-react'
 import { getProjectsOverview } from '@/api/projects'
 import {
   listSprints, listTasks, createTask, updateTask, deleteTask,
+  batchDeleteTasks, batchRestoreTasks,
   getBurndown, getCriticalPath, getVelocityHistory, triggerSnapshot,
   type SprintSummary, type SprintTaskItem, type BurndownData,
   type CriticalPathResult, type VelocityHistory, type TaskStatus, type TaskPriority,
 } from '@/api/sprint-tracking'
 import { useAuthStore } from '@/stores/use-auth-store'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
+import ListActionBar from '@/components/list-action-bar'
 
 
 const STATUS_META: Record<TaskStatus, { label: string; color: string; icon: any }> = {
@@ -155,6 +158,43 @@ export default function SprintsPage() {
     }
   }
 
+  // V2.5 Stage 2:任务多选 + 批量软删 + toast 撤销
+  // useMultiSelect 监听 tasks 引用 — sprintId 切换重 fetch 后会自动清空选中态
+  const taskMs = useMultiSelect(tasks, { idKey: 'id' as any })
+  const [bulkActing, setBulkActing] = useState(false)
+
+  async function handleBatchDelete() {
+    const ids = Array.from(taskMs.selectedIds) as string[]
+    if (ids.length === 0) return
+    if (!confirm(`确定删除选中的 ${ids.length} 个任务?\n(软删,可在回收站恢复;燃尽与关键路径会自动重算)`)) return
+    setBulkActing(true)
+    try {
+      const res = await batchDeleteTasks(ids)
+      const deletedIds = res.deleted_ids ?? ids
+      taskMs.clearAll()
+      await reloadSprintDetail()
+      toast.success(`已删除 ${res.deleted_count ?? deletedIds.length} 个任务`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r = await batchRestoreTasks(deletedIds)
+              await reloadSprintDetail()
+              toast.success(`已撤销恢复 ${r.restored_count ?? deletedIds.length} 个`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败')
+            }
+          },
+        },
+      })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setBulkActing(false)
+    }
+  }
+
   const currentSprint = sprints.find((s) => s.sprint_id === sprintId)
 
   const tasksByStatus = useMemo(() => {
@@ -203,10 +243,33 @@ export default function SprintsPage() {
                 </button>
               )}
             </div>
+            {/* V2.5 Stage 2:多选 ActionBar(canWrite 时才显示 checkbox 与批量操作) */}
+            {canWrite && (
+              <div className="relative z-40">
+                <ListActionBar
+                  selectedCount={taskMs.selectedCount}
+                  onClear={taskMs.clearAll}
+                  hint="软删后可在回收站恢复;燃尽/关键路径自动重算"
+                >
+                  <button
+                    onClick={handleBatchDelete}
+                    disabled={bulkActing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+                    style={{ background: '#ef4444', color: '#fff' }}
+                  >
+                    <Trash2 size={13} />
+                    {bulkActing ? '处理中...' : '批量删除'}
+                  </button>
+                </ListActionBar>
+              </div>
+            )}
             <TaskBoard
               tasksByStatus={tasksByStatus}
               onStatusChange={canWrite ? handleStatusChange : undefined}
               onDelete={canWrite ? handleDeleteTask : undefined}
+              selectable={canWrite}
+              isSelected={taskMs.isSelected}
+              onToggleSelect={taskMs.toggle}
             />
           </div>
 
@@ -333,10 +396,14 @@ function EmptyState() {
 
 function TaskBoard({
   tasksByStatus, onStatusChange, onDelete,
+  selectable, isSelected, onToggleSelect,
 }: {
   tasksByStatus: Record<TaskStatus, SprintTaskItem[]>
   onStatusChange?: (t: SprintTaskItem, s: TaskStatus) => void
   onDelete?: (t: SprintTaskItem) => void
+  selectable?: boolean
+  isSelected?: (id: string) => boolean
+  onToggleSelect?: (id: string) => void
 }) {
   return (
     <div className="space-y-2">
@@ -368,6 +435,9 @@ function TaskBoard({
                   task={t}
                   onStatusChange={onStatusChange}
                   onDelete={onDelete}
+                  selectable={selectable}
+                  selected={isSelected ? isSelected(t.id) : false}
+                  onToggleSelect={onToggleSelect}
                 />
               ))}
             </div>
@@ -381,23 +451,39 @@ function TaskBoard({
 
 function TaskCard({
   task, onStatusChange, onDelete,
+  selectable, selected, onToggleSelect,
 }: {
   task: SprintTaskItem
   onStatusChange?: (t: SprintTaskItem, s: TaskStatus) => void
   onDelete?: (t: SprintTaskItem) => void
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
 }) {
   const pmeta = PRIORITY_META[task.priority]
   return (
     <div
       className="rounded p-2 text-xs"
       style={{
-        background: 'var(--color-bg-secondary)',
-        border: task.is_on_critical_path
-          ? '1px solid #ef4444aa'
-          : '1px solid var(--color-border-subtle)',
+        background: selected ? 'rgba(168,85,247,0.10)' : 'var(--color-bg-secondary)',
+        border: selected
+          ? '1px solid #a855f7'
+          : task.is_on_critical_path
+            ? '1px solid #ef4444aa'
+            : '1px solid var(--color-border-subtle)',
       }}
     >
       <div className="flex items-start gap-2">
+        {/* V2.5 Stage 2:批量选择 checkbox(canWrite 时显示) */}
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={() => onToggleSelect?.(task.id)}
+            className="mt-1 shrink-0 cursor-pointer"
+            title="选中用于批量操作"
+          />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
             <span

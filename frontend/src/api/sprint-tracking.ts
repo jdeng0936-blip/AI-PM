@@ -152,6 +152,41 @@ export async function deleteTask(taskId: string): Promise<void> {
   await request.delete(`/sprints/tasks/${taskId}`)
 }
 
+// V2.5 Stage 2:Sprint 任务批量软删 / 恢复 / 已删列表
+export interface BatchTaskResult {
+  requested: number
+  deleted_count?: number
+  restored_count?: number
+  deleted_ids?: string[]
+  restored_ids?: string[]
+}
+
+export async function batchDeleteTasks(ids: string[]): Promise<BatchTaskResult> {
+  return request.delete<unknown, BatchTaskResult>('/sprints/tasks/batch', { data: { ids } })
+}
+
+export async function batchRestoreTasks(ids: string[]): Promise<BatchTaskResult> {
+  return request.patch<unknown, BatchTaskResult>('/sprints/tasks/batch-restore', { ids })
+}
+
+export interface DeletedSprintTask {
+  id: string
+  title: string
+  story_points: number
+  status: TaskStatus
+  priority: TaskPriority
+  sprint_id: string
+  sprint_number: number
+  project_id: string
+  deleted_at: string | null
+}
+
+export async function getDeletedTasks(): Promise<{ items: DeletedSprintTask[]; total: number }> {
+  return request.get<unknown, { items: DeletedSprintTask[]; total: number }>(
+    '/sprints/tasks/deleted',
+  )
+}
+
 export async function getBurndown(sprintId: string): Promise<BurndownData> {
   return request.get<unknown, BurndownData>(`/sprints/${sprintId}/burndown`)
 }
