@@ -103,7 +103,7 @@ export default function RecycleBinPage() {
         </h1>
       </div>
       <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
-        展示已软删的日报与临时工单项目。点击"恢复"可还原。本页仅 admin 可见,不提供永久删除(保护历史数据完整性)。
+        展示已软删的日报与临时工单项目。点击「恢复」可还原。本页仅 admin 可见,不提供永久删除(保护历史数据完整性)。
       </p>
 
       {/* Tab 切换 */}
