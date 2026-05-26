@@ -37,6 +37,7 @@ async def search_retros(
         select(KnowledgeItem)
         .where(
             KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+            KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删的复盘不进 AI 引用
             or_(
                 KnowledgeItem.title.ilike(pattern),
                 KnowledgeItem.tags.ilike(pattern),
@@ -72,7 +73,10 @@ async def list_recent_retros(
         scope: 过滤复盘类型,可选 okr_cycle / project / monthly / incident,空=不过滤
         limit: 返回前 N 条
     """
-    stmt = select(KnowledgeItem).where(KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE)
+    stmt = select(KnowledgeItem).where(
+        KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+        KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删的复盘不进 AI 引用
+    )
     if scope:
         if scope not in (RetroScope.OKR_CYCLE, RetroScope.PROJECT, RetroScope.MONTHLY, RetroScope.INCIDENT):
             return {"error": f"scope 不合法:{scope}"}
@@ -111,7 +115,7 @@ async def get_retro(
         item = await db.get(KnowledgeItem, _uuid.UUID(retro_id))
     except (ValueError, TypeError):
         return {"error": "retro_id 不是有效 UUID"}
-    if not item or item.category != KnowledgeCategory.RETROSPECTIVE:
+    if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         return {"error": f"复盘 {retro_id} 不存在"}
     return {
         "id": str(item.id),

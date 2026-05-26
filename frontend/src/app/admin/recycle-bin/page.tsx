@@ -29,8 +29,13 @@ import {
   batchRestoreRiskAlerts,
   type DeletedRiskAlert,
 } from '@/api/dashboard'
+import {
+  getDeletedKnowledgeItems,
+  batchRestoreKnowledgeItems,
+  type DeletedKnowledgeItem,
+} from '@/api/retro'
 
-type Tab = 'reports' | 'projects' | 'sprint-tasks' | 'risk-alerts'
+type Tab = 'reports' | 'projects' | 'sprint-tasks' | 'risk-alerts' | 'knowledge'
 
 export default function RecycleBinPage() {
   const router = useRouter()
@@ -40,6 +45,7 @@ export default function RecycleBinPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [tasks, setTasks] = useState<DeletedSprintTask[]>([])
   const [alerts, setAlerts] = useState<DeletedRiskAlert[]>([])
+  const [knowledge, setKnowledge] = useState<DeletedKnowledgeItem[]>([])
   const [loading, setLoading] = useState(false)
 
   // 权限保护
@@ -99,21 +105,36 @@ export default function RecycleBinPage() {
     }
   }, [])
 
+  // V2.5 Stage 3:已删知识条目(含 retrospective)
+  const loadKnowledge = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await getDeletedKnowledgeItems()
+      setKnowledge(res?.items || [])
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '加载已删知识条目失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!isAdmin) return
     if (tab === 'reports') loadReports()
     else if (tab === 'projects') loadProjects()
     else if (tab === 'sprint-tasks') loadTasks()
-    else loadAlerts()
-  }, [tab, isAdmin, loadReports, loadProjects, loadTasks, loadAlerts])
+    else if (tab === 'risk-alerts') loadAlerts()
+    else loadKnowledge()
+  }, [tab, isAdmin, loadReports, loadProjects, loadTasks, loadAlerts, loadKnowledge])
 
   // 当前 tab 对应的 items + id key — 用 useMemo 锁定引用,避免 useMultiSelect 内 useEffect 误清空
   const items = useMemo<any[]>(() => {
     if (tab === 'reports') return reports
     if (tab === 'projects') return projects
     if (tab === 'sprint-tasks') return tasks
-    return alerts
-  }, [tab, reports, projects, tasks, alerts])
+    if (tab === 'risk-alerts') return alerts
+    return knowledge
+  }, [tab, reports, projects, tasks, alerts, knowledge])
   const idKey =
     tab === 'projects' ? 'project_id'
     : tab === 'risk-alerts' ? 'alert_id'
@@ -128,14 +149,16 @@ export default function RecycleBinPage() {
         tab === 'reports' ? batchRestoreReports
         : tab === 'projects' ? batchRestoreProjects
         : tab === 'sprint-tasks' ? batchRestoreTasks
-        : batchRestoreRiskAlerts
+        : tab === 'risk-alerts' ? batchRestoreRiskAlerts
+        : batchRestoreKnowledgeItems
       const res: any = await fn(ids)
       toast.success(`已恢复 ${res?.restored_count ?? ids.length} 条`)
       ms.clearAll()
       if (tab === 'reports') await loadReports()
       else if (tab === 'projects') await loadProjects()
       else if (tab === 'sprint-tasks') await loadTasks()
-      else await loadAlerts()
+      else if (tab === 'risk-alerts') await loadAlerts()
+      else await loadKnowledge()
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '恢复失败')
     }
@@ -160,7 +183,7 @@ export default function RecycleBinPage() {
         className="flex gap-1 mb-4"
         style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
       >
-        {(['reports', 'projects', 'sprint-tasks', 'risk-alerts'] as Tab[]).map((t) => (
+        {(['reports', 'projects', 'sprint-tasks', 'risk-alerts', 'knowledge'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -181,7 +204,9 @@ export default function RecycleBinPage() {
                 ? `已删临时项目 (${projects.length})`
                 : t === 'sprint-tasks'
                   ? `已删 Sprint 任务 (${tasks.length})`
-                  : `已删风险预警 (${alerts.length})`}
+                  : t === 'risk-alerts'
+                    ? `已删风险预警 (${alerts.length})`
+                    : `已删知识条目 (${knowledge.length})`}
           </button>
         ))}
       </div>
@@ -198,7 +223,9 @@ export default function RecycleBinPage() {
                 ? '恢复后项目重新出现在项目列表'
                 : tab === 'sprint-tasks'
                   ? '恢复后任务回到 Sprint 看板,燃尽与关键路径会自动重算'
-                  : '恢复后预警重新进入风险池,health / weekly / chat 下次刷新会重新引用'
+                  : tab === 'risk-alerts'
+                    ? '恢复后预警重新进入风险池,health / weekly / chat 下次刷新会重新引用'
+                    : '恢复后知识条目重新进入知识库 / 复盘库,chat 检索与语义引用会重新出现'
           }
         >
           <button
@@ -224,7 +251,9 @@ export default function RecycleBinPage() {
               ? '没有已删临时项目 ✨'
               : tab === 'sprint-tasks'
                 ? '没有已删 Sprint 任务 ✨'
-                : '没有已删风险预警 ✨'}
+                : tab === 'risk-alerts'
+                  ? '没有已删风险预警 ✨'
+                  : '没有已删知识条目 ✨'}
         </div>
       ) : (
         <div
@@ -323,8 +352,7 @@ export default function RecycleBinPage() {
                         删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
                       </span>
                     </>
-                  ) : (
-                    /* tab === 'risk-alerts' */
+                  ) : tab === 'risk-alerts' ? (
                     <>
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
@@ -353,6 +381,42 @@ export default function RecycleBinPage() {
                       </span>
                       <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
                         未解 {it.days_unresolved} 天 · {it.status}
+                      </span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                        删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
+                      </span>
+                    </>
+                  ) : (
+                    /* tab === 'knowledge' */
+                    <>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          background:
+                            it.category === 'retrospective' ? 'rgba(168,85,247,0.18)'
+                            : it.category === 'best_practice' ? 'rgba(34,197,94,0.18)'
+                            : it.category === 'lesson_learned' ? 'rgba(245,158,11,0.18)'
+                            : it.category === 'template' ? 'rgba(59,130,246,0.18)'
+                            : 'rgba(148,163,184,0.18)',
+                          color:
+                            it.category === 'retrospective' ? '#d8b4fe'
+                            : it.category === 'best_practice' ? '#86efac'
+                            : it.category === 'lesson_learned' ? '#fcd34d'
+                            : it.category === 'template' ? '#93c5fd'
+                            : '#cbd5e1',
+                        }}
+                        title="知识分类"
+                      >
+                        {String(it.category || '').toUpperCase()}
+                      </span>
+                      <span className="font-medium flex-1 truncate">{it.title}</span>
+                      {it.tags && (
+                        <span className="text-[11px] shrink-0 truncate max-w-[180px]" style={{ color: 'var(--color-text-secondary)' }}>
+                          🏷 {it.tags}
+                        </span>
+                      )}
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+                        浏览 {it.view_count} · 有用 {it.helpful_count}
                       </span>
                       <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                         删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}

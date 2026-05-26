@@ -7,17 +7,20 @@ app/routers/retro.py — AI 复盘库 API
 - POST /retro/generate           手工生成新复盘(admin)
 - GET  /retro/items              列出已沉淀的复盘(全员可见)
 - GET  /retro/items/{id}         单条详情(全员可见)
-- DELETE /retro/items/{id}       删除(admin)
+- DELETE /retro/items/{id}       软删(admin,V2.5 Stage 3 由硬删改为软删)
+
+批量软删 / 恢复 / 回收站走 /knowledge 同款端点(retrospective 共用 knowledge_items 表)。
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -135,14 +138,19 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    stmt = select(KnowledgeItem).where(KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE)
+    # V2.5 Stage 3:列表默认过滤 deleted_at IS NULL
+    stmt = select(KnowledgeItem).where(
+        KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+        KnowledgeItem.deleted_at.is_(None),
+    )
     if scope:
         stmt = stmt.where(KnowledgeItem.tags.ilike(f"%{scope}%"))
     if project_id:
         stmt = stmt.where(KnowledgeItem.project_id == uuid.UUID(project_id))
 
-    # 简单 count(避免大量数据时性能问题留后续优化)
-    total = len((await db.execute(stmt.with_only_columns(KnowledgeItem.id))).scalars().all())
+    # V2.5 Stage 3:换用 func.count + select_from(subquery) 避免 with_only_columns 漏带 WHERE
+    total_q = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(total_q)).scalar() or 0
 
     stmt = stmt.order_by(desc(KnowledgeItem.created_at)).offset((page - 1) * page_size).limit(page_size)
     rows = (await db.execute(stmt)).scalars().all()
@@ -174,7 +182,7 @@ async def get_item(
     _user: User = Depends(get_current_user),
 ):
     item = await db.get(KnowledgeItem, uuid.UUID(item_id))
-    if not item or item.category != KnowledgeCategory.RETROSPECTIVE:
+    if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         raise HTTPException(404, "复盘报告不存在")
     # 浏览量 +1
     item.view_count = (item.view_count or 0) + 1
@@ -200,8 +208,13 @@ async def delete_item(
     db: AsyncSession = Depends(get_db),
     _user=Depends(_admin_only),
 ):
+    """V2.5 Stage 3:复盘单条由硬删改为软删。
+
+    历史 view_count / source_id(锚定 sprint/project/incident)保留,
+    通过 /knowledge/items/deleted 回收站可恢复(复盘和普通知识共用同一回收站)。
+    """
     item = await db.get(KnowledgeItem, uuid.UUID(item_id))
-    if not item or item.category != KnowledgeCategory.RETROSPECTIVE:
+    if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         raise HTTPException(404, "复盘报告不存在")
-    await db.delete(item)
+    item.deleted_at = datetime.now(timezone.utc)
     await db.commit()

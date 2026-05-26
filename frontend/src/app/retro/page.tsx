@@ -29,11 +29,15 @@ import {
   getRetro,
   deleteRetro,
   generateRetro,
+  batchDeleteKnowledgeItems,
+  batchRestoreKnowledgeItems,
   type RetroItem,
   type RetroItemDetail,
   type RetroScope,
 } from '@/api/retro'
 import { useAuthStore } from '@/stores/use-auth-store'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
+import ListActionBar from '@/components/list-action-bar'
 
 
 const SCOPE_META: Record<
@@ -50,6 +54,7 @@ const SCOPE_META: Record<
 export default function RetroPage() {
   const { userRole } = useAuthStore()
   const canWrite = userRole === 'admin' || userRole === 'manager'
+  const canBatchManage = userRole === 'admin'  // V2.5 Stage 3:批量软删仅 admin
 
   const [items, setItems] = useState<RetroItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -60,6 +65,7 @@ export default function RetroPage() {
   const [detailLoading, setDetailLoading] = useState(false)
 
   const [showGenerate, setShowGenerate] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   // ── 列表加载 ──
   const reload = useCallback(async () => {
@@ -111,15 +117,54 @@ export default function RetroPage() {
     )
   }, [items, keyword])
 
+  // V2.5 Stage 3:多选 hook 跟随 filteredItems(filter 变即清空,与 dashboard 范式一致)
+  const ms = useMultiSelect(filteredItems, { idKey: 'id' as any })
+
   async function handleDelete(id: string) {
-    if (!confirm('确认删除这条复盘?')) return
+    if (!confirm('确认软删这条复盘?\n(历史 view_count / source_id 锚定保留,可在回收站恢复)')) return
     try {
       await deleteRetro(id)
-      toast.success('已删除')
+      toast.success('已软删,可在回收站恢复')
       if (selectedId === id) setSelectedId(null)
       await reload()
     } catch {
       toast.error('删除失败')
+    }
+  }
+
+  async function handleBatchDelete() {
+    if (ms.selectedCount === 0) return
+    if (!confirm(
+      `确定软删选中的 ${ms.selectedCount} 条复盘?\n(历史 view_count / source_id 关联保留,可在回收站恢复;chat AI 引用 / 检索下次刷新会排除)`
+    )) return
+    setBulkDeleting(true)
+    try {
+      const ids = Array.from(ms.selectedIds) as string[]
+      const res = await batchDeleteKnowledgeItems(ids)
+      const deletedIds: string[] = res?.deleted_ids ?? ids
+      // 当前选中的详情若在被删列表里,清空
+      if (selectedId && deletedIds.includes(selectedId)) setSelectedId(null)
+      ms.clearAll()
+      await reload()
+      toast.success(`已软删 ${deletedIds.length} 条复盘`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r = await batchRestoreKnowledgeItems(deletedIds)
+              await reload()
+              toast.success(`已撤销恢复 ${r?.restored_count ?? deletedIds.length} 条`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败')
+            }
+          },
+        },
+      })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -138,6 +183,25 @@ export default function RetroPage() {
         total={items.length}
       />
 
+      {/* V2.5 Stage 3:批量软删操作栏(admin) */}
+      {canBatchManage && (
+        <ListActionBar
+          selectedCount={ms.selectedCount}
+          onClear={ms.clearAll}
+          hint="软删后历史关联保留,可在回收站恢复"
+        >
+          <button
+            onClick={handleBatchDelete}
+            disabled={bulkDeleting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
+            style={{ background: '#ef4444', color: '#fff' }}
+          >
+            <Trash2 size={14} />
+            {bulkDeleting ? '处理中…' : `批量删除 (${ms.selectedCount})`}
+          </button>
+        </ListActionBar>
+      )}
+
       <div
         className="grid gap-4"
         style={{ gridTemplateColumns: 'minmax(280px, 360px) 1fr', minHeight: '60vh' }}
@@ -149,6 +213,9 @@ export default function RetroPage() {
           onSelect={setSelectedId}
           onDelete={handleDelete}
           canWrite={canWrite}
+          canBatchManage={canBatchManage}
+          isSelected={ms.isSelected}
+          toggleSelect={ms.toggle}
         />
         <RightDetail
           item={detail}
@@ -281,6 +348,7 @@ function Chip({
 
 function LeftList({
   items, loading, selectedId, onSelect, onDelete, canWrite,
+  canBatchManage, isSelected, toggleSelect,
 }: {
   items: RetroItem[]
   loading: boolean
@@ -288,6 +356,9 @@ function LeftList({
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   canWrite: boolean
+  canBatchManage: boolean
+  isSelected: (id: string) => boolean
+  toggleSelect: (id: string) => void
 }) {
   if (loading) {
     return (
@@ -319,6 +390,10 @@ function LeftList({
           active={selectedId === it.id}
           onClick={() => onSelect(it.id)}
           onDelete={canWrite ? () => onDelete(it.id) : undefined}
+          checkbox={canBatchManage ? {
+            checked: isSelected(it.id),
+            onToggle: () => toggleSelect(it.id),
+          } : undefined}
         />
       ))}
     </div>
@@ -327,26 +402,40 @@ function LeftList({
 
 
 function RetroCard({
-  item, active, onClick, onDelete,
+  item, active, onClick, onDelete, checkbox,
 }: {
   item: RetroItem
   active: boolean
   onClick: () => void
   onDelete?: () => void
+  checkbox?: { checked: boolean; onToggle: () => void }
 }) {
   const meta = item.scope ? SCOPE_META[item.scope] : null
+  const selected = checkbox?.checked === true
   return (
     <div
       onClick={onClick}
       className="rounded-lg p-3 cursor-pointer transition-all animate-in"
       style={{
-        background: active
-          ? 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(99,102,241,0.12))'
-          : 'var(--color-bg-card)',
-        border: `1px solid ${active ? '#a855f7aa' : 'var(--color-border-subtle)'}`,
+        background: selected
+          ? 'rgba(168,85,247,0.06)'
+          : active
+            ? 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(99,102,241,0.12))'
+            : 'var(--color-bg-card)',
+        border: `1px solid ${selected ? '#a855f7' : active ? '#a855f7aa' : 'var(--color-border-subtle)'}`,
       }}
     >
       <div className="flex items-start justify-between gap-2">
+        {checkbox && (
+          <input
+            type="checkbox"
+            checked={checkbox.checked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={checkbox.onToggle}
+            className="mt-1 cursor-pointer shrink-0"
+            title="选中以批量操作"
+          />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-1">
             {meta && (
