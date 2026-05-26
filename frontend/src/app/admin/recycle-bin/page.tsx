@@ -23,8 +23,9 @@ import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import ListActionBar from '@/components/list-action-bar'
 import { getReports, batchRestoreReports } from '@/api/reports'
 import { getDeletedProjects, batchRestoreProjects } from '@/api/projects'
+import { getDeletedTasks, batchRestoreTasks, type DeletedSprintTask } from '@/api/sprint-tracking'
 
-type Tab = 'reports' | 'projects'
+type Tab = 'reports' | 'projects' | 'sprint-tasks'
 
 export default function RecycleBinPage() {
   const router = useRouter()
@@ -32,6 +33,7 @@ export default function RecycleBinPage() {
   const [tab, setTab] = useState<Tab>('reports')
   const [reports, setReports] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
+  const [tasks, setTasks] = useState<DeletedSprintTask[]>([])
   const [loading, setLoading] = useState(false)
 
   // 权限保护
@@ -66,27 +68,48 @@ export default function RecycleBinPage() {
     }
   }, [])
 
+  const loadTasks = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await getDeletedTasks()
+      setTasks(res?.items || [])
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '加载已删任务失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!isAdmin) return
     if (tab === 'reports') loadReports()
-    else loadProjects()
-  }, [tab, isAdmin, loadReports, loadProjects])
+    else if (tab === 'projects') loadProjects()
+    else loadTasks()
+  }, [tab, isAdmin, loadReports, loadProjects, loadTasks])
 
   // 当前 tab 对应的 items + id key — 用 useMemo 锁定引用,避免 useMultiSelect 内 useEffect 误清空
-  const items = useMemo<any[]>(() => (tab === 'reports' ? reports : projects), [tab, reports, projects])
-  const idKey = tab === 'reports' ? 'id' : 'project_id'
+  const items = useMemo<any[]>(() => {
+    if (tab === 'reports') return reports
+    if (tab === 'projects') return projects
+    return tasks
+  }, [tab, reports, projects, tasks])
+  const idKey = tab === 'projects' ? 'project_id' : 'id'
   const ms = useMultiSelect(items, { idKey: idKey as any })
 
   async function handleRestore() {
     const ids = Array.from(ms.selectedIds) as string[]
     if (ids.length === 0) return
     try {
-      const fn = tab === 'reports' ? batchRestoreReports : batchRestoreProjects
+      const fn =
+        tab === 'reports' ? batchRestoreReports
+        : tab === 'projects' ? batchRestoreProjects
+        : batchRestoreTasks
       const res: any = await fn(ids)
       toast.success(`已恢复 ${res?.restored_count ?? ids.length} 条`)
       ms.clearAll()
       if (tab === 'reports') await loadReports()
-      else await loadProjects()
+      else if (tab === 'projects') await loadProjects()
+      else await loadTasks()
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '恢复失败')
     }
@@ -111,7 +134,7 @@ export default function RecycleBinPage() {
         className="flex gap-1 mb-4"
         style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
       >
-        {(['reports', 'projects'] as Tab[]).map((t) => (
+        {(['reports', 'projects', 'sprint-tasks'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -126,7 +149,11 @@ export default function RecycleBinPage() {
               fontWeight: tab === t ? 600 : 400,
             }}
           >
-            {t === 'reports' ? `已删日报 (${reports.length})` : `已删临时项目 (${projects.length})`}
+            {t === 'reports'
+              ? `已删日报 (${reports.length})`
+              : t === 'projects'
+                ? `已删临时项目 (${projects.length})`
+                : `已删 Sprint 任务 (${tasks.length})`}
           </button>
         ))}
       </div>
@@ -136,7 +163,13 @@ export default function RecycleBinPage() {
         <ListActionBar
           selectedCount={ms.selectedCount}
           onClear={ms.clearAll}
-          hint={tab === 'reports' ? '恢复后日报重新出现在主列表' : '恢复后项目重新出现在项目列表'}
+          hint={
+            tab === 'reports'
+              ? '恢复后日报重新出现在主列表'
+              : tab === 'projects'
+                ? '恢复后项目重新出现在项目列表'
+                : '恢复后任务回到 Sprint 看板,燃尽与关键路径会自动重算'
+          }
         >
           <button
             onClick={handleRestore}
@@ -155,7 +188,11 @@ export default function RecycleBinPage() {
         </div>
       ) : items.length === 0 ? (
         <div className="text-sm py-12 text-center" style={{ color: 'var(--color-text-secondary)' }}>
-          {tab === 'reports' ? '没有已删日报 ✨' : '没有已删临时项目 ✨'}
+          {tab === 'reports'
+            ? '没有已删日报 ✨'
+            : tab === 'projects'
+              ? '没有已删临时项目 ✨'
+              : '没有已删 Sprint 任务 ✨'}
         </div>
       ) : (
         <div
@@ -211,12 +248,46 @@ export default function RecycleBinPage() {
                         {(it.parsed_content?.summary || it.raw_input_text || '').toString().slice(0, 80)}
                       </span>
                     </>
-                  ) : (
+                  ) : tab === 'projects' ? (
                     <>
                       <span className="font-medium">{it.name}</span>
                       <span style={{ color: 'var(--color-text-secondary)' }}>·</span>
                       <span style={{ color: 'var(--color-text-secondary)' }}>{it.code}</span>
                       <span className="flex-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                        style={{ background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' }}
+                        title="Sprint 编号"
+                      >
+                        S#{it.sprint_number}
+                      </span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          background:
+                            it.priority === 'p0' ? 'rgba(239,68,68,0.18)'
+                            : it.priority === 'p1' ? 'rgba(245,158,11,0.18)'
+                            : it.priority === 'p2' ? 'rgba(59,130,246,0.18)'
+                            : 'rgba(148,163,184,0.18)',
+                          color:
+                            it.priority === 'p0' ? '#fca5a5'
+                            : it.priority === 'p1' ? '#fcd34d'
+                            : it.priority === 'p2' ? '#93c5fd'
+                            : '#cbd5e1',
+                        }}
+                      >
+                        {it.priority?.toUpperCase()}
+                      </span>
+                      <span className="font-medium flex-1 truncate">{it.title}</span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+                        {it.story_points}pt · {it.status}
+                      </span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                         删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
                       </span>
                     </>
