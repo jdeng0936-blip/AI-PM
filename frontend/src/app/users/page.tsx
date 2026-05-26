@@ -16,10 +16,9 @@ import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
 import { Plus, Search, Ban, CheckSquare } from 'lucide-react'
 
-// V2.4 Stage 1 TECH DEBT:后端 users 列表暂无 role/department/is_active query params,
-// Stage 1 临时把 pageSize 从 20 调到 100 一次拉全(公司当前人数 ~15 远不到 100),
-// 前端纯本地筛选。Stage 2 还原成 20 并补后端 query params。
-const USERS_PAGE_SIZE = 100
+// V2.4 Stage 3 C2:后端已加 role/department/is_active query 参数,还原默认分页
+// 出勤 status 维度仍由前端 useListFilters 客户端过滤(后端未加该 query)
+const USERS_PAGE_SIZE = 20
 
 const DEPARTMENTS = ['管理层', '软件研发部', '硬件测试部', '采购部', '仓储物流部']
 const ROLES = [
@@ -61,10 +60,20 @@ export default function UsersPage() {
   })
   const [statusSubmitting, setStatusSubmitting] = useState(false)
 
-  const fetchUsers = useCallback(async () => {
+  // V2.4 Stage 3 C2:接收 extra 避免 closure 闭包对 userFilters 引用过期
+  const fetchUsers = useCallback(async (extra?: {
+    role?: string; department?: string; is_active?: string
+  }) => {
     setLoading(true)
     try {
-      const res: any = await getUsers({ page: currentPage, page_size: USERS_PAGE_SIZE, search })
+      const res: any = await getUsers({
+        page: currentPage,
+        page_size: USERS_PAGE_SIZE,
+        search,
+        role: extra?.role ?? '',
+        department: extra?.department ?? '',
+        is_active: extra?.is_active ?? '',
+      })
       setUsers(res.items || [])
       setTotal(res.total || 0)
     } catch (e: any) { toast.error(e?.response?.data?.detail || '获取用户列表失败') }
@@ -164,6 +173,24 @@ export default function UsersPage() {
   }
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
+
+  // V2.4 Stage 3 C2:监听后端可识别的 filter 变化 → 重新 fetch + 重置页码
+  // multi-select(role / department)用 csv 形式传;boolean(is_active)转 'true'/'false'
+  useEffect(() => {
+    const roleArr = Array.isArray(userFilters.role) ? (userFilters.role as string[]) : []
+    const deptArr = Array.isArray(userFilters.department) ? (userFilters.department as string[]) : []
+    const isActiveVal = userFilters.is_active
+    const isActiveStr =
+      isActiveVal === true ? 'true' : isActiveVal === false ? 'false' : ''
+
+    setCurrentPage(1)
+    fetchUsers({
+      role: roleArr.join(','),
+      department: deptArr.join(','),
+      is_active: isActiveStr,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(userFilters.role), JSON.stringify(userFilters.department), userFilters.is_active])
 
   function handleSearch(val: string) {
     setSearch(val)
@@ -387,7 +414,7 @@ export default function UsersPage() {
         </table>
       </div>
 
-      {/* Pagination — V2.4 Stage 1 期间 pageSize=100,< 100 人时分页按钮不会显示 */}
+      {/* Pagination — V2.4 Stage 3 还原 pageSize=20,大于 20 人时显示翻页 */}
       <div className="flex justify-end mt-4 gap-2 items-center text-xs" style={{ color: 'var(--color-text-secondary)' }}>
         <span>共 {total} 条 · 筛选后 {filteredUsers.length} 条</span>
         {total > USERS_PAGE_SIZE && (

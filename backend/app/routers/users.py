@@ -56,14 +56,18 @@ async def list_users(
             )
         )
 
-    # V2.4 Stage 3 C2:多维 query 筛选
+    # V2.4 Stage 3 C2:多维 query 筛选(role / department 支持 CSV 多选)
     if role:
         try:
-            base_query = base_query.where(User.role == UserRole(role))
+            role_values = [UserRole(r.strip()) for r in role.split(",") if r.strip()]
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"无效角色: {role}")
+            raise HTTPException(status_code=400, detail=f"无效角色值: {role}")
+        if role_values:
+            base_query = base_query.where(User.role.in_(role_values))
     if department:
-        base_query = base_query.where(User.department == department)
+        dept_values = [d.strip() for d in department.split(",") if d.strip()]
+        if dept_values:
+            base_query = base_query.where(User.department.in_(dept_values))
     if is_active in ("true", "false"):
         base_query = base_query.where(User.is_active.is_(is_active == "true"))
 

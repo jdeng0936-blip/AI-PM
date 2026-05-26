@@ -14,7 +14,14 @@ export const changePassword = (old_password: string, new_password: string) =>
   request.post('/auth/change-password', { old_password, new_password })
 
 // ── 用户管理 API ────────────────────────────────────────
-export const getUsers = (params: { page?: number; page_size?: number; search?: string } = {}) =>
+export const getUsers = (params: {
+  page?: number
+  page_size?: number
+  search?: string
+  role?: string         // V2.4 Stage 3 C2:csv 多选 'admin,manager'
+  department?: string   // V2.4 Stage 3 C2:csv 多选
+  is_active?: string    // V2.4 Stage 3 C2:'true'/'false'/'' (空 = 不限)
+} = {}) =>
   request.get('/users', { params })
 
 export const createUser = (data: {
