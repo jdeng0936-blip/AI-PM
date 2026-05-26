@@ -17,7 +17,7 @@ from collections import defaultdict, deque
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sprint_task import SprintTask, TaskStatus
@@ -41,7 +41,16 @@ async def compute_critical_path(
         "has_cycle": false,
       }
     """
-    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
+    # V2.5 Stage 2:软删任务不参与关键路径计算
+    tasks = (
+        (
+            await db.execute(
+                select(SprintTask).where(and_(SprintTask.sprint_id == sprint_id, SprintTask.deleted_at.is_(None)))
+            )
+        )
+        .scalars()
+        .all()
+    )
     if not tasks:
         return {
             "tasks": [],

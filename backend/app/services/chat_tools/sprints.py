@@ -9,7 +9,7 @@ chat_tools/sprints.py — Sprint 相关 Chat Tools
 
 from __future__ import annotations
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
@@ -61,7 +61,16 @@ async def sprint_status(
             "message": "当前没有 active Sprint",
         }
 
-    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint.id))).scalars().all()
+    # V2.5 Stage 2:chat 总经理对话也按"软删过滤"语义,避免误把已删任务报进概况
+    tasks = (
+        (
+            await db.execute(
+                select(SprintTask).where(and_(SprintTask.sprint_id == sprint.id, SprintTask.deleted_at.is_(None)))
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     by_status = {"todo": 0, "in_progress": 0, "blocked": 0, "done": 0, "cancelled": 0}
     for t in tasks:

@@ -12,11 +12,12 @@ Sprint 健康度来源：该 Sprint 期间所有软件轨成员的日报 ai_scor
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -248,7 +249,21 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    rows = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
+    # V2.5 Stage 2:默认过滤已软删
+    rows = (
+        (
+            await db.execute(
+                select(SprintTask).where(
+                    and_(
+                        SprintTask.sprint_id == sprint_id,
+                        SprintTask.deleted_at.is_(None),
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [_task_out(t) for t in rows]
 
 
@@ -343,14 +358,135 @@ async def delete_task(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_mgr),
 ):
+    """V2.5 Stage 2:单条软删(SET deleted_at=now())。已删的再调返回 404 避免覆盖时间戳。"""
     t = await db.get(SprintTask, task_id)
-    if not t:
+    if not t or t.deleted_at is not None:
         raise HTTPException(404, "task 不存在")
     sid = t.sprint_id
-    await db.delete(t)
+    t.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+    # 删除后重算燃尽快照(任务不再计入剩余点数)
     await snapshot_burndown(db, sid)
     await db.commit()
+
+
+# ════════════════════════════════════════════════════════════════
+# V2.5 Stage 2:Sprint 任务批量软删 / 恢复 / 已删列表
+# ════════════════════════════════════════════════════════════════
+
+
+class BatchTaskBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="任务 ID 列表")
+
+
+@router.delete("/tasks/batch")
+async def batch_soft_delete_tasks(
+    body: BatchTaskBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_mgr),
+):
+    """
+    批量软删 Sprint 任务(SET deleted_at = now())。
+
+    - manager / admin 可调用
+    - 已被软删过的不会重复 deleted_at
+    - 删完后对受影响的 sprint 各重算一次燃尽快照
+    """
+    cond = and_(SprintTask.id.in_(body.ids), SprintTask.deleted_at.is_(None))
+
+    # 先查受影响的 sprint_id 集合(用于回填快照)
+    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
+    sprint_ids = {r.sprint_id for r in pre_rows}
+
+    result = await db.execute(
+        update(SprintTask).where(cond).values(deleted_at=datetime.now(timezone.utc)).returning(SprintTask.id)
+    )
+    deleted_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    # 为每个受影响 sprint 重算一次燃尽
+    for sid in sprint_ids:
+        await snapshot_burndown(db, sid)
+    if sprint_ids:
+        await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
+@router.patch("/tasks/batch-restore")
+async def batch_restore_tasks(
+    body: BatchTaskBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_mgr),
+):
+    """
+    批量恢复已软删任务(SET deleted_at = NULL)。
+
+    - 已 deleted_at IS NULL 的不会被重复恢复
+    - 恢复后对受影响 sprint 重算燃尽快照
+    """
+    cond = and_(SprintTask.id.in_(body.ids), SprintTask.deleted_at.is_not(None))
+
+    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
+    sprint_ids = {r.sprint_id for r in pre_rows}
+
+    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=None).returning(SprintTask.id))
+    restored_ids = [r[0] for r in result.all()]
+    await db.commit()
+
+    for sid in sprint_ids:
+        await snapshot_burndown(db, sid)
+    if sprint_ids:
+        await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "restored_count": len(restored_ids),
+        "restored_ids": [str(i) for i in restored_ids],
+    }
+
+
+@router.get("/tasks/deleted")
+async def list_deleted_tasks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    回收站:已软删的 Sprint 任务列表(admin only)。
+
+    返回包含 sprint_number 与 project 名,便于回收站展示「哪个 Sprint 的任务」。
+    """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(403, "仅 admin 可访问回收站")
+
+    rows = (
+        await db.execute(
+            select(SprintTask, Sprint.sprint_number, Sprint.project_id)
+            .join(Sprint, SprintTask.sprint_id == Sprint.id)
+            .where(SprintTask.deleted_at.is_not(None))
+            .order_by(SprintTask.deleted_at.desc())
+        )
+    ).all()
+
+    items = [
+        {
+            "id": str(t.SprintTask.id),
+            "title": t.SprintTask.title,
+            "story_points": t.SprintTask.story_points,
+            "status": t.SprintTask.status.value,
+            "priority": t.SprintTask.priority.value,
+            "sprint_id": str(t.SprintTask.sprint_id),
+            "sprint_number": t.sprint_number,
+            "project_id": str(t.project_id),
+            "deleted_at": t.SprintTask.deleted_at.isoformat() if t.SprintTask.deleted_at else None,
+        }
+        for t in rows
+    ]
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/{sprint_id}/burndown")

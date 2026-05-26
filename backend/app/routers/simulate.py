@@ -42,10 +42,11 @@ async def _validate_project_task_consistency(
     """
     if sprint_task_id is None:
         return
+    # V2.5 Stage 2:软删任务对外应返回 404,不能用作模拟锚点
     result = await db.execute(
         select(Sprint.project_id)
         .join(SprintTask, SprintTask.sprint_id == Sprint.id)
-        .where(SprintTask.id == sprint_task_id)
+        .where(SprintTask.id == sprint_task_id, SprintTask.deleted_at.is_(None))
     )
     task_project_id = result.scalar_one_or_none()
     if task_project_id is None:

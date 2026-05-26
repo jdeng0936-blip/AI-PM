@@ -44,7 +44,16 @@ async def snapshot_burndown(
     if snap_date is None:
         snap_date = date.today()
 
-    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint_id))).scalars().all()
+    # V2.5 Stage 2:软删任务不计入燃尽
+    tasks = (
+        (
+            await db.execute(
+                select(SprintTask).where(and_(SprintTask.sprint_id == sprint_id, SprintTask.deleted_at.is_(None)))
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     total_points = sum(t.story_points for t in tasks)
     done_tasks = [t for t in tasks if t.status == TaskStatus.done]
@@ -141,7 +150,16 @@ async def compute_burndown_series(
     span_days = max((end - start).days + 1, 1)
 
     # 任务总点数(用当前真实值,可能 sprint 进行中临时加任务)
-    tasks = (await db.execute(select(SprintTask).where(SprintTask.sprint_id == sprint.id))).scalars().all()
+    # V2.5 Stage 2:软删任务不计入燃尽序列总点数
+    tasks = (
+        (
+            await db.execute(
+                select(SprintTask).where(and_(SprintTask.sprint_id == sprint.id, SprintTask.deleted_at.is_(None)))
+            )
+        )
+        .scalars()
+        .all()
+    )
     total_points = sum(t.story_points for t in tasks) or sprint.planned_story_points
 
     # 理想燃尽线:从总点数线性递减到 0

@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     Integer,
@@ -101,6 +102,15 @@ class SprintTask(BaseMixin, Base):
 
     # 完成时的实际故事点(可能与估算不同)
     actual_story_points: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # V2.5 Stage 2:软删除 — 非 NULL 表示已删除,所有 list / 燃尽 / 关键路径默认过滤
+    # 不真删避免破坏燃尽历史快照、capacity 聚合、daily_report.sprint_task_id 关联
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="软删除时间(V2.5):非 NULL 表示已删除,list/燃尽/关键路径默认过滤",
+    )
 
     def __repr__(self) -> str:
         return f"<SprintTask {self.title[:20]} {self.status} pts={self.story_points}>"

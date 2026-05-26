@@ -69,6 +69,7 @@ async def sprint_capacity(
                     and_(
                         SprintTask.sprint_id == sprint_id,
                         SprintTask.assignee_id.is_not(None),
+                        SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
                 )
                 .distinct()

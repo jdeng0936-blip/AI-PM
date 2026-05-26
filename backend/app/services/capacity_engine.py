@@ -91,6 +91,7 @@ async def compute_velocity_factor(
                         SprintTask.assignee_id == user_id,
                         SprintTask.sprint_id.in_(sprint_ids),
                         SprintTask.status == TaskStatus.done,
+                        SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
                 )
             )
@@ -135,6 +136,7 @@ async def compute_user_capacity(
                     and_(
                         SprintTask.sprint_id == sprint.id,
                         SprintTask.assignee_id == user.id,
+                        SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
                 )
             )
@@ -498,6 +500,7 @@ async def suggest_rebalance(
                             SprintTask.assignee_id == UUID(over["user_id"]),
                             SprintTask.status == TaskStatus.todo,
                             SprintTask.is_on_critical_path.is_(False),
+                            SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                         )
                     )
                     .order_by(desc(SprintTask.story_points))
