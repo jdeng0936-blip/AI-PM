@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user
 from app.models.attachment import Attachment, AttachmentKind
+from app.models.daily_report import DailyReport
 from app.models.user import User, UserRole
 from app.services import oss_service
 
@@ -77,6 +78,26 @@ class AttachmentListResponse(BaseModel):
 # ────────────────────────────────────────────────────────────────
 # Helpers
 # ────────────────────────────────────────────────────────────────
+
+
+# V2.5 Stage 1 Fix #1:对象级越权防御 — 三个 GET 端点共用 owner / admin 校验
+# admin / manager 可读任意附件;其他用户只能读自己上传的或自己日报关联的附件
+async def _check_attachment_access(
+    db: AsyncSession,
+    record: Attachment,
+    current_user: User,
+) -> None:
+    """校验当前用户是否有权读取该附件;无权限抛 403。"""
+    if current_user.role in (UserRole.admin, UserRole.manager):
+        return
+    if record.uploaded_by == current_user.id:
+        return
+    # 通过 related_report_id 反向校验日报归属
+    if record.related_report_id is not None:
+        report = await db.get(DailyReport, record.related_report_id)
+        if report is not None and report.user_id == current_user.id:
+            return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该附件")
 
 
 def _classify(mime_type: str, file_name: str) -> AttachmentKind:
@@ -206,8 +227,15 @@ async def list_my_attachments(
 async def list_attachments_by_report(
     report_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    # V2.5 Stage 1 Fix #1:校验报告归属 — 避免知道 report_id 就能列出附件
+    report = await db.get(DailyReport, report_id)
+    if report is None:
+        raise HTTPException(404, "日报不存在")
+    if current_user.role not in (UserRole.admin, UserRole.manager) and report.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看他人日报附件")
+
     rows = (await db.execute(select(Attachment).where(Attachment.related_report_id == report_id))).scalars().all()
     return [
         AttachmentOut(
@@ -232,11 +260,14 @@ async def presigned_url(
     attachment_id: UUID,
     expires: int = Query(3600, ge=60, le=86400),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     record = await db.get(Attachment, attachment_id)
     if not record:
         raise HTTPException(404, "附件不存在")
+
+    # V2.5 Stage 1 Fix #1:对象级越权防御
+    await _check_attachment_access(db, record, current_user)
 
     url = oss_service.generate_presigned_url(record.storage_key, expires)
     if not url:
@@ -253,9 +284,25 @@ async def presigned_url(
 @router.get("/local/{path:path}")
 async def serve_local_file(
     path: str,
-    _: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """OSS 未配置时,通过后端读取本地降级目录里的文件。"""
+    """OSS 未配置时,通过后端读取本地降级目录里的文件。
+
+    V2.5 Stage 1 Fix #1:不再只校验"已登录"。先反查 Attachment.storage_key,
+    确认 attachment 存在 + 当前用户有权访问,再读文件。
+    返回 404(而非 403)给"无对应附件 / 无权访问"两种情况,避免泄露路径存在性。
+    """
+    # 通过 storage_key 反查附件归属
+    record = (await db.execute(select(Attachment).where(Attachment.storage_key == path))).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(404, "文件不存在")
+    try:
+        await _check_attachment_access(db, record, current_user)
+    except HTTPException:
+        # 越权 → 也返回 404 而非 403(避免泄露文件存在性)
+        raise HTTPException(404, "文件不存在")
+
     data = oss_service.read_local_file(path)
     if data is None:
         raise HTTPException(404, "文件不存在")
