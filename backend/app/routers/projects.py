@@ -26,7 +26,7 @@ from app.models.project import Project, ProjectHealthStatus, ProjectStatus
 from app.models.project_member import ProjectMember
 from app.models.project_stage import STAGE_DEFINITIONS_BY_TRACK, ProjectStage
 from app.models.sprint import Sprint, SprintStatus
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.project import (
     GanttStage,
     ProjectCreate,
@@ -34,6 +34,7 @@ from app.schemas.project import (
     ProjectUpdate,
     StageUpdate,
 )
+from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 from app.services.health_engine import refresh_project_health
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Projects (IPD)"])
@@ -57,7 +58,7 @@ class ProjectBatchRestoreBody(BaseModel):
 async def batch_soft_delete_projects(
     body: ProjectBatchDeleteBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_mgr),
+    user: User = Depends(_mgr),
 ):
     """
     批量软删除项目。**严格只允许临时工单项目(is_temporary=true)**;
@@ -85,13 +86,21 @@ async def batch_soft_delete_projects(
         )
 
     # 2. 软删(已删的跳过)
+    deleted_at = datetime.now(timezone.utc)
     result = await db.execute(
         update(Project)
         .where(Project.id.in_(body.ids), Project.is_temporary.is_(True), Project.deleted_at.is_(None))
-        .values(deleted_at=datetime.now(timezone.utc))
+        .values(deleted_at=deleted_at)
         .returning(Project.id)
     )
     deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="projects",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+    )
     await db.commit()
 
     return {
@@ -106,7 +115,7 @@ async def batch_soft_delete_projects(
 async def batch_restore_projects(
     body: ProjectBatchRestoreBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin)),
+    admin: User = Depends(require_role(UserRole.admin)),
 ):
     """
     批量恢复已软删的临时项目(SET deleted_at = NULL)。
@@ -123,6 +132,12 @@ async def batch_restore_projects(
         .returning(Project.id)
     )
     restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="projects",
+        record_ids=restored_ids,
+        restored_by=admin.id,
+    )
     await db.commit()
 
     return {

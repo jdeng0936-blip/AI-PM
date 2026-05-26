@@ -22,6 +22,7 @@ from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.knowledge import KnowledgeCategory, KnowledgeItem
 from app.models.user import User, UserRole
+from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 
 router = APIRouter(prefix="/api/v1/knowledge", tags=["Knowledge Base"])
 
@@ -136,7 +137,7 @@ async def list_deleted_knowledge(
 async def batch_soft_delete_knowledge(
     body: KnowledgeBatchBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(UserRole.admin)),
+    user: User = Depends(require_role(UserRole.admin)),
 ):
     """V2.5 Stage 3:批量软删知识条目(admin only)。
 
@@ -144,13 +145,21 @@ async def batch_soft_delete_knowledge(
     - 历史 view_count / helpful_count / source_id 关联保留
     - knowledge 列表 / retro 列表 / 语义检索 / chat tools 下次刷新自动排除
     """
+    deleted_at = datetime.now(timezone.utc)
     result = await db.execute(
         update(KnowledgeItem)
         .where(and_(KnowledgeItem.id.in_(body.ids), KnowledgeItem.deleted_at.is_(None)))
-        .values(deleted_at=datetime.now(timezone.utc))
+        .values(deleted_at=deleted_at)
         .returning(KnowledgeItem.id)
     )
     deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="knowledge_items",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+    )
     await db.commit()
     return {
         "requested": len(body.ids),
@@ -163,7 +172,7 @@ async def batch_soft_delete_knowledge(
 async def batch_restore_knowledge(
     body: KnowledgeBatchBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(UserRole.admin)),
+    user: User = Depends(require_role(UserRole.admin)),
 ):
     """V2.5 Stage 3:从回收站批量恢复知识条目(SET deleted_at = NULL)。"""
     result = await db.execute(
@@ -173,6 +182,12 @@ async def batch_restore_knowledge(
         .returning(KnowledgeItem.id)
     )
     restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="knowledge_items",
+        record_ids=restored_ids,
+        restored_by=user.id,
+    )
     await db.commit()
     return {
         "requested": len(body.ids),
@@ -295,7 +310,7 @@ async def mark_helpful(
 async def delete_knowledge(
     item_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(UserRole.admin)),
+    user: User = Depends(require_role(UserRole.admin)),
 ):
     """V2.5 Stage 3:软删知识条目(原硬删改为 SET deleted_at = now())。
 
@@ -312,6 +327,14 @@ async def delete_knowledge(
     if not item:
         raise HTTPException(404, "知识条目不存在")
 
-    item.deleted_at = datetime.now(timezone.utc)
+    deleted_at = datetime.now(timezone.utc)
+    item.deleted_at = deleted_at
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="knowledge_items",
+        record_ids=[item.id],
+        deleted_at=deleted_at,
+    )
     await db.commit()
     return {"message": "知识已软删"}

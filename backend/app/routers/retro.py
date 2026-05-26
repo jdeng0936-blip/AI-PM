@@ -27,6 +27,7 @@ from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.knowledge import KnowledgeCategory, KnowledgeItem, RetroScope
 from app.models.user import User, UserRole
+from app.services.deletion_history import record_soft_delete
 from app.services.retro import generate_retrospective
 
 router = APIRouter(prefix="/api/v1/retro", tags=["复盘库"])
@@ -206,7 +207,7 @@ async def get_item(
 async def delete_item(
     item_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_admin_only),
+    user: User = Depends(_admin_only),
 ):
     """V2.5 Stage 3:复盘单条由硬删改为软删。
 
@@ -216,5 +217,13 @@ async def delete_item(
     item = await db.get(KnowledgeItem, uuid.UUID(item_id))
     if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         raise HTTPException(404, "复盘报告不存在")
-    item.deleted_at = datetime.now(timezone.utc)
+    deleted_at = datetime.now(timezone.utc)
+    item.deleted_at = deleted_at
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="knowledge_items",
+        record_ids=[item.id],
+        deleted_at=deleted_at,
+    )
     await db.commit()

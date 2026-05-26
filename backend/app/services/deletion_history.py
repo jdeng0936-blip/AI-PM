@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.deletion_history import DeletionHistory
@@ -95,3 +96,42 @@ async def record_soft_delete(
         return None
     db.add(history)
     return history
+
+
+async def mark_soft_delete_restored(
+    db: AsyncSession,
+    *,
+    table_name: str,
+    record_ids: Iterable[uuid.UUID | str],
+    restored_by: Optional[uuid.UUID],
+    restored_at: Optional[datetime] = None,
+) -> int:
+    """标记已完整恢复的删除批次。
+
+    deletion_history 是"一次批量删除一条记录"。如果本次恢复只覆盖某批次的一部分
+    record_ids,这里不会把整批标记为 restored,避免后续 UI 误判。
+    """
+    if table_name not in TRACKED_SOFT_DELETE_TABLES:
+        raise ValueError(f"未纳入 deletion_history 治理的表:{table_name}")
+
+    restored_ids = set(normalize_record_ids(record_ids))
+    if not restored_ids:
+        return 0
+
+    effective_restored_at = restored_at or datetime.now(timezone.utc)
+    rows = await db.execute(
+        select(DeletionHistory).where(
+            DeletionHistory.table_name == table_name,
+            DeletionHistory.restored_at.is_(None),
+            DeletionHistory.hard_deleted_at.is_(None),
+        )
+    )
+
+    marked = 0
+    for history in rows.scalars().all():
+        if set(history.record_ids).issubset(restored_ids):
+            history.restored_at = effective_restored_at
+            history.restored_by = restored_by
+            marked += 1
+
+    return marked

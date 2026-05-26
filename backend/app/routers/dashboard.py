@@ -20,6 +20,7 @@ from app.models.daily_report import DailyReport
 from app.models.project import Project
 from app.models.risk_alert import RiskAlert
 from app.models.user import User, UserRole
+from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
@@ -158,7 +159,7 @@ class RiskAlertBatchBody(BaseModel):
 async def batch_soft_delete_risk_alerts(
     body: RiskAlertBatchBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr_or_admin),
+    user: User = Depends(_mgr_or_admin),
 ):
     """V2.5 Stage 3:批量软删风险预警。
 
@@ -166,13 +167,21 @@ async def batch_soft_delete_risk_alerts(
     - 历史 ai_score / report_id / ERP 解卡记录均不受影响
     - dashboard / health / weekly / chat / retro / ERP 读取处下次刷新自动排除
     """
+    deleted_at = datetime.now(timezone.utc)
     result = await db.execute(
         update(RiskAlert)
         .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_(None)))
-        .values(deleted_at=datetime.now(timezone.utc))
+        .values(deleted_at=deleted_at)
         .returning(RiskAlert.id)
     )
     deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="risk_alerts",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+    )
     await db.commit()
     return {
         "requested": len(body.ids),
@@ -185,7 +194,7 @@ async def batch_soft_delete_risk_alerts(
 async def batch_restore_risk_alerts(
     body: RiskAlertBatchBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_role(UserRole.admin)),
+    user: User = Depends(require_role(UserRole.admin)),
 ):
     """V2.5 Stage 3:管理员从回收站批量恢复软删的预警(SET deleted_at = NULL)。"""
     result = await db.execute(
@@ -195,6 +204,12 @@ async def batch_restore_risk_alerts(
         .returning(RiskAlert.id)
     )
     restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="risk_alerts",
+        record_ids=restored_ids,
+        restored_by=user.id,
+    )
     await db.commit()
     return {
         "requested": len(body.ids),

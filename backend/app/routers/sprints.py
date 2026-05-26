@@ -31,6 +31,7 @@ from app.models.sprint_task import (
 from app.models.user import User, UserRole
 from app.schemas.project import SprintComplete, SprintCreate
 from app.services.critical_path import compute_critical_path
+from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 from app.services.health_engine import refresh_sprint_health
 from app.services.sprint_aggregator import (
     compute_burndown_series,
@@ -356,14 +357,22 @@ async def update_task(
 async def delete_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr),
+    user: User = Depends(_mgr),
 ):
     """V2.5 Stage 2:单条软删(SET deleted_at=now())。已删的再调返回 404 避免覆盖时间戳。"""
     t = await db.get(SprintTask, task_id)
     if not t or t.deleted_at is not None:
         raise HTTPException(404, "task 不存在")
     sid = t.sprint_id
-    t.deleted_at = datetime.now(timezone.utc)
+    deleted_at = datetime.now(timezone.utc)
+    t.deleted_at = deleted_at
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="sprint_tasks",
+        record_ids=[t.id],
+        deleted_at=deleted_at,
+    )
     await db.commit()
     # 删除后重算燃尽快照(任务不再计入剩余点数)
     await snapshot_burndown(db, sid)
@@ -383,7 +392,7 @@ class BatchTaskBody(BaseModel):
 async def batch_soft_delete_tasks(
     body: BatchTaskBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr),
+    user: User = Depends(_mgr),
 ):
     """
     批量软删 Sprint 任务(SET deleted_at = now())。
@@ -398,10 +407,16 @@ async def batch_soft_delete_tasks(
     pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
     sprint_ids = {r.sprint_id for r in pre_rows}
 
-    result = await db.execute(
-        update(SprintTask).where(cond).values(deleted_at=datetime.now(timezone.utc)).returning(SprintTask.id)
-    )
+    deleted_at = datetime.now(timezone.utc)
+    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=deleted_at).returning(SprintTask.id))
     deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="sprint_tasks",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+    )
     await db.commit()
 
     # 为每个受影响 sprint 重算一次燃尽
@@ -421,7 +436,7 @@ async def batch_soft_delete_tasks(
 async def batch_restore_tasks(
     body: BatchTaskBody = Body(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr),
+    user: User = Depends(_mgr),
 ):
     """
     批量恢复已软删任务(SET deleted_at = NULL)。
@@ -436,6 +451,12 @@ async def batch_restore_tasks(
 
     result = await db.execute(update(SprintTask).where(cond).values(deleted_at=None).returning(SprintTask.id))
     restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="sprint_tasks",
+        record_ids=restored_ids,
+        restored_by=user.id,
+    )
     await db.commit()
 
     for sid in sprint_ids:

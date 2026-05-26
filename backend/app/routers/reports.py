@@ -20,6 +20,7 @@ from app.models.daily_report import DailyReport
 from app.models.project import Project
 from app.models.sprint_task import SprintTask
 from app.models.user import User, UserRole
+from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"], redirect_slashes=False)
 
@@ -158,10 +159,16 @@ async def batch_soft_delete_reports(
         # 员工只能删自己的
         cond = and_(cond, DailyReport.user_id == current_user.id)
 
-    result = await db.execute(
-        update(DailyReport).where(cond).values(deleted_at=datetime.now(timezone.utc)).returning(DailyReport.id)
-    )
+    deleted_at = datetime.now(timezone.utc)
+    result = await db.execute(update(DailyReport).where(cond).values(deleted_at=deleted_at).returning(DailyReport.id))
     deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=current_user.id,
+        table_name="daily_reports",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+    )
     await db.commit()
 
     return {
@@ -196,6 +203,12 @@ async def batch_restore_reports(
 
     result = await db.execute(update(DailyReport).where(cond).values(deleted_at=None).returning(DailyReport.id))
     restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="daily_reports",
+        record_ids=restored_ids,
+        restored_by=current_user.id,
+    )
     await db.commit()
 
     return {
