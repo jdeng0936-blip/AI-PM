@@ -11,7 +11,7 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
@@ -22,6 +22,8 @@ import {
   TRACK_LABELS,
   trackLabel,
 } from '@/lib/project-track'
+import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import FilterBar from '@/components/filter-bar'
 import { toast } from 'sonner'
 import {
   LayoutDashboard,
@@ -113,6 +115,38 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
+
+  // V2.4 Stage 1:日报明细筛选(部门/合格/分数/进度)
+  // department options 从当前数据 distinct(部门池动态变化)
+  const reportFilterSpec: FilterSpec[] = useMemo(() => {
+    const depts = Array.from(new Set(morningReports.map((r: any) => r.department).filter(Boolean))).sort() as string[]
+    return [
+      {
+        key: 'department',
+        type: 'multi-select',
+        label: '部门',
+        options: depts.map((d) => ({ value: d, label: d })),
+      },
+      {
+        key: 'pass_check',
+        type: 'boolean',
+        label: '质检',
+        trueLabel: '合格',
+        falseLabel: '退回',
+      },
+      { key: 'ai_score', type: 'range', label: 'AI 分', min: 0, max: 100, step: 5 },
+      { key: 'progress', type: 'range', label: '进度', min: 0, max: 100, step: 5, unit: '%' },
+    ]
+  }, [morningReports])
+
+  const {
+    filteredItems: filteredReports,
+    filters: reportFilters,
+    setFilter: setReportFilter,
+    clearFilter: clearReportFilter,
+    clearAll: clearReportAll,
+    activeCount: reportActiveCount,
+  } = useListFilters(morningReports, reportFilterSpec, { urlPrefix: 'rep_' })
 
   async function handleCreateProject() {
     if (!projectForm.name) {
@@ -255,9 +289,27 @@ export default function DashboardPage() {
       {/* AI 日报明细 */}
       {morningReports.length > 0 && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.35s' }}>
-          <div className="section-title">📋 AI 日报明细（{morningBriefingDate}）</div>
+          <div className="section-title">
+            📋 AI 日报明细（{morningBriefingDate}）
+            <span className="text-[11px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
+              共 {morningReports.length} 条 · 显示 {filteredReports.length} 条
+            </span>
+          </div>
+          <FilterBar
+            spec={reportFilterSpec}
+            filters={reportFilters}
+            setFilter={setReportFilter}
+            clearFilter={clearReportFilter}
+            clearAll={clearReportAll}
+            activeCount={reportActiveCount}
+          />
           <div className="grid grid-cols-1 gap-3">
-            {morningReports.map((r: any) => (
+            {filteredReports.length === 0 && (
+              <div className="stat-card text-center py-8 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                无符合筛选条件的日报
+              </div>
+            )}
+            {filteredReports.map((r: any) => (
               <div key={r.member} className="stat-card flex items-start gap-4" style={{ padding: '14px 18px' }}>
                 <div className="text-center shrink-0" style={{ minWidth: 48 }}>
                   <div className="text-2xl font-bold" style={{ color: scoreColor(r.ai_score) }}>

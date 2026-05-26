@@ -5,7 +5,7 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import { getProjectsOverview, createProject, updateProject, archiveProject } from '@/api/projects'
@@ -15,6 +15,8 @@ import {
   TRACK_LABELS,
   trackLabel,
 } from '@/lib/project-track'
+import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import FilterBar from '@/components/filter-bar'
 import { toast } from 'sonner'
 import {
   FolderKanban, Plus, ArrowRight, RefreshCw, Search, Calendar, Wallet,
@@ -30,6 +32,47 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
   completed: { label: '已完成', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
   cancelled: { label: '已取消', color: '#9ca3af', bg: 'rgba(156,163,175,0.15)' },
 }
+
+// V2.4 Stage 1:项目列表筛选维度(track / status / current_stage)
+// 健康度走三色统计条(L271+)单独点击;includeArchived/includeTemporary 是后端 query 参数
+// 都不进 FilterBar
+const PROJECT_FILTER_SPEC: FilterSpec[] = [
+  {
+    key: 'track',
+    type: 'multi-select',
+    label: '轨道',
+    options: [
+      { value: 'dual', label: TRACK_LABELS.dual },
+      { value: 'software', label: TRACK_LABELS.software },
+      { value: 'hardware', label: TRACK_LABELS.hardware },
+      { value: 'support', label: TRACK_LABELS.support },
+      { value: 'other', label: TRACK_LABELS.other },
+    ],
+  },
+  {
+    key: 'status',
+    type: 'multi-select',
+    label: '状态',
+    options: [
+      { value: 'active', label: '进行中' },
+      { value: 'paused', label: '暂停中' },
+      { value: 'completed', label: '已完成' },
+      { value: 'cancelled', label: '已取消' },
+    ],
+  },
+  {
+    key: 'current_stage',
+    type: 'multi-select',
+    label: '阶段',
+    options: [
+      { value: '1', label: '阶段 1·概念立项' },
+      { value: '2', label: '阶段 2·计划设计' },
+      { value: '3', label: '阶段 3·开发执行' },
+      { value: '4', label: '阶段 4·验证试产' },
+      { value: '5', label: '阶段 5·发布收尾' },
+    ],
+  },
+]
 
 const formatDate = (d?: string | null) => {
   if (!d) return '—'
@@ -54,7 +97,6 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [overview, setOverview] = useState<any>({})
   const [searchQuery, setSearchQuery] = useState('')
-  const [stageFilter, setStageFilter] = useState<number | null>(null)
   const [includeArchived, setIncludeArchived] = useState(false)
   const [healthFilter, setHealthFilter] = useState<'green' | 'yellow' | 'red' | null>(null)
 
@@ -230,21 +272,21 @@ export default function ProjectsPage() {
     }
   }
 
-  // 每阶段计数(用于过滤器标签)
-  const stageCounts = useMemo(() => {
-    const m: Record<number, number> = {}
-    for (const p of projects) {
-      const s = p.current_stage ?? 0
-      m[s] = (m[s] || 0) + 1
-    }
-    return m
-  }, [projects])
+  // V2.4 Stage 1:用统一筛选 Hook(URL 同步默认开,刷新不丢)
+  // FilterBar 维度:track / status / current_stage;搜索 + 三色 + includeXxx 走独立路径
+  const {
+    filteredItems: filteredByBar,
+    filters,
+    setFilter,
+    clearFilter,
+    clearAll,
+    activeCount,
+  } = useListFilters(projects, PROJECT_FILTER_SPEC, { urlPrefix: 'proj_' })
 
-  const filtered = projects.filter((p) => {
+  // 搜索框叠加在 FilterBar 之后过滤(不进 spec,因为是模糊匹配多字段)
+  const filtered = filteredByBar.filter((p) => {
     const q = searchQuery.toLowerCase()
-    const matchSearch = !q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)
-    const matchStage = stageFilter == null || p.current_stage === stageFilter
-    return matchSearch && matchStage
+    return !q || p.name?.toLowerCase().includes(q) || p.code?.toLowerCase().includes(q)
   })
 
   return (
@@ -340,38 +382,23 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* 阶段过滤器 + 归档开关 */}
-      <div className="flex flex-wrap items-center gap-2 mb-5 animate-in" style={{ animationDelay: '0.18s' }}>
-        <button
-          onClick={() => setStageFilter(null)}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{
-            background: stageFilter == null ? 'var(--color-brand-blue)' : 'var(--color-bg-card)',
-            color: stageFilter == null ? '#fff' : 'var(--color-text-secondary)',
-            border: '1px solid var(--color-border-subtle)',
-          }}
-        >
-          全部 {projects.length > 0 && `(${projects.length})`}
-        </button>
-        {[1, 2, 3, 4, 5].map((n) => {
-          const active = stageFilter === n
-          const count = stageCounts[n] || 0
-          return (
-            <button
-              key={n}
-              onClick={() => setStageFilter(active ? null : n)}
-              disabled={count === 0}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                background: active ? 'var(--color-brand-blue)' : 'var(--color-bg-card)',
-                color: active ? '#fff' : 'var(--color-text-secondary)',
-                border: '1px solid var(--color-border-subtle)',
-              }}
-            >
-              阶段{n}·{STAGE_LABELS[n]} {count > 0 && `(${count})`}
-            </button>
-          )
-        })}
+      {/* V2.4 Stage 1:统一筛选条(track / status / 阶段);搜索/三色/归档/临时走独立路径 */}
+      <div className="animate-in" style={{ animationDelay: '0.18s' }}>
+        <FilterBar
+          spec={PROJECT_FILTER_SPEC}
+          filters={filters}
+          setFilter={setFilter}
+          clearFilter={clearFilter}
+          clearAll={clearAll}
+          activeCount={activeCount}
+        />
+      </div>
+
+      {/* 数据范围 toggle 行(包含 / 排除已归档与临时工单 — 驱动后端 query 参数) */}
+      <div className="flex flex-wrap items-center gap-2 mb-5 animate-in" style={{ animationDelay: '0.2s' }}>
+        <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          数据范围:共 {projects.length} 条 · 显示 {filtered.length} 条
+        </span>
         {/* 显示临时工单项目开关 */}
         <button
           onClick={() => setIncludeTemporary((v) => !v)}

@@ -3,13 +3,20 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   getUsers, createUser, updateUser, deleteUser, resetPassword,
   updateUserStatus, type UserStatus,
 } from '@/api/users'
+import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
+import FilterBar from '@/components/filter-bar'
 import { toast } from 'sonner'
 import { Plus, Search } from 'lucide-react'
+
+// V2.4 Stage 1 TECH DEBT:后端 users 列表暂无 role/department/is_active query params,
+// Stage 1 临时把 pageSize 从 20 调到 100 一次拉全(公司当前人数 ~15 远不到 100),
+// 前端纯本地筛选。Stage 2 还原成 20 并补后端 query params。
+const USERS_PAGE_SIZE = 100
 
 const DEPARTMENTS = ['管理层', '软件研发部', '硬件测试部', '采购部', '仓储物流部']
 const ROLES = [
@@ -53,12 +60,54 @@ export default function UsersPage() {
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     try {
-      const res: any = await getUsers({ page: currentPage, page_size: 20, search })
+      const res: any = await getUsers({ page: currentPage, page_size: USERS_PAGE_SIZE, search })
       setUsers(res.items || [])
       setTotal(res.total || 0)
     } catch (e: any) { toast.error(e?.response?.data?.detail || '获取用户列表失败') }
     finally { setLoading(false) }
   }, [currentPage, search])
+
+  // V2.4 Stage 1:用户列表筛选(role/department/status/is_active)
+  // department 选项动态从数据 distinct;搜索框继续走后端 search param 不进 spec
+  const userFilterSpec: FilterSpec[] = useMemo(() => {
+    const depts = Array.from(new Set(users.map((u: any) => u.department).filter(Boolean))).sort() as string[]
+    return [
+      {
+        key: 'role',
+        type: 'multi-select',
+        label: '角色',
+        options: ROLES.map((r) => ({ value: r.value, label: r.label })),
+      },
+      {
+        key: 'department',
+        type: 'multi-select',
+        label: '部门',
+        options: depts.map((d) => ({ value: d, label: d })),
+      },
+      {
+        key: 'status',
+        type: 'multi-select',
+        label: '出勤',
+        options: STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })),
+      },
+      {
+        key: 'is_active',
+        type: 'boolean',
+        label: '账号',
+        trueLabel: '启用',
+        falseLabel: '停用',
+      },
+    ]
+  }, [users])
+
+  const {
+    filteredItems: filteredUsers,
+    filters: userFilters,
+    setFilter: setUserFilter,
+    clearFilter: clearUserFilter,
+    clearAll: clearUserAll,
+    activeCount: userActiveCount,
+  } = useListFilters(users, userFilterSpec, { urlPrefix: 'usr_' })
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
@@ -161,6 +210,16 @@ export default function UsersPage() {
         <input value={search} onChange={(e) => handleSearch(e.target.value)} placeholder="搜索姓名、部门、企微ID..." className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm outline-none" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }} />
       </div>
 
+      {/* V2.4 Stage 1 — 多维筛选 */}
+      <FilterBar
+        spec={userFilterSpec}
+        filters={userFilters}
+        setFilter={setUserFilter}
+        clearFilter={clearUserFilter}
+        clearAll={clearUserAll}
+        activeCount={userActiveCount}
+      />
+
       {/* Table */}
       <div className="rounded-xl overflow-hidden" style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}>
         <table className="w-full text-sm">
@@ -172,7 +231,14 @@ export default function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u: any) => (
+            {filteredUsers.length === 0 && (
+              <tr>
+                <td colSpan={9} className="text-center py-8 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  {users.length === 0 ? '暂无用户数据' : '无符合筛选条件的用户'}
+                </td>
+              </tr>
+            )}
+            {filteredUsers.map((u: any) => (
               <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
                 <td className="py-3 px-4 text-sm">{u.name}</td>
                 <td className="py-3 px-4 text-sm">{u.department}</td>
@@ -210,12 +276,16 @@ export default function UsersPage() {
         </table>
       </div>
 
-      {/* Pagination */}
+      {/* Pagination — V2.4 Stage 1 期间 pageSize=100,< 100 人时分页按钮不会显示 */}
       <div className="flex justify-end mt-4 gap-2 items-center text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-        <span>共 {total} 条</span>
-        <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="px-2 py-1 rounded disabled:opacity-30" style={{ border: '1px solid var(--color-border-subtle)' }}>上一页</button>
-        <span>{currentPage}</span>
-        <button disabled={currentPage >= Math.ceil(total / 20)} onClick={() => setCurrentPage(p => p + 1)} className="px-2 py-1 rounded disabled:opacity-30" style={{ border: '1px solid var(--color-border-subtle)' }}>下一页</button>
+        <span>共 {total} 条 · 筛选后 {filteredUsers.length} 条</span>
+        {total > USERS_PAGE_SIZE && (
+          <>
+            <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="px-2 py-1 rounded disabled:opacity-30" style={{ border: '1px solid var(--color-border-subtle)' }}>上一页</button>
+            <span>{currentPage}</span>
+            <button disabled={currentPage >= Math.ceil(total / USERS_PAGE_SIZE)} onClick={() => setCurrentPage(p => p + 1)} className="px-2 py-1 rounded disabled:opacity-30" style={{ border: '1px solid var(--color-border-subtle)' }}>下一页</button>
+          </>
+        )}
       </div>
 
       {/* Dialog */}

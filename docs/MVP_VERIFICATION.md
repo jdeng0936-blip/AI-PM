@@ -437,6 +437,69 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 
 ---
 
+## 13. 金路径 #13 — V2.4 Stage 1 全站统一筛选(6 min)
+
+> 验证三个列表页(项目总览 / Dashboard 日报明细 / 用户管理)统一 FilterBar + useListFilters Hook 的多维筛选能力,以及 URL params 同步(刷新不丢)。
+> 相关变更:新增 `frontend/src/lib/hooks/use-list-filters.ts` + `frontend/src/components/filter-bar.tsx`;改造 projects/dashboard/users 三个页面接入。
+
+### 操作 A:项目总览页 — 3 维筛选 + URL 同步
+1. 用 **admin / admin2026** 登录,进 `/projects`
+2. 在搜索框下方应看到新的 **筛选条**(紫色 Filter 图标 + 4 个下拉:轨道 / 状态 / 阶段 + "清空全部")
+3. 点 **轨道** 下拉 → 勾"日常支撑"+"其它临时" → 列表收缩到只剩临时项目(需要先点右上"显示临时工单"toggle 让临时项目进入数据集)
+4. 点 **状态** 下拉 → 勾"进行中" → 列表进一步收缩
+5. 顶部应看到两个紫色 chip:`轨道: 日常支撑 / 其它临时` 和 `状态: 进行中`,每个 chip 都能单独 X 移除
+6. **刷新页面 (Cmd-R)** → URL 里 `?proj_track=support,other&proj_status=active` 仍在 → 筛选状态完整保持
+
+### 预期结果 A ☐
+- [ ] 筛选条 UI 与项目页风格一致(紫色 accent / rounded-lg / 紧凑布局)
+- [ ] 多选下拉打开时,选中项显示蓝色对号
+- [ ] 数据范围行显示 `共 N 条 · 显示 M 条`(M ≤ N)
+- [ ] 刷新后筛选状态不丢失
+- [ ] "清空全部 (N)" 按钮一键还原全表
+- [ ] 三色统计条 / 搜索框 / 显示已归档 / 显示临时工单 toggle 全部**仍然独立工作**(没被收编进 FilterBar)
+
+### 操作 B:Dashboard 日报明细 — 4 维筛选 + 区间控件
+1. 进 `/dashboard`,滚到 **AI 日报明细** section(标题应显示 `共 N 条 · 显示 M 条`)
+2. 标题下方应看到 FilterBar,包含 4 个控件:部门(multi)/ 质检(boolean)/ AI 分(range)/ 进度(range)
+3. **部门**下拉选 "技术部" → 列表只剩该部门
+4. **质检**下拉选 "合格" → 进一步过滤
+5. **AI 分** 控件改成 `85 ~ 100` → 高分日报浮出
+6. **进度** 改成 `60 ~ 100` → 进一步过滤
+7. 看顶部 4 个 chip 都正确显示
+
+### 预期结果 B ☐
+- [ ] 部门选项是 distinct 出来的(技术部 / 商务部 / ...,不会写死)
+- [ ] AI 分 / 进度的 range 控件可输入数字(min/max 限制 0-100)
+- [ ] 区间未变(0-100)时不算激活,chip 不显示
+- [ ] 列表为 0 时显示"无符合筛选条件的日报"占位
+- [ ] URL 里键名带 `rep_` 前缀(不与 `/projects` 的 `proj_` 冲突)
+
+### 操作 C:用户管理 — 4 维筛选 + 后端 search 协作
+1. 进 `/users`,在搜索框下方应看到 FilterBar(角色 / 部门 / 出勤 / 账号)
+2. **角色** 选 "部门经理" → 表格只剩 manager
+3. **账号** 选 "启用" → 进一步过滤
+4. 同时在搜索框输入 "张" → 模糊匹配(走后端 search) + 前端筛选 叠加
+5. 表头"共 N 条 · 筛选后 M 条" 应正确变化
+
+### 预期结果 C ☐
+- [ ] 后端拉的是 100 条/页(打开 Network 看 `?page_size=100`)
+- [ ] 搜索 + FilterBar 可叠加(`张` 搜出 5 个,选 manager 后只剩 1-2 个)
+- [ ] 用户 ≤ 100 人时分页按钮**不显示**(`total > USERS_PAGE_SIZE` 才出)
+- [ ] URL 里键名带 `usr_` 前缀
+
+### ❌ 失败排查
+- 筛选无效 → 浏览器 DevTools 看 React state,确认 `useListFilters` 返回的 `filteredItems` 数量在变
+- URL 不同步 → 看 `useListFilters` Hook 的 useEffect 是否被调到(syncToUrl 默认 true,urlPrefix 必须传)
+- multi-select 下拉打开后立刻关闭 → 是 onBlur 时序问题,确认 setTimeout 150ms 还在
+- 刷新后 URL params 还在但筛选没生效 → spec 的 options.value 必须与 URL 里的字符串严格匹配(注意 `current_stage` 是 number,但 spec.options.value 都是 string `'1'-'5'`,Hook 内部用 `String(itemVal)` 做了转换)
+
+### 已知限制(Stage 2 修复)
+- 用户列表 pageSize=100 是 Stage 1 权宜,Stage 2 会还原成 20 + 补后端 `role/department/is_active` query params
+- FilterBar 选项 count(如"经理 (5)" 这种动态计数)Stage 1 不显示,Stage 2 加批量删除时一起做
+- 多选下拉用原生 input checkbox,移动端体验有提升空间(V2.5)
+
+---
+
 ## 最终判定
 
 ```
@@ -452,18 +515,19 @@ curl -X POST http://localhost:8000/api/v1/chat/weekly-report \
 ☐ 金路径 #10 — 多角色权限切换
 ☐ 金路径 #11 — V2.2 项目/任务结构化关联
 ☐ 金路径 #12 — V2.3 临时工单项目化
+☐ 金路径 #13 — V2.4 Stage 1 全站统一筛选
 
-通过数:____ / 12
+通过数:____ / 13
 ```
 
 ### 决策
 
 | 通过数 | 决策 | 下一步 |
 |---|---|---|
-| **12** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
-| **10-11** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
-| **7-9** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
-| **≤ 6** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
+| **13** | ✅ **MVP 通过,可交付** | 把 `docs/HANDOVER.md` 转给同事,进入 Phase 2.1 |
+| **11-12** | ⚠️ **基本通过,记小尾巴** | 列出 ❌ 项的具体表现,1-2 天修完再验一遍 |
+| **8-10** | 🟡 **半成品** | ❌ 项分类:UI 问题 / 数据问题 / 后端 bug,优先级 P0 的全修完 |
+| **≤ 7** | 🔴 **暂不交付** | 不要硬上线。回去搞清楚是 seed 数据问题还是代码 bug |
 
 ### ❌ 项记录模板
 
