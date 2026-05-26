@@ -114,7 +114,13 @@ async def collect_period_basics(
             func.count(DailyReport.id).label("submitted"),
         )
         .join(DailyReport, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+            )
+        )
         .group_by(User.id, User.name, User.department)
         .order_by(desc("avg_score"))
     )
@@ -310,6 +316,7 @@ async def collect_incident(db: AsyncSession, risk_id: UUID) -> dict[str, Any]:
                 DailyReport.user_id == alert.user_id,
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
         .order_by(DailyReport.report_date)
