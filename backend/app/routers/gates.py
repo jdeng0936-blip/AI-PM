@@ -31,10 +31,17 @@ router = APIRouter(prefix="/api/v1/gates", tags=["Gate Reviews (IPD)"])
 
 async def _generate_gate_ai_summary(db, project_id: uuid.UUID, stage_number: int) -> str:
     """调用 LLM 生成该阶段整体汇总，供评审参考"""
+    from sqlalchemy import and_ as _and
+
     from app.models.daily_report import DailyReport
     from app.models.project_member import ProjectMember
 
-    members = await db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == project_id))
+    # V2.5 Stage 2:gate 评审仅汇总在职成员日报(已离场成员的历史日报不进 gate AI 摘要)
+    members = await db.execute(
+        select(ProjectMember.user_id).where(
+            _and(ProjectMember.project_id == project_id, ProjectMember.left_at.is_(None))
+        )
+    )
     member_ids = [r[0] for r in members.all()]
 
     if not member_ids:

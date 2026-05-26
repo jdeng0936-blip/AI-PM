@@ -85,8 +85,15 @@ async def compute_stage_health(
 
     since = date.today() - timedelta(days=window_days)
 
-    # 找出该项目此阶段的所有成员
-    members_result = await db.execute(select(ProjectMember.user_id).where(ProjectMember.project_id == stage.project_id))
+    # 找出该项目此阶段的所有成员 — V2.5 Stage 2:仅在职(left_at IS NULL),离场成员不计入健康度
+    members_result = await db.execute(
+        select(ProjectMember.user_id).where(
+            and_(
+                ProjectMember.project_id == stage.project_id,
+                ProjectMember.left_at.is_(None),
+            )
+        )
+    )
     member_ids = [row[0] for row in members_result.all()]
 
     if not member_ids:
@@ -207,12 +214,13 @@ async def refresh_sprint_health(
     if not sprint:
         return
 
-    # 该 Sprint 期间所有软件轨成员
+    # 该 Sprint 期间所有软件轨成员 — V2.5 Stage 2:仅在职(left_at IS NULL)
     members_result = await db.execute(
         select(ProjectMember.user_id).where(
             and_(
                 ProjectMember.project_id == sprint.project_id,
                 ProjectMember.track.in_(["software", "both"]),
+                ProjectMember.left_at.is_(None),
             )
         )
     )

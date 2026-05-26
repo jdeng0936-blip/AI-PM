@@ -630,6 +630,52 @@ async def add_project_member(
     return {"message": "成员已加入项目", "member_id": str(member.id)}
 
 
+# V2.5 Stage 2:批量移出项目成员(软退场 — SET left_at = today())
+class BatchRemoveMembersBody(BaseModel):
+    member_ids: list[uuid.UUID] = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="待移出的 ProjectMember.id 列表(不是 user_id)",
+    )
+
+
+@router.delete("/{project_id}/members/batch")
+async def batch_remove_members(
+    project_id: uuid.UUID,
+    body: BatchRemoveMembersBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr),
+):
+    """
+    批量移出项目成员(软退场,SET left_at = today())。
+
+    设计:
+    - 用 ProjectMember.id(不是 user_id)— 同一用户可能挂多个 track 的成员关系,
+      逐 row 处理更精确
+    - 严格限定 project_id,防越权移其他项目成员
+    - 已离场(left_at IS NOT NULL)的不重复处理,避免覆盖原始离场时间
+    - 不动 daily_report.user_id / sprint_task.assignee_id 等历史关联,保留审计链
+    - RBAC 即时收敛:所有 health_engine / gates / capacity 查询都已 left_at IS NULL 过滤,
+      离场后该用户的日报立即不再聚合进项目健康度
+    """
+    cond = and_(
+        ProjectMember.id.in_(body.member_ids),
+        ProjectMember.project_id == project_id,
+        ProjectMember.left_at.is_(None),
+    )
+    result = await db.execute(
+        update(ProjectMember).where(cond).values(left_at=date.today()).returning(ProjectMember.id)
+    )
+    removed_ids = [r[0] for r in result.all()]
+    await db.commit()
+    return {
+        "requested": len(body.member_ids),
+        "removed_count": len(removed_ids),
+        "removed_member_ids": [str(i) for i in removed_ids],
+    }
+
+
 @router.get("/{project_id}/members")
 async def list_project_members(
     project_id: uuid.UUID,

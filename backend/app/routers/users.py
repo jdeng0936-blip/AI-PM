@@ -342,7 +342,13 @@ async def get_resource_load(
     load_data = []
     for u in users:
         # 计算当前 Sprint 已分配点数（简化：按项目成员数估算）
-        member_result = await db.execute(select(func.count(ProjectMember.id)).where(ProjectMember.user_id == u.id))
+        # V2.5 Stage 2:仅统计当前在职项目数(已离场不计入"项目负载")
+        member_result = await db.execute(
+            select(func.count(ProjectMember.id)).where(
+                ProjectMember.user_id == u.id,
+                ProjectMember.left_at.is_(None),
+            )
+        )
         active_projects = member_result.scalar() or 0
         estimated_load = active_projects * 3  # 简化估算：每项目 3 点
 
