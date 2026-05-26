@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
+  History,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -41,6 +42,7 @@ const CORE_ITEMS: NavItem[] = [
   { href: '/reports', label: 'AI 日报流', icon: FileText },
   { href: '/projects', label: '项目列表', icon: FolderKanban },
   { href: '/trends', label: '评分趋势', icon: TrendingUp },
+  { href: '/me/deletions', label: '最近删除', icon: History },
 ]
 
 const ADVANCED_ITEMS: NavItem[] = [
