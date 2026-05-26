@@ -40,6 +40,7 @@ async def list_reports(
     report_date: Optional[date] = Query(None, description="按日期筛选"),
     user_name: Optional[str] = Query(None, description="按姓名模糊搜索"),
     pass_check: Optional[str] = Query(None, description="按质检结果筛选: true/false"),
+    include_deleted: bool = Query(False, description="V2.4 Stage 3 C4:仅 admin,true 时仅返回已软删的"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -49,10 +50,16 @@ async def list_reports(
     分页查询日报列表：
     - 管理员/经理：查看所有人的日报
     - 普通员工：只能查看自己的日报
+    - V2.4 Stage 3 C4:admin 可传 include_deleted=true 仅看已软删(回收站)
     """
     from sqlalchemy import func
 
-    conditions = [DailyReport.deleted_at.is_(None)]  # V2.4 Stage 2:默认过滤软删
+    # V2.4 Stage 3 C4:include_deleted=true 仅 admin 生效;非 admin 强制 fallback
+    show_deleted = include_deleted and current_user.role == UserRole.admin
+    if show_deleted:
+        conditions = [DailyReport.deleted_at.is_not(None)]
+    else:
+        conditions = [DailyReport.deleted_at.is_(None)]  # V2.4 Stage 2:默认过滤软删
     # 员工只能看自己的
     if current_user.role == UserRole.employee:
         conditions.append(DailyReport.user_id == current_user.id)
@@ -78,7 +85,9 @@ async def list_reports(
     count_stmt = (
         select(func.count(DailyReport.id))
         .join(User, DailyReport.user_id == User.id)
-        .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
+        .where(
+            DailyReport.deleted_at.is_not(None) if show_deleted else DailyReport.deleted_at.is_(None)
+        )  # V2.4 Stage 3 C4:依赖同样的 include_deleted 判断
     )
     if user_name:
         stmt = stmt.where(User.name.ilike(f"%{user_name}%"))

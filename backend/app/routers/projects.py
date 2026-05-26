@@ -132,6 +132,38 @@ async def batch_restore_projects(
     }
 
 
+# V2.4 Stage 3 C4:回收站 — 列出已软删的临时项目(admin only)
+@router.get("/deleted")
+async def list_deleted_projects(
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(UserRole.admin)),
+):
+    """
+    回收站列表:已软删的临时工单项目(deleted_at IS NOT NULL AND is_temporary=true)。
+    主干项目的"已归档"由 /overview?include_archived=true 提供,不在此处。
+    """
+    rows = await db.execute(
+        select(Project)
+        .where(Project.deleted_at.is_not(None), Project.is_temporary.is_(True))
+        .order_by(Project.deleted_at.desc())
+    )
+    items = rows.scalars().all()
+    return {
+        "items": [
+            {
+                "project_id": str(p.id),
+                "name": p.name,
+                "code": p.code,
+                "track": p.track.value if p.track else None,
+                "deleted_at": p.deleted_at.isoformat() if p.deleted_at else None,
+                "is_temporary": p.is_temporary,
+            }
+            for p in items
+        ],
+        "total": len(items),
+    }
+
+
 # ── 立项（自动初始化5个 IPD 阶段）────────────────────────────────
 @router.post("/", include_in_schema=True)
 @router.post("", include_in_schema=False)
