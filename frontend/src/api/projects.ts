@@ -19,6 +19,14 @@ export const getProject = (id: string) => request.get(`/projects/${id}`)
 export const getProjectGantt = (id: string) => request.get(`/projects/${id}/gantt`)
 export const getProjectMembers = (id: string) => request.get(`/projects/${id}/members`)
 export const addProjectMember = (id: string, data: any) => request.post(`/projects/${id}/members`, data)
+
+// V2.5 Stage 2:批量移出成员(软退场,SET left_at = today())
+export const batchRemoveProjectMembers = (projectId: string, memberIds: string[]) =>
+  request.delete<unknown, {
+    requested: number
+    removed_count: number
+    removed_member_ids: string[]
+  }>(`/projects/${projectId}/members/batch`, { data: { member_ids: memberIds } })
 export const createProject = (data: any) => request.post('/projects/', data)
 export const updateProject = (id: string, data: any) => request.patch(`/projects/${id}`, data)
 export const archiveProject = (id: string) => request.delete(`/projects/${id}`)

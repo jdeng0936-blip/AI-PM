@@ -3,14 +3,17 @@
  */
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage } from '@/api/projects'
+import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage, batchRemoveProjectMembers } from '@/api/projects'
 import { getUsers } from '@/api/users'
 import { getProjectSprints } from '@/api/sprints'
 import { trackLabel } from '@/lib/project-track'
 import { toast } from 'sonner'
-import { RefreshCw, Users, CheckCircle, Shield, Plus, Play, Check, Lock, Target, Calendar, Pencil } from 'lucide-react'
+import { RefreshCw, Users, CheckCircle, Shield, Plus, Play, Check, Lock, Target, Calendar, Pencil, UserMinus } from 'lucide-react'
+import { useAuthStore } from '@/stores/use-auth-store'
+import { useMultiSelect } from '@/lib/hooks/use-multi-select'
+import ListActionBar from '@/components/list-action-bar'
 
 const STAGE_STATUS_MAP: Record<string, { icon: any; color: string; label: string }> = {
   green:  { icon: CheckCircle, color: '#22c55e', label: '进行中' },
@@ -41,6 +44,12 @@ export default function ProjectDetailPage() {
   const [editingStage, setEditingStage] = useState<any>(null)
   const [editMilestones, setEditMilestones] = useState<any[]>([])
   const [savingMs, setSavingMs] = useState(false)
+  // V2.5 Stage 2:成员多选 + 批量移出
+  const { userRole } = useAuthStore()
+  const canManageMembers = userRole === 'admin' || userRole === 'manager'
+  const membersForSelect = useMemo<any[]>(() => members, [members])
+  const memberMs = useMultiSelect(membersForSelect, { idKey: 'id' as any })
+  const [removingMembers, setRemovingMembers] = useState(false)
 
   const fetchAll = useCallback(async () => {
     if (!id || id === 'default') return
@@ -70,6 +79,28 @@ export default function ProjectDetailPage() {
       }).catch(() => {})
     }
   }, [showAddMember, allUsers.length])
+
+  async function handleBatchRemoveMembers() {
+    const ids = Array.from(memberMs.selectedIds) as string[]
+    if (ids.length === 0) return
+    if (!confirm(
+      `确定移出选中的 ${ids.length} 名成员?\n\n` +
+      `移出后该成员的 RBAC 立即收敛 — 不再参与项目健康度/容量/gate 评审聚合;\n` +
+      `日报与任务负责人历史记录保留(审计链不动)。\n\n` +
+      `撤销 = 重新邀请(不在回收站内)`,
+    )) return
+    setRemovingMembers(true)
+    try {
+      const res = await batchRemoveProjectMembers(id, ids)
+      memberMs.clearAll()
+      toast.success(`已移出 ${res?.removed_count ?? ids.length} 名成员`)
+      fetchAll()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量移出失败')
+    } finally {
+      setRemovingMembers(false)
+    }
+  }
 
   async function handleAddMember() {
     if (!addMemberForm.user_id) return
@@ -371,6 +402,27 @@ export default function ProjectDetailPage() {
             </button>
           </div>
 
+          {/* V2.5 Stage 2:批量移出 ActionBar(canManageMembers 时显示) */}
+          {canManageMembers && (
+            <div className="relative z-40">
+              <ListActionBar
+                selectedCount={memberMs.selectedCount}
+                onClear={memberMs.clearAll}
+                hint="移出后 RBAC 立即收敛;历史日报/任务负责人保留;撤销 = 重新邀请"
+              >
+                <button
+                  onClick={handleBatchRemoveMembers}
+                  disabled={removingMembers}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-60"
+                  style={{ background: '#ef4444', color: '#fff' }}
+                >
+                  <UserMinus size={13} />
+                  {removingMembers ? '处理中...' : '批量移出'}
+                </button>
+              </ListActionBar>
+            </div>
+          )}
+
           <div className="stat-card">
             {members.length === 0 ? (
               <div className="text-center py-12" style={{ color: 'var(--color-text-secondary)' }}>
@@ -381,23 +433,57 @@ export default function ProjectDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                    {canManageMembers && (
+                      <th className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)', width: 40 }}>
+                        <input
+                          type="checkbox"
+                          checked={memberMs.isAllSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = memberMs.isIndeterminate
+                          }}
+                          onChange={() => (memberMs.isAllSelected ? memberMs.clearAll() : memberMs.selectAll())}
+                          className="cursor-pointer"
+                          title="全选"
+                        />
+                      </th>
+                    )}
                     {['姓名', '部门', '角色', '加入时间'].map((h) => (
                       <th key={h} className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {members.map((m: any) => (
-                    <tr key={m.user_id || m.name} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <td className="py-3 px-3 flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px]" style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}>{m.name?.charAt(0)}</div>
-                        {m.name}
-                      </td>
-                      <td className="py-3 px-3 text-xs">{m.department}</td>
-                      <td className="py-3 px-3 text-xs">{m.role_in_project || m.project_role || m.role || '-'}</td>
-                      <td className="py-3 px-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{m.joined_at || '-'}</td>
-                    </tr>
-                  ))}
+                  {members.map((m: any) => {
+                    const mid = String(m.id || m.user_id)
+                    const selected = memberMs.isSelected(mid)
+                    return (
+                      <tr
+                        key={mid}
+                        style={{
+                          borderBottom: '1px solid var(--color-border-subtle)',
+                          background: selected ? 'rgba(168,85,247,0.06)' : undefined,
+                        }}
+                      >
+                        {canManageMembers && (
+                          <td className="py-3 px-3">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => memberMs.toggle(mid)}
+                              className="cursor-pointer"
+                            />
+                          </td>
+                        )}
+                        <td className="py-3 px-3 flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px]" style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}>{m.name?.charAt(0)}</div>
+                          {m.name}
+                        </td>
+                        <td className="py-3 px-3 text-xs">{m.department}</td>
+                        <td className="py-3 px-3 text-xs">{m.role_in_project || m.project_role || m.role || '-'}</td>
+                        <td className="py-3 px-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{m.joined_at || '-'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
