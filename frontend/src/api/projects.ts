@@ -33,3 +33,6 @@ export const batchSoftDeleteProjects = (ids: string[]) =>
 // V2.4 Stage 3 C3:批量恢复临时项目(仅 admin)
 export const batchRestoreProjects = (ids: string[]) =>
   request.patch('/projects/batch-restore', { ids })
+
+// V2.4 Stage 3 C4:回收站 — 已软删的临时项目列表(admin only)
+export const getDeletedProjects = () => request.get('/projects/deleted')
