@@ -195,6 +195,7 @@ async def web_submit_daily_report(
                 DailyReport.user_id == current_user.id,
                 DailyReport.report_date == report_date,
                 DailyReport.raw_input_text == req.raw_text,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1:已删的不算重复
             )
         )
         .limit(1)

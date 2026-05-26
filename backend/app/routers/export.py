@@ -46,6 +46,7 @@ async def export_daily_reports(
             and_(
                 DailyReport.report_date >= start_date,
                 DailyReport.report_date <= end_date,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
@@ -179,6 +180,7 @@ async def export_daily_reports_csv(
             and_(
                 DailyReport.report_date >= start_date,
                 DailyReport.report_date <= end_date,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())

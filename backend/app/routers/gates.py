@@ -48,7 +48,10 @@ async def _generate_gate_ai_summary(db, project_id: uuid.UUID, stage_number: int
             DailyReport.ai_score,
             DailyReport.management_alert,
         )
-        .where(DailyReport.user_id.in_(member_ids))
+        .where(
+            DailyReport.user_id.in_(member_ids),
+            DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+        )
         .order_by(DailyReport.report_date.desc())
         .limit(30)
     )
