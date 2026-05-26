@@ -104,7 +104,10 @@ async def collect_weekly_data(
             RiskAlert.created_at,
         )
         .join(User, RiskAlert.user_id == User.id)
-        .where(RiskAlert.created_at >= monday)
+        .where(
+            RiskAlert.created_at >= monday,
+            RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不进周报 AI 引用
+        )
         .order_by(desc(RiskAlert.days_unresolved))
         .limit(30)
     )

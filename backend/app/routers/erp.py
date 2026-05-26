@@ -92,7 +92,7 @@ async def erp_status_update(
     if exact_filters:
         stmt = (
             update(RiskAlert)
-            .where(RiskAlert.status == "unresolved", or_(*exact_filters))
+            .where(RiskAlert.status == "unresolved", RiskAlert.deleted_at.is_(None), or_(*exact_filters))
             .values(
                 status="resolved",
                 resolved_at=datetime.utcnow(),
@@ -110,7 +110,11 @@ async def erp_status_update(
         if keyword:
             stmt = (
                 update(RiskAlert)
-                .where(RiskAlert.status == "unresolved", RiskAlert.description.ilike(f"%{keyword}%"))
+                .where(
+                    RiskAlert.status == "unresolved",
+                    RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:已软删的预警不参与 ERP 自动解卡
+                    RiskAlert.description.ilike(f"%{keyword}%"),
+                )
                 .values(
                     status="resolved",
                     resolved_at=datetime.utcnow(),

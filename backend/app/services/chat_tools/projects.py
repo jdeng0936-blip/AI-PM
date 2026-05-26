@@ -76,7 +76,10 @@ async def list_active_risks(
             User.department,
         )
         .join(User, RiskAlert.user_id == User.id)
-        .where(RiskAlert.status == "unresolved")
+        .where(
+            RiskAlert.status == "unresolved",
+            RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删过滤
+        )
     )
     if department:
         stmt = stmt.where(User.department == department)

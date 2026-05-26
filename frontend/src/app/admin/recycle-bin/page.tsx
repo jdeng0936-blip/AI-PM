@@ -24,8 +24,13 @@ import ListActionBar from '@/components/list-action-bar'
 import { getReports, batchRestoreReports } from '@/api/reports'
 import { getDeletedProjects, batchRestoreProjects } from '@/api/projects'
 import { getDeletedTasks, batchRestoreTasks, type DeletedSprintTask } from '@/api/sprint-tracking'
+import {
+  getDeletedRiskAlerts,
+  batchRestoreRiskAlerts,
+  type DeletedRiskAlert,
+} from '@/api/dashboard'
 
-type Tab = 'reports' | 'projects' | 'sprint-tasks'
+type Tab = 'reports' | 'projects' | 'sprint-tasks' | 'risk-alerts'
 
 export default function RecycleBinPage() {
   const router = useRouter()
@@ -34,6 +39,7 @@ export default function RecycleBinPage() {
   const [reports, setReports] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
   const [tasks, setTasks] = useState<DeletedSprintTask[]>([])
+  const [alerts, setAlerts] = useState<DeletedRiskAlert[]>([])
   const [loading, setLoading] = useState(false)
 
   // 权限保护
@@ -80,20 +86,38 @@ export default function RecycleBinPage() {
     }
   }, [])
 
+  // V2.5 Stage 3:已删风险预警
+  const loadAlerts = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await getDeletedRiskAlerts()
+      setAlerts(res?.items || [])
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '加载已删预警失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!isAdmin) return
     if (tab === 'reports') loadReports()
     else if (tab === 'projects') loadProjects()
-    else loadTasks()
-  }, [tab, isAdmin, loadReports, loadProjects, loadTasks])
+    else if (tab === 'sprint-tasks') loadTasks()
+    else loadAlerts()
+  }, [tab, isAdmin, loadReports, loadProjects, loadTasks, loadAlerts])
 
   // 当前 tab 对应的 items + id key — 用 useMemo 锁定引用,避免 useMultiSelect 内 useEffect 误清空
   const items = useMemo<any[]>(() => {
     if (tab === 'reports') return reports
     if (tab === 'projects') return projects
-    return tasks
-  }, [tab, reports, projects, tasks])
-  const idKey = tab === 'projects' ? 'project_id' : 'id'
+    if (tab === 'sprint-tasks') return tasks
+    return alerts
+  }, [tab, reports, projects, tasks, alerts])
+  const idKey =
+    tab === 'projects' ? 'project_id'
+    : tab === 'risk-alerts' ? 'alert_id'
+    : 'id'
   const ms = useMultiSelect(items, { idKey: idKey as any })
 
   async function handleRestore() {
@@ -103,13 +127,15 @@ export default function RecycleBinPage() {
       const fn =
         tab === 'reports' ? batchRestoreReports
         : tab === 'projects' ? batchRestoreProjects
-        : batchRestoreTasks
+        : tab === 'sprint-tasks' ? batchRestoreTasks
+        : batchRestoreRiskAlerts
       const res: any = await fn(ids)
       toast.success(`已恢复 ${res?.restored_count ?? ids.length} 条`)
       ms.clearAll()
       if (tab === 'reports') await loadReports()
       else if (tab === 'projects') await loadProjects()
-      else await loadTasks()
+      else if (tab === 'sprint-tasks') await loadTasks()
+      else await loadAlerts()
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || '恢复失败')
     }
@@ -134,7 +160,7 @@ export default function RecycleBinPage() {
         className="flex gap-1 mb-4"
         style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
       >
-        {(['reports', 'projects', 'sprint-tasks'] as Tab[]).map((t) => (
+        {(['reports', 'projects', 'sprint-tasks', 'risk-alerts'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -153,7 +179,9 @@ export default function RecycleBinPage() {
               ? `已删日报 (${reports.length})`
               : t === 'projects'
                 ? `已删临时项目 (${projects.length})`
-                : `已删 Sprint 任务 (${tasks.length})`}
+                : t === 'sprint-tasks'
+                  ? `已删 Sprint 任务 (${tasks.length})`
+                  : `已删风险预警 (${alerts.length})`}
           </button>
         ))}
       </div>
@@ -168,7 +196,9 @@ export default function RecycleBinPage() {
               ? '恢复后日报重新出现在主列表'
               : tab === 'projects'
                 ? '恢复后项目重新出现在项目列表'
-                : '恢复后任务回到 Sprint 看板,燃尽与关键路径会自动重算'
+                : tab === 'sprint-tasks'
+                  ? '恢复后任务回到 Sprint 看板,燃尽与关键路径会自动重算'
+                  : '恢复后预警重新进入风险池,health / weekly / chat 下次刷新会重新引用'
           }
         >
           <button
@@ -192,7 +222,9 @@ export default function RecycleBinPage() {
             ? '没有已删日报 ✨'
             : tab === 'projects'
               ? '没有已删临时项目 ✨'
-              : '没有已删 Sprint 任务 ✨'}
+              : tab === 'sprint-tasks'
+                ? '没有已删 Sprint 任务 ✨'
+                : '没有已删风险预警 ✨'}
         </div>
       ) : (
         <div
@@ -257,7 +289,7 @@ export default function RecycleBinPage() {
                         删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
                       </span>
                     </>
-                  ) : (
+                  ) : tab === 'sprint-tasks' ? (
                     <>
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
@@ -286,6 +318,41 @@ export default function RecycleBinPage() {
                       <span className="font-medium flex-1 truncate">{it.title}</span>
                       <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
                         {it.story_points}pt · {it.status}
+                      </span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                        删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}
+                      </span>
+                    </>
+                  ) : (
+                    /* tab === 'risk-alerts' */
+                    <>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          background:
+                            it.type === 'blocker' ? 'rgba(239,68,68,0.18)'
+                            : it.type === 'dependency' ? 'rgba(245,158,11,0.18)'
+                            : 'rgba(168,85,247,0.18)',
+                          color:
+                            it.type === 'blocker' ? '#fca5a5'
+                            : it.type === 'dependency' ? '#fcd34d'
+                            : '#d8b4fe',
+                        }}
+                        title="预警类型"
+                      >
+                        {String(it.type || '').toUpperCase()}
+                      </span>
+                      <span style={{ minWidth: 80 }}>{it.member}</span>
+                      {it.department && (
+                        <span style={{ color: 'var(--color-text-secondary)', minWidth: 80 }}>
+                          {it.department}
+                        </span>
+                      )}
+                      <span className="flex-1 truncate text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                        {(it.description || '').slice(0, 80)}
+                      </span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+                        未解 {it.days_unresolved} 天 · {it.status}
                       </span>
                       <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>
                         删除于 {it.deleted_at ? new Date(it.deleted_at).toLocaleString('zh-CN') : '-'}

@@ -44,6 +44,14 @@ class RiskAlert(BaseMixin, Base):
 
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # V2.5 Stage 3:软删 — 非 NULL 表示已删,dashboard/health/weekly/chat/retro/ERP 全部默认过滤
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="软删除时间(V2.5 Stage 3):非 NULL 表示已删除,所有读取站点默认过滤",
+    )
+
     # NOTE: created_at, updated_at, created_by, tenant_id 由 BaseMixin 提供
 
     def __repr__(self) -> str:

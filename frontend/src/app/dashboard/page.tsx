@@ -14,7 +14,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
-import { getMorningBriefing, getRiskAlerts, getTempTicketSummary } from '@/api/dashboard'
+import {
+  getMorningBriefing,
+  getRiskAlerts,
+  getTempTicketSummary,
+  batchDeleteRiskAlerts,
+  batchRestoreRiskAlerts,
+} from '@/api/dashboard'
 import { getProjectsOverview, createProject } from '@/api/projects'
 import { batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
 import {
@@ -43,7 +49,8 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { isAdmin } = useAuthStore()
+  const { isAdmin, userRole } = useAuthStore()
+  const canManageAlerts = userRole === 'admin' || userRole === 'manager'
   const [loading, setLoading] = useState(false)
   const today = new Date().toLocaleDateString('zh-CN', {
     month: 'long',
@@ -163,6 +170,44 @@ export default function DashboardPage() {
     clearAll: clearReportSelection,
   } = useMultiSelect(filteredReports)
   const [reportDeleting, setReportDeleting] = useState(false)
+
+  // V2.5 Stage 3:风险阻碍池多选 + 批量软删(manager+ 权限)
+  const alertMs = useMultiSelect(riskAlerts, { idKey: 'alert_id' as any })
+  const [alertDeleting, setAlertDeleting] = useState(false)
+
+  async function handleAlertBatchDelete() {
+    if (alertMs.selectedCount === 0) return
+    if (!confirm(
+      `确定软删除选中的 ${alertMs.selectedCount} 条风险预警?\n(历史日报关联 / ERP 解卡 / 复盘上下文保留;health / weekly / chat 下次刷新会排除)`
+    )) return
+    setAlertDeleting(true)
+    try {
+      const ids = Array.from(alertMs.selectedIds) as string[]
+      const res = await batchDeleteRiskAlerts(ids)
+      const deletedIds: string[] = res?.deleted_ids ?? ids
+      alertMs.clearAll()
+      await fetchAll()
+      toast.success(`已删除 ${deletedIds.length} 条预警`, {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              const r = await batchRestoreRiskAlerts(deletedIds)
+              await fetchAll()
+              toast.success(`已撤销恢复 ${r?.restored_count ?? deletedIds.length} 条`)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.detail || '撤销失败')
+            }
+          },
+        },
+      })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '批量删除失败')
+    } finally {
+      setAlertDeleting(false)
+    }
+  }
 
   async function handleReportBatchDelete() {
     if (reportSelectedCount === 0) return
@@ -662,6 +707,26 @@ export default function DashboardPage() {
             </span>
           )}
         </div>
+
+        {/* V2.5 Stage 3:风险预警批量操作栏(manager+) */}
+        {canManageAlerts && (
+          <ListActionBar
+            selectedCount={alertMs.selectedCount}
+            onClear={alertMs.clearAll}
+            hint="软删后历史关联保留,可在回收站恢复"
+          >
+            <button
+              onClick={handleAlertBatchDelete}
+              disabled={alertDeleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
+              style={{ background: '#ef4444', color: '#fff' }}
+            >
+              <Trash2 size={14} />
+              {alertDeleting ? '处理中…' : `批量删除 (${alertMs.selectedCount})`}
+            </button>
+          </ListActionBar>
+        )}
+
         {riskAlerts.length === 0 ? (
           <div className="text-center py-12" style={{ color: 'var(--color-text-secondary)' }}>
             <CheckCircle size={48} className="mx-auto mb-3 opacity-50" />
@@ -669,28 +734,47 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {riskAlerts.map((alert: any) => (
-              <div key={alert.id} className="stat-card flex items-start gap-4">
-                <AlertTriangle size={20} color="#ef4444" className="mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>{alert.title}</div>
-                  <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    {alert.department} · {alert.reporter} · {alert.created_at}
-                  </div>
-                  <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>{alert.description}</div>
-                </div>
-                <button
-                  onClick={() => {
-                    toast.success('已标记为已解决')
-                    setRiskAlerts((prev) => prev.filter((a) => a.id !== alert.id))
-                  }}
-                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium"
-                  style={{ border: '1px solid var(--color-status-green)', color: 'var(--color-status-green)' }}
+            {riskAlerts.map((alert: any) => {
+              const aid = String(alert.alert_id)
+              const selected = canManageAlerts && alertMs.isSelected(aid)
+              return (
+                <div
+                  key={aid}
+                  className="stat-card flex items-start gap-4"
+                  style={selected ? { border: '1px solid #a855f7', background: 'rgba(168,85,247,0.06)' } : undefined}
                 >
-                  标记解决
-                </button>
-              </div>
-            ))}
+                  {canManageAlerts && (
+                    <input
+                      type="checkbox"
+                      checked={alertMs.isSelected(aid)}
+                      onChange={() => alertMs.toggle(aid)}
+                      className="mt-1 cursor-pointer shrink-0"
+                      title="选中以批量操作"
+                    />
+                  )}
+                  <AlertTriangle size={20} color="#ef4444" className="mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
+                      {alert.type?.toUpperCase()} · {alert.member}
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                      {alert.department} · 未解 {alert.days_unresolved} 天 · {alert.created_at}
+                    </div>
+                    <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>{alert.description}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      toast.success('已标记为已解决')
+                      setRiskAlerts((prev) => prev.filter((a) => String(a.alert_id) !== aid))
+                    }}
+                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ border: '1px solid var(--color-status-green)', color: 'var(--color-status-green)' }}
+                  >
+                    标记解决
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

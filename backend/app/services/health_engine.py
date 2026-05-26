@@ -135,6 +135,7 @@ async def compute_stage_health(
             and_(
                 RiskAlert.user_id.in_(member_ids),
                 RiskAlert.status == "unresolved",
+                RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不计入健康度
             )
         )
     )

@@ -5,11 +5,13 @@ app/routers/dashboard.py — 管理看板核心数据 API
 需要 manager 或 admin 角色才可访问。
 """
 
-from datetime import date, timedelta
+import uuid
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, func, select
+from fastapi import APIRouter, Body, Depends, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -120,7 +122,10 @@ async def get_risk_alerts(
     stmt = (
         select(RiskAlert, User.name, User.department)
         .join(User, RiskAlert.user_id == User.id)
-        .where(RiskAlert.status == status)
+        .where(
+            RiskAlert.status == status,
+            RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删过滤
+        )
         .order_by(RiskAlert.days_unresolved.desc())
     )
     rows = (await db.execute(stmt)).all()
@@ -138,6 +143,94 @@ async def get_risk_alerts(
         }
         for r in rows
     ]
+
+
+# ────────────────────────────────────────────────────────────────
+# V2.5 Stage 3:RiskAlert 批量软删 / 恢复 / 回收站
+# ────────────────────────────────────────────────────────────────
+
+
+class RiskAlertBatchBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="待操作的预警 ID 列表")
+
+
+@router.delete("/risk-alerts/batch")
+async def batch_soft_delete_risk_alerts(
+    body: RiskAlertBatchBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_mgr_or_admin),
+):
+    """V2.5 Stage 3:批量软删风险预警。
+
+    - 仅对当前未软删的目标生效(idempotent — 已删的会被跳过)
+    - 历史 ai_score / report_id / ERP 解卡记录均不受影响
+    - dashboard / health / weekly / chat / retro / ERP 读取处下次刷新自动排除
+    """
+    result = await db.execute(
+        update(RiskAlert)
+        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_(None)))
+        .values(deleted_at=datetime.now(timezone.utc))
+        .returning(RiskAlert.id)
+    )
+    deleted_ids = [r[0] for r in result.all()]
+    await db.commit()
+    return {
+        "requested": len(body.ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
+@router.patch("/risk-alerts/batch-restore")
+async def batch_restore_risk_alerts(
+    body: RiskAlertBatchBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(UserRole.admin)),
+):
+    """V2.5 Stage 3:管理员从回收站批量恢复软删的预警(SET deleted_at = NULL)。"""
+    result = await db.execute(
+        update(RiskAlert)
+        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_not(None)))
+        .values(deleted_at=None)
+        .returning(RiskAlert.id)
+    )
+    restored_ids = [r[0] for r in result.all()]
+    await db.commit()
+    return {
+        "requested": len(body.ids),
+        "restored_count": len(restored_ids),
+        "restored_ids": [str(i) for i in restored_ids],
+    }
+
+
+@router.get("/risk-alerts/deleted")
+async def list_deleted_risk_alerts(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_role(UserRole.admin)),
+):
+    """V2.5 Stage 3:管理员回收站 — 已软删的预警列表(按删除时间倒序)。"""
+    stmt = (
+        select(RiskAlert, User.name, User.department)
+        .join(User, RiskAlert.user_id == User.id)
+        .where(RiskAlert.deleted_at.is_not(None))
+        .order_by(RiskAlert.deleted_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    items = [
+        {
+            "alert_id": str(r.RiskAlert.id),
+            "member": r.name,
+            "department": r.department,
+            "type": r.RiskAlert.alert_type,
+            "description": r.RiskAlert.description,
+            "days_unresolved": r.RiskAlert.days_unresolved,
+            "status": r.RiskAlert.status,
+            "created_at": r.RiskAlert.created_at.isoformat() if r.RiskAlert.created_at else None,
+            "deleted_at": r.RiskAlert.deleted_at.isoformat() if r.RiskAlert.deleted_at else None,
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/token-usage")

@@ -10,9 +10,11 @@ app/models/knowledge.py — 知识库模型
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -99,6 +101,14 @@ class KnowledgeItem(BaseMixin, Base):
     # ── 使用统计 ──────────────────────────────────────────────────
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="浏览次数")
     helpful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="有用次数")
+
+    # V2.5 Stage 3:软删 — knowledge 列表 / retro 列表 / 语义搜索 / chat tools 默认过滤
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="软删除时间(V2.5 Stage 3):非 NULL 表示已删除,knowledge / retro / 语义检索默认过滤",
+    )
 
 
 # HNSW 索引（需要 pgvector 扩展）

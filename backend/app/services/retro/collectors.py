@@ -76,7 +76,10 @@ async def collect_period_basics(
             RiskAlert.created_at,
         )
         .join(User, RiskAlert.user_id == User.id)
-        .where(RiskAlert.created_at >= start)
+        .where(
+            RiskAlert.created_at >= start,
+            RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删的预警不进复盘上下文
+        )
         .order_by(desc(RiskAlert.days_unresolved))
         .limit(40)
     )
@@ -301,7 +304,7 @@ async def collect_monthly(db: AsyncSession, year: int, month: int) -> dict[str, 
 
 async def collect_incident(db: AsyncSession, risk_id: UUID) -> dict[str, Any]:
     alert = await db.get(RiskAlert, risk_id)
-    if not alert:
+    if not alert or alert.deleted_at is not None:  # V2.5 Stage 3:软删的事故无法再触发复盘
         return {"error": f"risk_alert {risk_id} not found"}
 
     user = await db.get(User, alert.user_id) if alert.user_id else None
