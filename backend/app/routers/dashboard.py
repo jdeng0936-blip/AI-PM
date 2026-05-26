@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
+from app.models.audit_log import AuditLog
 from app.models.daily_report import DailyReport
 from app.models.project import Project
 from app.models.risk_alert import RiskAlert
@@ -443,4 +444,77 @@ async def get_weekly_stats(
     return {
         "total_users": total_users,
         "days": result,
+    }
+
+
+# ────────────────────────────────────────────────────────────────
+# V2.6 数据生命周期治理 (Dry-Run 指标)
+# ────────────────────────────────────────────────────────────────
+
+
+@router.get("/deletion-governance")
+async def get_deletion_governance(
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr_or_admin),
+):
+    """
+    V2.6: 获取近 14 天数据治理 (Dry-Run) 趋势与今日详情
+    """
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=14)
+
+    stmt = (
+        select(AuditLog)
+        .where(
+            and_(
+                AuditLog.action == "deletion_cleanup_dry_run",
+                AuditLog.created_at >= start,
+                AuditLog.created_at <= end,
+            )
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+
+    if not rows:
+        return {
+            "latest": {
+                "total_candidates": 0,
+                "open_history_batches": 0,
+                "tables": {
+                    "daily_reports": 0,
+                    "projects": 0,
+                    "sprint_tasks": 0,
+                    "risk_alerts": 0,
+                    "knowledge_items": 0,
+                },
+                "cascade_impacts": {},
+                "timestamp": end.isoformat(),
+            },
+            "trend_14d": [],
+        }
+
+    latest_log = rows[0]
+    latest_detail = latest_log.detail or {}
+
+    trend = []
+    # 按照 created_at 从旧到新排序(原 rows 是从新到旧)
+    for row in reversed(rows):
+        detail = row.detail or {}
+        trend.append(
+            {
+                "date": row.created_at.date().isoformat() if row.created_at else "",
+                "total_candidates": detail.get("total_candidates", 0),
+            }
+        )
+
+    return {
+        "latest": {
+            "total_candidates": latest_detail.get("total_candidates", 0),
+            "open_history_batches": latest_detail.get("open_history_batches", 0),
+            "tables": latest_detail.get("tables", {}),
+            "cascade_impacts": latest_detail.get("cascade_impacts", {}),
+            "timestamp": latest_log.created_at.isoformat() if latest_log.created_at else None,
+        },
+        "trend_14d": trend,
     }

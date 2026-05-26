@@ -41,3 +41,7 @@ export const batchRestoreRiskAlerts = (ids: string[]) =>
 
 export const getDeletedRiskAlerts = () =>
   request.get<unknown, { items: DeletedRiskAlert[]; total: number }>('/dashboard/risk-alerts/deleted')
+
+// V2.6 数据生命周期治理
+export const getDeletionGovernance = () =>
+  request.get('/dashboard/deletion-governance')

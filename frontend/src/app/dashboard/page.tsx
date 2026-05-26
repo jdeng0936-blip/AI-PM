@@ -18,6 +18,7 @@ import {
   getMorningBriefing,
   getRiskAlerts,
   getTempTicketSummary,
+  getDeletionGovernance,
   batchDeleteRiskAlerts,
   batchRestoreRiskAlerts,
 } from '@/api/dashboard'
@@ -45,6 +46,7 @@ import {
   Ticket,
   Trophy,
   Trash2,
+  Database,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -67,6 +69,9 @@ export default function DashboardPage() {
   const [morningBriefingDate, setMorningBriefingDate] = useState('')
   // V2.3 临时工单看板数据
   const [tempSummary, setTempSummary] = useState<any>(null)
+
+  // V2.6 数据生命周期治理
+  const [deletionStats, setDeletionStats] = useState<any>(null)
 
   // 新建项目弹窗
   const [showCreate, setShowCreate] = useState(false)
@@ -94,11 +99,12 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [ov, br, ra, tt] = await Promise.allSettled([
+      const [ov, br, ra, tt, gov] = await Promise.allSettled([
         getProjectsOverview(),
         getMorningBriefing(),
         getRiskAlerts(),
         getTempTicketSummary({ top_n: 5 }),
+        canManageAlerts ? getDeletionGovernance() : Promise.resolve(null),
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
@@ -117,6 +123,9 @@ export default function DashboardPage() {
       }
       if (tt.status === 'fulfilled') {
         setTempSummary(tt.value as any)
+      }
+      if (gov.status === 'fulfilled' && gov.value) {
+        setDeletionStats(gov.value as any)
       }
     } finally {
       setLoading(false)
@@ -663,6 +672,93 @@ export default function DashboardPage() {
                   本月暂无项目维度的工时数据
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V2.6 数据生命周期治理 (仅 Admin/Manager 可见) */}
+      {deletionStats && canManageAlerts && (
+        <div className="mb-8 animate-in" style={{ animationDelay: '0.43s' }}>
+          <div className="section-title flex items-center gap-2">
+            <Database size={16} color="#06b6d4" />
+            数据生命周期治理
+            <span className="text-[10px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
+              （V2.6 · 14 天观察期 Dry-Run 数据）
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* 左卡：今日快照 */}
+            <div className="stat-card">
+              <div className="flex items-center gap-2 mb-3">
+                <Trash2 size={16} color="#06b6d4" />
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                  今日废品积压快照
+                </span>
+              </div>
+              <div className="flex items-end gap-3 mb-4">
+                <div className="text-3xl font-bold" style={{ color: deletionStats.latest?.total_candidates > 0 ? '#ef4444' : '#22c55e' }}>
+                  {deletionStats.latest?.total_candidates || 0}
+                </div>
+                <div className="text-xs pb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                  条过期数据待清理
+                </div>
+              </div>
+              {deletionStats.latest?.total_candidates > 0 ? (
+                <div className="space-y-2 text-xs">
+                  {Object.entries(deletionStats.latest?.tables || {}).map(([table, count]: [string, any]) => {
+                    if (!count) return null;
+                    return (
+                      <div key={table} className="flex justify-between items-center px-3 py-2 rounded-lg" style={{ background: 'var(--color-bg-secondary)' }}>
+                        <span style={{ color: 'var(--color-text-primary)' }}>{table}</span>
+                        <span style={{ color: '#06b6d4', fontWeight: 600 }}>{count} 条</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs py-2" style={{ color: 'var(--color-text-secondary)' }}>
+                  当前系统数据健康，无积压废品。
+                </div>
+              )}
+            </div>
+
+            {/* 右卡：14天趋势与级联影响 */}
+            <div className="stat-card flex flex-col">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                  14 天候选量趋势 & 级联影响
+                </span>
+              </div>
+              <div className="flex-1 flex flex-col gap-4">
+                {/* 迷你趋势图 (柱状) */}
+                <div className="flex items-end gap-1 h-20 w-full mt-2">
+                  {deletionStats.trend_14d?.slice()?.reverse()?.map((t: any, i: number) => {
+                    const maxVal = Math.max(...(deletionStats.trend_14d.map((x: any) => x.total_candidates) || [1]));
+                    const pct = maxVal > 0 ? (t.total_candidates / maxVal) * 100 : 0;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center justify-end group relative" title={`${t.date}: ${t.total_candidates}条`}>
+                        <div
+                          className="w-full rounded-t-sm transition-all"
+                          style={{ height: `${Math.max(pct, 2)}%`, background: i === deletionStats.trend_14d.length - 1 ? '#06b6d4' : 'var(--color-border-subtle)' }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* 级联警告 */}
+                <div className="pt-3 border-t text-[11px] space-y-1" style={{ borderColor: 'var(--color-border-subtle)' }}>
+                  <div style={{ color: 'var(--color-text-secondary)' }}>潜在级联影响 (执行后将发生)：</div>
+                  {Object.entries(deletionStats.latest?.cascade_impacts || {}).filter(([_, v]: [string, any]) => v > 0).length > 0 ? (
+                    Object.entries(deletionStats.latest?.cascade_impacts || {}).map(([key, val]: [string, any]) => {
+                      if (!val) return null;
+                      return <div key={key} style={{ color: '#eab308' }}>⚠️ {key}: {val} 条关联记录</div>
+                    })
+                  ) : (
+                    <div style={{ color: '#22c55e' }}>✅ 暂无重大外键级联风险</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
