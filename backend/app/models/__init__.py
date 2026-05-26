@@ -8,6 +8,7 @@ from app.models.audit_log_archive import AuditLogArchive
 from app.models.base_mixin import BaseMixin
 from app.models.capacity import CapacityLevel, CapacitySnapshot
 from app.models.daily_report import DailyReport
+from app.models.deletion_history import DeletionHistory
 from app.models.gate_review import GateReview
 
 # --- 知识库模型 ---
@@ -52,6 +53,7 @@ from app.models.user import User
 __all__ = [
     "User",
     "DailyReport",
+    "DeletionHistory",
     "RiskAlert",
     "TenantUsageLog",
     "AuditLog",

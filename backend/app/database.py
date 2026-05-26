@@ -51,6 +51,7 @@ async def init_db():
             audit_log,
             base_mixin,  # noqa: F401
             daily_report,
+            deletion_history,
             gate_review,
             project,
             project_member,
