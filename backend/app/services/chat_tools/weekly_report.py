@@ -142,7 +142,13 @@ async def collect_weekly_data(
             func.count(DailyReport.id).label("submitted"),
         )
         .join(DailyReport, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= monday, DailyReport.report_date <= sunday))
+        .where(
+            and_(
+                DailyReport.report_date >= monday,
+                DailyReport.report_date <= sunday,
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+            )
+        )
         .group_by(User.id, User.name, User.department)
         .order_by(desc("avg_score"))
     )

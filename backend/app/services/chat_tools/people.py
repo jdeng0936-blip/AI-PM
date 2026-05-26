@@ -50,6 +50,7 @@ async def top_performers(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.ai_score.isnot(None),
+                DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
         .group_by(User.id, User.name, User.department)

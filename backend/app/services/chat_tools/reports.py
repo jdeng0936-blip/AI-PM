@@ -306,7 +306,10 @@ async def list_missing_today(db: AsyncSession) -> dict:
         (no args)
     """
     today = date.today()
-    submitted_stmt = select(DailyReport.user_id).where(DailyReport.report_date == today)
+    submitted_stmt = select(DailyReport.user_id).where(
+        DailyReport.report_date == today,
+        DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+    )
     submitted_ids = {row[0] for row in (await db.execute(submitted_stmt)).all()}
 
     users_stmt = select(User).where(User.is_active.is_(True))
