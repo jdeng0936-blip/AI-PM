@@ -272,7 +272,7 @@ async def retry_notification(
     if record.user_id:
         target_user = await db.get(User, record.user_id)
 
-    from app.services.notification_service import _dispatch_one  # type: ignore
+    from app.services.notification_service import _dispatch_one
 
     status_, err = await _dispatch_one(
         NotificationChannel(record.channel),

@@ -48,7 +48,10 @@ class ParsedContent(BaseModel):
         """允许 AI 输出字符串 '85%' 或 '85'，自动转为整数"""
         if isinstance(v, str):
             return int(v.strip().rstrip("%"))
-        return int(v)
+        if isinstance(v, (int, float)):
+            return int(v)
+        # 未知类型 → 强制 0,避免 schema 报错(AI 偶尔输出 null / object)
+        return 0
 
 
 class AIParseResult(BaseModel):

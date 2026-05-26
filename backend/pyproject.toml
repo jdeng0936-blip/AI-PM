@@ -51,12 +51,16 @@ ignore_missing_imports = true
 check_untyped_defs = false       # 初期不要求 type hint 全覆盖
 warn_unused_ignores = true
 warn_redundant_casts = true
+# V2.5 Stage 1 大扫除 #4:已装 stub 的 third-party 库报 import-untyped 时整体豁免
+# (yaml / dingtalk-sdk 等;装 types-PyYAML 也可解,但生产 runtime 不依赖类型)
+disable_error_code = ["import-untyped"]
 exclude = [
     "\\.venv",
     "\\.venv311",
     "alembic",
     "tests",
     "_archive",
+    "scripts",                    # 一次性 seed / admin 脚本,不属生产代码
 ]
 
 # ─────────────────────────────────────────────────────────

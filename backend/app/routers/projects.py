@@ -694,7 +694,8 @@ async def update_stage(
 
     # 如果阶段达到 100%，自动触发“轻量级敏捷流”：过门禁并解锁下一阶段，并将当前阶段健康状态置为完美绿色
     if stage.progress_pct == 100:
-        stage.health_status = "green"
+        # ORM column 推为 Enum union;运行时 SQLAlchemy 接受 str→Enum 自动转换
+        stage.health_status = "green"  # type: ignore[assignment]
         stage.health_score = 100
         project_result = await db.execute(select(Project).where(Project.id == stage.project_id))
         project = project_result.scalar_one_or_none()
@@ -729,7 +730,7 @@ async def update_stage(
             )
             next_stage = next_stage_result.scalar_one_or_none()
             if next_stage and next_stage.health_status == "locked":
-                next_stage.health_status = "green"
+                next_stage.health_status = "green"  # type: ignore[assignment]
 
         # 3. 如果正在当前阶段，则自动把项目指针推向下一阶段
         if project and project.current_stage == stage.stage_number and project.current_stage < 5:

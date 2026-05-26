@@ -135,4 +135,5 @@ class Settings(BaseSettings):
 
 
 # 全局单例，直接从其他模块 import 使用
-settings = Settings()
+# pydantic-settings 在运行时从 env / .env 读必填字段,但 mypy 看不到该机制
+settings = Settings()  # type: ignore[call-arg]

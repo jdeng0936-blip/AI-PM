@@ -191,7 +191,8 @@ async def transcribe(audio_pcm16k: bytes, timeout: float = 30.0) -> Optional[str
                     break
 
                 data = payload.get("data", {})
-                segment = _decode_result(msg)
+                # ws.recv() 返回 str|bytes;_decode_result 只接受 str(JSON 字符串)
+                segment = _decode_result(msg if isinstance(msg, str) else msg.decode("utf-8"))
 
                 # wpgs 模式下 pgs=apd 是追加,pgs=rpl 是替换
                 pgs = data.get("result", {}).get("pgs")

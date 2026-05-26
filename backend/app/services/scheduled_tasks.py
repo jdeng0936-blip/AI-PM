@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import and_, select
 
@@ -408,9 +408,9 @@ async def run_quarterly_okr_summary() -> None:
             # 聚合该 cycle 的统计
             objs = (await db.execute(_select(_Obj).where(_Obj.cycle_id == cycle.id))).scalars().all()
             obj_ids = [o.id for o in objs]
-            krs = []
+            krs: list[Any] = []
             if obj_ids:
-                krs = (await db.execute(_select(_KR).where(_KR.objective_id.in_(obj_ids)))).scalars().all()
+                krs = list((await db.execute(_select(_KR).where(_KR.objective_id.in_(obj_ids)))).scalars().all())
 
             avg_obj_progress = round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
             kr_progresses = [k.progress for k in krs]
@@ -552,5 +552,7 @@ async def archive_old_audit_logs(retention_months: int = 12) -> None:
         logger.info(
             "   已归档 %d 条,主表清理 %d 条",
             to_archive,
-            delete_result.rowcount or 0,
+            # CursorResult.rowcount(text() 执行的 DELETE 仍是 CursorResult);
+            # mypy 推断为 Result[Any](无 rowcount),运行时实际有
+            delete_result.rowcount or 0,  # type: ignore[attr-defined]
         )

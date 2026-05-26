@@ -184,11 +184,16 @@ async def compute_burndown_series(
     if len(actual) >= 2 and total_points > 0:
         first = actual[0]
         last = actual[-1]
-        days_elapsed = max(1, (date.fromisoformat(last["date"]) - date.fromisoformat(first["date"])).days)
-        burn_rate = max(0, (first["points"] - last["points"])) / days_elapsed  # 每日烧多少点
+        # actual 元素是 dict[str, Any];这里语义上 "date" 是 str / "points" 是 int
+        last_date: str = str(last["date"])
+        first_date: str = str(first["date"])
+        first_pts: int = int(first["points"])  # type: ignore[call-overload]  # dict[str,Any] 推 object
+        last_pts: int = int(last["points"])  # type: ignore[call-overload]
+        days_elapsed = max(1, (date.fromisoformat(last_date) - date.fromisoformat(first_date)).days)
+        burn_rate = max(0, (first_pts - last_pts)) / days_elapsed  # 每日烧多少点
         if burn_rate > 0:
-            days_to_zero = last["points"] / burn_rate
-            projected_end = date.fromisoformat(last["date"]) + timedelta(days=int(days_to_zero))
+            days_to_zero = last_pts / burn_rate
+            projected_end = date.fromisoformat(last_date) + timedelta(days=int(days_to_zero))
             today_estimate = {
                 "burn_rate_per_day": round(burn_rate, 2),
                 "projected_end_date": projected_end.isoformat(),
@@ -256,7 +261,12 @@ async def compute_velocity_history(
         }
         for s in reversed(rows)
     ]
-    avg = round(sum(i["completed"] for i in items) / len(items), 1) if items else 0
+    # items 是 list[dict[str, Any]];i["completed"] 推 object,实际是 int
+    avg = (
+        round(sum(int(i["completed"]) for i in items) / len(items), 1)  # type: ignore[call-overload]
+        if items
+        else 0
+    )
     return {
         "project_id": str(project_id),
         "history": items,

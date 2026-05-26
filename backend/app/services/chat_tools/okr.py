@@ -96,7 +96,7 @@ async def kr_status(
         obj = await db.get(Objective, objective_id)
         matched_objs = [obj] if obj else []
     elif objective_title:
-        matched_objs = (
+        matched_objs = list(
             (await db.execute(select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(3)))
             .scalars()
             .all()

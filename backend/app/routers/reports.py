@@ -7,7 +7,7 @@ app/routers/reports.py — 日报 CRUD API
 
 import uuid
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -56,10 +56,10 @@ async def list_reports(
 
     # V2.4 Stage 3 C4:include_deleted=true 仅 admin 生效;非 admin 强制 fallback
     show_deleted = include_deleted and current_user.role == UserRole.admin
-    if show_deleted:
-        conditions = [DailyReport.deleted_at.is_not(None)]
-    else:
-        conditions = [DailyReport.deleted_at.is_(None)]  # V2.4 Stage 2:默认过滤软删
+    # 显式类型注释,避免 SQLAlchemy ColumnElement / BinaryExpression 推断混杂导致 mypy 不让 append
+    conditions: list[Any] = (
+        [DailyReport.deleted_at.is_not(None)] if show_deleted else [DailyReport.deleted_at.is_(None)]
+    )  # V2.4 Stage 2:默认过滤软删
     # 员工只能看自己的
     if current_user.role == UserRole.employee:
         conditions.append(DailyReport.user_id == current_user.id)

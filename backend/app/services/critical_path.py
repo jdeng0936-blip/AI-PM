@@ -100,12 +100,13 @@ async def compute_critical_path(
             best = dist[tid]
             end_id = tid
 
-    # 回溯路径
+    # 回溯路径 — walk / prev 字典值都是 Optional[str];循环条件已 guard
+    # 注:用 walk 而非 cur 避免与上方拓扑排序循环里的 cur(str)重名
     path: list[str] = []
-    cur = end_id
-    while cur is not None:
-        path.append(cur)
-        cur = prev[cur]
+    walk: str | None = end_id
+    while walk is not None:
+        path.append(walk)
+        walk = prev[walk]
     path.reverse()
 
     # 标记 task.is_on_critical_path

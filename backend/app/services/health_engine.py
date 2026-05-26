@@ -114,6 +114,8 @@ async def compute_stage_health(
         )
     )
     row = agg_result.first()
+    # 聚合函数 first() 永远返回 Row(字段可能全 None),不会返回 None。给 mypy 一个保证
+    assert row is not None
     avg_ai_score = float(row[0] or 0)
     avg_progress = float(row[1] or 0)
     total_reports = int(row[2] or 0)

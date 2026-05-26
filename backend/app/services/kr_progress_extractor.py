@@ -97,7 +97,9 @@ async def extract_and_update_kr_progress(
         except (TypeError, ValueError):
             continue
         try:
-            new_val_f = float(new_value)
+            # new_value 是 LLM JSON 输出的 Any;float() 接受 number|str|None,这里
+            # try 内 TypeError 已兜底 None / dict 等异常类型
+            new_val_f = float(new_value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             continue
 
@@ -169,7 +171,7 @@ async def _fetch_active_krs_for_user(
             OKRCycle.status == OKRStatus.active,
         )
     )
-    return (await db.execute(stmt)).scalars().all()
+    return list((await db.execute(stmt)).scalars().all())
 
 
 async def _recalc_objective_progress(db: AsyncSession, objective_id: UUID) -> None:

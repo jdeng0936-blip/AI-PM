@@ -13,15 +13,21 @@ import base64
 import hashlib
 import struct
 import time
-from typing import Optional
+
+# ── access_token 内存缓存（避免频繁请求）──────────────────────────
+# dict[str, Any] 而非 dict[str, object] — 缓存字段语义上是 (token: str|None, expires_at: float)
+# 用 Any 让取值不需要每次 cast,生产语义清晰
+from typing import (
+    Any,  # noqa: E402
+    Optional,
+)
 
 import httpx
 from Crypto.Cipher import AES
 
 from app.config import settings
 
-# ── access_token 内存缓存（避免频繁请求）──────────────────────────
-_token_cache: dict[str, object] = {"token": None, "expires_at": 0}
+_token_cache: dict[str, Any] = {"token": None, "expires_at": 0}
 
 WECHAT_API_BASE = "https://qyapi.weixin.qq.com/cgi-bin"
 

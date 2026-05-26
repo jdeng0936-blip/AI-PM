@@ -174,9 +174,9 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
         )
     ).all()
     obj_ids = [o.id for o, _ in obj_rows]
-    krs = []
+    krs: list[KeyResult] = []
     if obj_ids:
-        krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all()
+        krs = list((await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all())
 
     # 进度日志聚合(AI 提取 vs 手工 vs 系统)
     logs_summary = {"manual": 0, "ai_extracted": 0, "sprint_close": 0, "system": 0}

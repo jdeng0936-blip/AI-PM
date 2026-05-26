@@ -154,7 +154,8 @@ async def _get_app_access_token() -> Optional[str]:
 
     now = time.time()
     cached = _token_cache.get("token")
-    expires_at = float(_token_cache.get("expires_at", 0))
+    # _token_cache: dict[str, object];运行时 expires_at 字段语义 float
+    expires_at = float(_token_cache.get("expires_at", 0))  # type: ignore[arg-type]
     if cached and expires_at > now + 60:
         return str(cached)
 
