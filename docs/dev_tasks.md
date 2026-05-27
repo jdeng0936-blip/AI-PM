@@ -39,7 +39,7 @@
     - `calculate_kpi_achievement(db, period) -> list[KpiAchievementRow]` —— 复用 Phase 7 的 MV(`mv_daily_user_stats / mv_weekly_dept_stats`)+ 现有 `analytics_service` 中的部门聚合做 actual 值,缺数据时 `actual=None / gap=None` 而不是 0。
 
 ### 路由层 (routers/)
-- [ ] **Task 3 (T-903): `/api/v1/admin/kpi` 三端点**
+- [/] **Task 3 (T-903): `/api/v1/admin/kpi` 三端点**  *(In Progress by Codex)*
   - 新增 `backend/app/routers/kpi.py`(`prefix="/api/v1/admin/kpi"`,`tags=["KPI"]`),并在 `app.main.py` 注册。
   - `GET /` — 列出所有目标,`require_role(UserRole.admin, UserRole.manager)`。
   - `POST /` — 创建/更新目标,同样 RBAC。请求体经 Pydantic 校验 scope/metric/period 枚举。
@@ -100,14 +100,17 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-902**(已自动锁定为 `[/]`)—— Pydantic Schemas + KPI 服务层
-- **执行入口**: 阅读 `docs/T-902_spec.md`,不要重复 `chore(lock)`,直接编码。
+- **当前持牌任务**: **T-903**(已自动锁定为 `[/]`)—— `/api/v1/admin/kpi` 三端点 + RBAC + main 注册
+- **执行入口**: 阅读 `docs/T-903_spec.md`,不要重复 `chore(lock)`,直接编码。
 - **核心动作**:
-  1. 新建 `backend/app/schemas/kpi.py`:`KpiTargetIn` / `KpiTargetOut` / `KpiAchievementRow` / `KpiAchievementResponse` 四个 Pydantic v2 模型。
-  2. 新建 `backend/app/services/kpi_service.py`:`list_kpi_targets` / `upsert_kpi_target`(走 PG `ON CONFLICT DO UPDATE`,依赖 T-901-FIX 的 `NULLS NOT DISTINCT` UNIQUE)/ `calculate_kpi_achievement`(复用 Phase 7 MV,缺数据时 `actual=None / gap=None`)。
-  3. **不写 router、不写测试、不动前端** —— 那是 T-903 / T-904 / T-905 的事。
-- **闸门**: `ruff check` + `mypy app/schemas/kpi.py app/services/kpi_service.py` + 一个最小 smoke `python -c "from app.services.kpi_service import list_kpi_targets, upsert_kpi_target, calculate_kpi_achievement"` 必须无异常。
+  1. 新建 `backend/app/routers/kpi.py`(`prefix="/api/v1/admin/kpi"`,`tags=["KPI"]`),三端点:
+     - `GET /` —— 复用 `list_kpi_targets`,RBAC `admin / manager`。
+     - `POST /` —— 复用 `upsert_kpi_target`,Body 入参 `KpiTargetIn`,RBAC `admin / manager`,返回 `KpiTargetOut`。
+     - `GET /achievement` —— Query `period` 默认 `monthly`,Pydantic Enum 校验非法值自动 422,复用 `calculate_kpi_achievement`,RBAC `admin / manager`。
+  2. 在 `backend/app/main.py` 的 router 注册区(参考既有 `app.include_router(analytics.router)`)插一行 `app.include_router(kpi.router)`。
+  3. **不写测试、不动前端** —— 那是 T-904 / T-905 的事。
+- **闸门**: `ruff check` + `mypy app/routers/kpi.py` + 服务启动 smoke(`from app.main import app; print([r.path for r in app.routes if "/admin/kpi" in r.path])` 必须列出 3 条路径) + 403/422 路径靠 §5 指挥官内联脚本复测。
 - **完工提交序列**:
-  1. `feat(kpi): add pydantic schemas and service layer for kpi targets`(含 2 个文件)
-  2. 改 `docs/dev_tasks.md` Task 2 → `[x]`,再提 `chore(progress): close T-902`
-- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-903(routers)。
+  1. `feat(kpi): add /api/v1/admin/kpi router with RBAC`(含 2 个文件:新 router + main.py 注册行)
+  2. 改 `docs/dev_tasks.md` Task 3 → `[x]`,再提 `chore(progress): close T-903`
+- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-904(tests)。
