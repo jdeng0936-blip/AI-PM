@@ -14,6 +14,7 @@ from app.routers import (
     analytics,
     auth,
     dashboard,
+    departments,
     erp,
     export,
     gates,
@@ -131,6 +132,7 @@ app.include_router(me_deletions.router)
 app.include_router(export.router)
 app.include_router(analytics.router)
 app.include_router(kpi.router)
+app.include_router(departments.router)
 # ── 基础功能 ─────────────────────────────────────
 app.include_router(wechat.router)
 app.include_router(dashboard.router)
