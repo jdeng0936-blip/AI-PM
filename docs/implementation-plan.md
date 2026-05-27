@@ -701,6 +701,38 @@ async def calculate_kpi_achievement(period: str = "monthly") -> list[dict]:
     return results
 ```
 
+### 实际落地路径(Phase 9)
+
+Phase 9 实际落地相对 plan 原文存在以下偏差,已在 `T-901` ~ `T-907` 系列契约中逐步校正或记录:
+
+| 维度 | plan 原文 | 实际落地 | 原因 |
+|------|---------|---------|------|
+| 主键 | `id SERIAL PRIMARY KEY` | SQLAlchemy `Integer, primary_key=True, autoincrement=True` | ORM 等价,声明形式不同 |
+| created_by | `INT REFERENCES users(id)` | `UUID, FK → users.id`,可空 | 本项目 `users.id` 类型为 UUID,plan 误写为 INT |
+| 路由前缀 | `/api/admin/kpi` | `/api/v1/admin/kpi` | 全局规约 `/api/v1/` |
+| BaseMixin 字段 | 仅 `updated_at` | `+ tenant_id` `+ created_at`(继承 `app.models.base_mixin.BaseMixin`) | 多租户与审计字段统一注入 |
+| UNIQUE 约束 | (未提及) | `UNIQUE(scope, scope_value, metric, period) NULLS NOT DISTINCT` (PG 15+ 语义) | T-901-FIX 补,解决 `scope_value IS NULL` 时默认 NULL DISTINCT 失效 |
+| metric 枚举 | `submit_rate / avg_score / sprint_completion / blocker_resolve_days` | 后端 DB/ORM 当前仍为 `submit_rate / avg_score / sprint_completion / blocker_resolve_days`;T-905/T-906 前端契约已使用 `objective_completion` 展示 | T-907 勘察发现前后端命名漂移;本任务按契约只补文档与测试,不改 src |
+
+实际对外 API 路径(沿用 FastAPI router `prefix="/api/v1/admin/kpi"`):
+
+| 方法 | 实际路径 | 说明 |
+|------|----------|------|
+| GET  | `/api/v1/admin/kpi/` | 列出全部 KPI 目标,`require_role(admin, manager)` |
+| POST | `/api/v1/admin/kpi/` | upsert 目标(UNIQUE 冲突走 ON CONFLICT DO UPDATE),`require_role(admin, manager)` |
+| GET  | `/api/v1/admin/kpi/achievement?period=weekly\|monthly\|quarterly` | 达成率快照,**不带尾斜杠**;默认 `monthly`,非法值 422 |
+
+达成率响应 `KpiAchievementRow` 扩展字段(plan 未覆盖):
+
+- `gap = actual_value - target_value`,缺数据时 `None`
+- `achievement_rate = actual_value / target_value * 100`,缺数据时 `None`
+- `status` 三态: `on_track`(达成) / `below_target`(未达成) / `no_data`(缺源)
+
+实际 actual_value 数据源:
+- `submit_rate` / `avg_score` → Phase 7 `mv_daily_user_stats` / `mv_weekly_dept_stats` 按 period 聚合
+- `sprint_completion` / `blocker_resolve_days` → 暂无聚合源,固定返回 `no_data`(后续 KPI/OKR 聚合阶段实现)
+- 前端 T-905/T-906 当前以 `objective_completion` 文案展示 OKR 完成率;后端仍使用 `sprint_completion`,需要后续专项统一命名
+
 ---
 
 ## 10. 部门与项目分组
