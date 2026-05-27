@@ -144,6 +144,7 @@
   - 过滤口径锁定:**强制** `DailyReport.deleted_at.is_(None) + DailyReport.tenant_id == "default"`;`group_by=project` 额外叠加 `Project.deleted_at.is_(None)` + `inner join Project`(剔除未挂项目日报);**不**过滤 `User.is_active`(用户状态不影响历史日报聚合权重)。
   - 与现有端点并存(签字):`trends.py /department-stats` / `dashboard.py /temp-ticket-summary` / `dashboard.py /weekly-stats` **保留不动**,T-1005 新增端点供 T-1006 前端 Dashboard Tabs 切换器消费,**禁止**改既有端点。
   - **完整执行契约见 `docs/T-1005_spec.md`**(必读)。
+  - **验收回执(指挥官 `[2026-05-27 20:49:30]`)**:§8 验收清单 17 项 100% 通过。文件隔离正确(feat 4 文件 = main.py 插入式 2 行 + 3 新建 / chore 1 文件 dev_tasks.md +1 -1,零夹带 alembic/tests/frontend/models/dashboard.py/trends.py/reports.py/departments.py);代码闸门全绿(ruff All passed / mypy 目标 4 文件 0 error[现有 analytics.py + scheduled_tasks.py 4 个存量 error 与 T-1004 同源,spec §6 已签字不修] / pytest `160 passed, 2 skipped` 零回归 / alembic check `No new upgrade operations detected.` head 仍 `b58bb129c24b` / 前端 lint+typecheck 干净);Schema 3 公开类型对齐 §3.1 / Service 2 公开 + 2 `_*` 私有零 HTTPException 对齐 §3.2 / Router 1 GET + `_map_value_error` 仅映射 `date_range_invalid` + 兜底 500 对齐 §3.3 / RBAC `admin + manager` 零 employee / 过滤口径强制 `DailyReport.deleted_at.is_(None) + tenant_id == "default" + Project.deleted_at.is_(None)`(仅 project 路径) + **不**过滤 `User.is_active`;`group_by=project` 用 inner join 剔除 NULL project_id 行;两 commit 均含 `Worker timestamp:` 行;📣 锚点 T-1005 持牌保留待统一替换。
 
 - [ ] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页**
   - 新建 `frontend/src/app/admin/departments/page.tsx`(表格 + 新建 Modal,字段 name + manager_id,调 `/api/v1/admin/departments`)。
