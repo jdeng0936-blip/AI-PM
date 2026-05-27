@@ -125,10 +125,13 @@
   - **不**写 service / router / schema(留给 T-1004) / 前端 / 测试 / `scripts/seed_data.py`。
   - **完整执行契约见 `docs/T-1003_spec.md`**(必读)。
 
-- [ ] **Task 4 (T-1004): `/api/v1/admin/departments` 服务 + 路由**
-  - 新建 `backend/app/schemas/department.py`(`DepartmentIn / Out / WithMembers`)。
-  - 新建 `backend/app/services/department_service.py`(`list / create / get_with_members` 三函数,后者从 `User` 反查 `department == name`)。
-  - 新建 `backend/app/routers/departments.py`(`prefix="/api/v1/admin/departments"`, `tags=["Departments"]`),3 端点:GET 列表 / POST 新建 / GET `{id}/members`,RBAC `require_role(admin, manager)`。
+- [/] **Task 4 (T-1004): `/api/v1/admin/departments` 服务 + 路由(5 端点 CRUD + members 反查)** — In Progress by Codex(指挥官 chore(spec) commit 已加锁,`[2026-05-27 19:30:00]`)
+  - 新建 `backend/app/schemas/department.py`(`DepartmentIn / DepartmentUpdate / DepartmentOut / DepartmentMember / DepartmentWithMembers` 共 5 个 Pydantic V2 schemas)。
+  - 新建 `backend/app/services/department_service.py`(5 个 async 公开函数 `list_departments / create_department / update_department / delete_department / get_department_with_members`,**不 raise HTTPException**,统一 ValueError("not_found"|"name_conflict"|"manager_not_found") 错误信号)。
+  - 新建 `backend/app/routers/departments.py`(`prefix="/api/v1/admin/departments"`, `tags=["Departments"]`),5 端点 + `_map_value_error` 映射:GET `/`(列表) / POST `/`(201) / GET `/{id}/members` / **PATCH `/{id}`(部分更新)** / **DELETE `/{id}`(204 硬删除)**,RBAC `require_role(admin, manager)`。
+  - 改 `backend/app/main.py`(插入式 2 行:import 块 `departments,` 在 `dashboard` 与 `erp` 之间;`app.include_router(departments.router)` 紧邻 `kpi` 之后)。
+  - 成员反查口径:`GET /{id}/members` 从 `User.department: String(64)` 等值反查 + `deleted_at IS NULL` + `tenant_id = "default"` 过滤,按 `name asc` 排序,字段裁剪到 `id / name / role / department`。
+  - **完整执行契约见 `docs/T-1004_spec.md`**(必读)。
 
 - [ ] **Task 5 (T-1005): `/api/v1/admin/reports?group_by=` 对外分组端点**
   - 在 `routers/dashboard.py` 或新建 `routers/admin_reports.py` 中新增 `GET /api/v1/admin/reports?group_by=department|project&project_id=&start_date=&end_date=` 端点,把现有 `dashboard.py L319 / trends.py L99` 的内部 SQL `GROUP BY` 包装成对外 query param。
@@ -175,40 +178,60 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 19:00:00]`(指挥官 T-1003 spec 落盘 + 锚点替换)
+> **更新时间戳**: `[2026-05-27 19:30:00]`(指挥官 T-1004 spec 落盘 + 锚点替换)
 
-- **当前持牌任务**: **T-1003**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 3 = `[/]`)—— Phase 10 **第二份代码任务,数据层主线轮**:新建 `departments` 独立表 + ORM `Department` 类 + Alembic migration 建表 + bulk_insert 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部)。**3 个 src 文件改动 + 1 条 migration,严禁夹带任何 service / router / schema / 前端 / 测试 / `User.department` 字段改造**。
-- **执行入口**: 阅读 `docs/T-1003_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `4f8e370435ea`,即 T-1002 落地后的 head),抄到新 migration 的 `down_revision`,**不要硬编码**。
-- **核心动作**(严格按 T-1003_spec §3 顺序):
-  1. **新建** `backend/app/models/department.py` —— `class Department(BaseMixin, Base)`,3 字段:`id UUID PK default uuid.uuid4` / `name Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment=...)` / `manager_id Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True, comment=...)`。BaseMixin 自动注入 `created_at/updated_at/created_by/tenant_id`。**严禁**加 `relationship` / `__table_args__` / 业务方法 / classmethod / property。
-  2. **新建** `backend/alembic/versions/20260527_<HHMM>_phase10_create_departments_table.py` —— `revision_id` 12 位随机 hex(`python -c "import secrets; print(secrets.token_hex(6))"`);`down_revision = "4f8e370435ea"`(或 `alembic heads` 实测值)。`upgrade()` 执行:① `op.create_table("departments", ...)` 含 7 列(`id UUID PK` + `name String(64) NOT NULL` + `manager_id UUID FK→users.id ON DELETE SET NULL nullable=True` + BaseMixin 4 列 `created_at/updated_at/created_by/tenant_id`) + `sa.UniqueConstraint("name", name="uq_departments_name")`;② `op.create_index("ix_departments_manager_id", ..., ["manager_id"])` + `op.create_index("ix_departments_tenant_id", ..., ["tenant_id"])`;③ `op.bulk_insert(sa.table("departments", ...), [...])` 写入 7 seed,**顺序严格锁定**为 `技术部/生产部/采购部/财务部/商务部/销售部/仓储部`,每行 `manager_id=None`,`tenant_id="default"`,`id` 用 Python 端 `uuid.uuid4()` 预生成(`import uuid as _uuid` + `"id": _uuid.uuid4()`)。`downgrade()` 反向 `drop_index` ×2 + `drop_table("departments")`。docstring 按本仓库模板写**实际背景/变更/实现说明**,**不要保留模板占位**(pre-commit hook 会拒绝)。
-  3. **改** `backend/app/models/__init__.py` —— ① **插入** 1 行 `from app.models.department import Department`(放在 `from app.models.deletion_history import DeletionHistory` 之后,`from app.models.gate_review import GateReview` 之前);② 在 `__all__` 列表中**插入** 1 个 `"Department",`(放在 `"DeletionHistory",` 之后,`"RiskAlert",` 之前)。**严禁**重排其他 import 或 `__all__` 元素,**严禁**删除任何分块注释(`# --- Mixin ---` 等)。
-  4. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 3 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1004 时统一替换)。
+- **当前持牌任务**: **T-1004**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 4 = `[/]`)—— Phase 10 **第三份代码任务,服务/路由层主线轮**:新建 `/api/v1/admin/departments` 5 端点(CRUD + 成员反查),`schemas + service + router` 三件套 + `main.py` 注册。**4 个 src 文件改动(3 新建 + 1 插入式) + 1 个 dev_tasks.md 收口,严禁夹带任何 ORM / migration / 测试 / 前端 / `User.department` 字段改造**。
+- **执行入口**: 阅读 `docs/T-1004_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置探针**: `grep -n "deleted_at" backend/app/models/user.py` 确认字段存在(若不存在立即停手报告);`grep -n "from app.routers import" backend/app/main.py` 确认 import 块字母序结构(以决定 `departments` 插入点)。
+- **核心动作**(严格按 T-1004_spec §3 顺序):
+  1. **新建** `backend/app/schemas/department.py` —— Pydantic V2,5 个 class:`DepartmentIn(name str 1-64, manager_id UUID|None)` / `DepartmentUpdate(name?, manager_id?)` / `DepartmentOut(id, name, manager_id, created_at, updated_at, created_by, tenant_id, ConfigDict(from_attributes=True))` / `DepartmentMember(id, name, role: UserRole, department, ConfigDict(from_attributes=True))` / `DepartmentWithMembers(DepartmentOut + members: list[DepartmentMember])`。**严禁**加 validator / @property / Computed。
+  2. **新建** `backend/app/services/department_service.py` —— 5 个公开 async 函数 + 2 个 `_` 私有助手:`_get_department_or_raise(db, dept_id) -> Department`(404 → `raise ValueError("not_found")`);`_verify_manager_exists(db, manager_id)`(400 → `raise ValueError("manager_not_found")`);`list_departments` / `create_department(payload, actor)` / `update_department(dept_id, payload, actor)`(都在 `IntegrityError` 时 `raise ValueError("name_conflict")`) / `delete_department(dept_id)` / `get_department_with_members(dept_id)`(从 `User.department` 等值反查 + `deleted_at IS NULL` + `tenant_id="default"` + `order_by(User.name.asc())`)。**严禁 raise HTTPException**(违反 kpi_service 体例);**严禁** 引入 `app.routers.*`;**严禁** print / logger。常量 `TENANT_ID = "default"`。
+  3. **新建** `backend/app/routers/departments.py` —— `router = APIRouter(prefix="/api/v1/admin/departments", tags=["Departments"])` + `_mgr_or_admin = require_role(UserRole.admin, UserRole.manager)` + `_map_value_error(exc) -> HTTPException`(映射 `not_found→404` / `name_conflict→409` / `manager_not_found→400`,兜底 500)。5 端点:`GET /` (`list[DepartmentOut]`) / `POST /` (201 `DepartmentOut`) / `GET /{dept_id}/members` (`DepartmentWithMembers`) / `PATCH /{dept_id}` (`DepartmentOut`) / `DELETE /{dept_id}` (204 `Response`)。每个端点 try/except ValueError + `raise _map_value_error(e) from None`。**严禁** router 层做 ORM 查询;**严禁** RBAC 加 employee 或去 manager;**严禁** 加 / 减端点。
+  4. **改** `backend/app/main.py` —— 插入式 2 行:① 在 `from app.routers import (...)` 块中 `departments,` 插在 `dashboard,` 之后 `erp,` 之前(字母序);② `app.include_router(departments.router)` 紧邻 `app.include_router(kpi.router)` 之后。**严禁** 重排其他 import 或 include_router 顺序;**严禁** 改 Sentry 初始化 / lifespan / 中间件挂载。
+  5. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 4 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1005 时统一替换)。
 - **严禁项**(违反则立即回滚):
-  - **严禁**改 `User.department` 字段(`String(64), nullable=False, default=""` 保留原样;FK 化迁移延后到 Phase 11+)。
-  - **严禁**改任何其他 model(`User / Project / ProjectMember / KpiTarget` 等全冻结)。
-  - **严禁**写 service / router / schema(留给 T-1004) —— 这次只动 `department.py` 新建 + `__init__.py` 插入 + 1 个新 migration。
-  - **严禁**改 `frontend/src/` 任何文件(留给 T-1006)。
-  - **严禁**补任何测试(留给 T-1007 集中补 Phase 10 测试套件)。
-  - **严禁**改 `backend/scripts/seed_data.py`(本 task seed 走 alembic `bulk_insert`,与初始化脚本解耦)。
-  - **严禁**给 `Department` 加 `relationship` / `back_populates` / `members` 反向关系(留给 Phase 11+)。
-  - **严禁**碰 `backend/uv.lock`(继续 untracked)。
-  - **严禁**在迁移里写 `UPDATE / DELETE` 任何数据 SQL,**严禁**触动 `users` 表的数据 —— 若 upgrade 失败,**不要自行清洗**,立即停手向指挥官报告。
-  - **严禁**改 `__init__.py` 时重排其他 import 或 `__all__` 元素顺序(只允许插入)。
-  - **严禁**自动 `git push`。
-  - **严禁**自行启动 T-1004。
-  - **严禁**改 📣 锚点("当前持牌任务: T-1003" 保留,留给指挥官在起草 T-1004 时统一替换)。
-- **7 seed 顺序锁定**:`SEED_DEPARTMENTS = ["技术部", "生产部", "采购部", "财务部", "商务部", "销售部", "仓储部"]` —— **不可重排**,T-1007 测试会按此顺序 assert。
+  - **严禁**改 `backend/app/models/` 任何文件(`department.py / user.py / __init__.py / *` 全冻)。
+  - **严禁**新增任何 alembic migration(本任务零 DB schema 改动)。
+  - **严禁**改 `User.department: String(64)` 字段定义。
+  - **严禁**写测试(留给 T-1007 集中补 Phase 10 测试套件)。
+  - **严禁**改 `frontend/src/` 任何文件(留给 T-1006 前端 Tabs + admin/departments 页)。
+  - **严禁**改 `backend/scripts/seed_data.py`。
+  - **严禁** service 层 raise `HTTPException`(违反 kpi_service 体例)。
+  - **严禁** router 层做 ORM 查询(全部走 service 函数)。
+  - **严禁** 自行扩端点(PUT / OPTIONS / HEAD)或减端点 —— 必须严格 5 个。
+  - **严禁** RBAC 范围加 `employee` 或去掉 `manager`。
+  - **严禁** 重排 `main.py` import 块或 `include_router` 的其他元素。
+  - **严禁** 给 service / router 加 `print` 或 `logger.info` 副作用。
+  - **严禁** 碰 `backend/uv.lock` / `.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md`(继续 untracked)。
+  - **严禁** 自动 `git push`。
+  - **严禁** 自行启动 T-1005 / T-1006 / T-1007 / T-1008。
+  - **严禁** 改 📣 锚点("当前持牌任务: T-1004" 保留,留给指挥官在起草 T-1005 时统一替换)。
+- **端点 + 错误码 + RBAC 锁定表**(必须 100% 对齐,T-1007 测试会按此 assert):
+
+  | 方法 | 路径 | 响应模型 | 状态码 | RBAC |
+  |------|------|----------|--------|------|
+  | GET    | `/api/v1/admin/departments/`              | `list[DepartmentOut]`     | 200 | admin + manager |
+  | POST   | `/api/v1/admin/departments/`              | `DepartmentOut`           | 201 | admin + manager |
+  | GET    | `/api/v1/admin/departments/{dept_id}/members` | `DepartmentWithMembers` | 200 | admin + manager |
+  | PATCH  | `/api/v1/admin/departments/{dept_id}`     | `DepartmentOut`           | 200 | admin + manager |
+  | DELETE | `/api/v1/admin/departments/{dept_id}`     | (无 body)                  | 204 | admin + manager |
+
+  | service ValueError 字面量 | router HTTPException | detail |
+  |--------------------------|----------------------|--------|
+  | `"not_found"`            | 404 | `"部门不存在"` |
+  | `"name_conflict"`        | 409 | `"部门名称已存在"` |
+  | `"manager_not_found"`    | 400 | `"manager_id 对应的用户不存在或已删除"` |
+
 - **闸门**(都必须绿):
   ```bash
   cd backend
-  .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head && .venv/bin/alembic check
-  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped(零回归)
-  .venv/bin/ruff check . && .venv/bin/mypy app/models/department.py app/models/__init__.py
+  .venv/bin/ruff check .
+  .venv/bin/mypy app/schemas/department.py app/services/department_service.py app/routers/departments.py app/main.py
+  .venv/bin/pytest tests/ -q                                   # 必须零回归(与 T-1003 完工基线一致)
+  .venv/bin/alembic upgrade head && .venv/bin/alembic check    # 本任务零 migration,head 不变
   cd ../frontend && npm run lint && npm run typecheck          # 前端无破坏验证
   ```
 - **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `feat(department): add Department model + migration + 7 seed (技术部/生产部/采购部/财务部/商务部/销售部/仓储部)`(只含 `backend/app/models/department.py` 新建 + `backend/app/models/__init__.py` 插入式改动 + 新 alembic migration 共 3 个文件)
-  2. `chore(progress): close T-1003 — departments 表 + 7 seed 落地`(只含 `docs/dev_tasks.md`,Task 3 → `[x]`)
+  1. `feat(department): add Department service + router + 5 endpoints (CRUD + members)`(只含 `backend/app/schemas/department.py` 新建 + `backend/app/services/department_service.py` 新建 + `backend/app/routers/departments.py` 新建 + `backend/app/main.py` 插入式 2 行 共 4 个文件)
+  2. `chore(progress): close T-1004 — /api/v1/admin/departments 5 端点 + 成员反查上线`(只含 `docs/dev_tasks.md`,Task 4 → `[x]`)
 - **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
-- **完工后**: 立即停手汇报「T-1003 完工,等待指挥官二次验收 + 起草 T-1004 (`/api/v1/admin/departments` 服务 + 路由) 实施契约」。**不要**自行启动 T-1004。
+- **完工后**: 立即停手汇报「T-1004 完工,等待指挥官二次验收 + 起草 T-1005 (`/api/v1/admin/reports?group_by=` 分组端点) 或 T-1007 (测试集中补) 实施契约」。**不要**自行启动任何下游 task。
