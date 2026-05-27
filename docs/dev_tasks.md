@@ -78,7 +78,7 @@
   - **完整执行契约见 `docs/T-907_spec.md`**(必读)。
 
 ### 漂移修复 (Drift Fixes)
-- [/] **Task 8 (T-908): 修 metric 枚举漂移 (In Progress by Codex)**
+- [x] **Task 8 (T-908): 修 metric 枚举漂移**
   - 出处:T-907 验收时勘察发现 —— 后端 ORM/migration `sprint_completion` 与前端 T-905/T-906 已 ship 的 `objective_completion` 命名不一致,导致前端 POST OKR 完成率会被后端 422,后端 seed `sprint_completion` 行在 dashboard 显示时指标名空白。
   - 修复:新增 alembic migration `ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'`(PG native enum 原子重命名,seed 自动同步),同步 ORM `KpiMetric` Enum 与 Pydantic schema docstring。
   - 不动前端 / 不动历史 migration / 不动测试代码 / 不动 service 逻辑。
