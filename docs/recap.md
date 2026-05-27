@@ -1,8 +1,9 @@
 # AI-PM Recap
 
 ## 最新进度摘要
+- [Phase 10] T-1001 §10 实物盘点 + plan 实际落地路径段落落盘(纯文档勘察,backend/frontend/tests 全冻结)
 - **V2.6 阶段**: Deletion Governance 的集成测试与 ESLint 规范修复已完成，工作区已清理并提交 (`f7987dd`)。
-- **当前阶段**: **Phase 9 KPI 目标设定**(已闭环)。
+- 当前阶段:Phase 10(勘察先行轮)
 - **架构指引**: 详见 `docs/implementation-plan.md` Section 9；实际路由前缀对齐现有 `/api/v1/admin/kpi`。
 - **Phase 7 Task 1**: 已创建 `mv_daily_user_stats` / `mv_weekly_dept_stats` Materialized Views 迁移，并在 scheduler 注册每日 00:45 刷新任务；本地 PostgreSQL 已验证 `alembic upgrade head`、MV refresh、`alembic check`。
 - **Phase 7 Task 2**: 已新增 `/api/analytics/*` FastAPI 接口：user-trend / department-compare / project-health / sprint-efficiency；集成测试覆盖 MV 读取、manager 访问和 employee 越权拦截。
@@ -21,6 +22,7 @@
 - **Phase 9 Task 8 (T-908)**: 修 metric 枚举漂移,后端 ORM/PG ENUM `sprint_completion` → `objective_completion`(单条 `ALTER TYPE RENAME VALUE` DDL 原子重命名 + seed 自动同步),前后端命名统一。Phase 9 PR 已自洽。
 
 ## 历史移交记录
+- [2026-05-27 by Commander] Phase 10 启动 — Phase 9 KPI 已 push origin/main(`0b2a150`),Phase 10 不擅自臆造任务,改派 T-1001 勘察先行,落盘 plan §10 实际落地路径表后再起草后续 task。
 - [2026-05-27] Phase 9 Task 8 (T-908) 完成:后端 KpiMetric `sprint_completion` → `objective_completion`,前后端枚举对齐,Phase 9 PR 闭环可推送。
 - [2026-05-27] Phase 9 Task 7 完成:`docs/recap.md` + `docs/implementation-plan.md §9` 同步,后端测试补全 3 个用例。Phase 9 闭环。
 - [2026-05-27] Phase 9 Task 6 (T-906) 完成:Dashboard `KpiAchievementPanel` 面板,target-vs-actual `CompareBarChart` + 状态彩色 tag 详情表;`/dashboard` 12.8 kB / 338 kB First Load。

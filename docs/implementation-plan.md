@@ -783,6 +783,39 @@ CREATE TABLE departments (
 // 返回: { "技术部": [...], "生产部": [...], "采购部": [...] }
 ```
 
+### 实际落地路径(Phase 10 勘察)
+
+Phase 10「部门与项目分组」启动前由指挥官派 T-1001 做实物盘点,实际状态相对 plan §10 原文如下:
+
+| 维度 | plan §10 原文 | V2.0 实际落地 | 状态 |
+|------|--------------|--------------|------|
+| 部门表 | `CREATE TABLE departments (...)` 独立表 + `manager_id FK` | 未发现 `Department` ORM;Alembic migrations 未命中 `departments` 表 | ❌ |
+| 部门字段 | (未明确) | `User.department: String(64), nullable=False, default=""`,普通字符串字段,非 FK | 部分 ✅ |
+| 项目成员关联 | `project_members(project_id, user_id, role)` | `ProjectMember` 已存在:`id UUID PK`,`project_id/user_id UUID FK CASCADE`,`track` enum(`hardware/software/both`),`role_in_project` 文本,`joined_at/left_at`,继承 BaseMixin;模型层未声明 `UNIQUE(project_id,user_id)` | 部分 ✅ |
+| 项目路由 | `/api/admin/reports?group_by=project&project_id=` | 已实现 `prefix="/api/v1/projects"` 的项目 CRUD / overview / 成员增删查端点;未实现 reports 的 `group_by=project` query param | 部分 ✅ |
+| 部门分组端点 | `/api/admin/reports?group_by=department` | 未发现对外 `group_by` query param;`trends.py` / `dashboard.py` / `analytics.py` 中存在内部 SQL `.group_by(...)` 聚合 | ❌ |
+| 前端切换器 | `<Tabs>` 全员/按部门/按项目 | `frontend/src/app/admin/` 仅有 `kpi` / `recycle-bin`;`frontend/src/app/projects/page.tsx` 未实现全员/部门/项目 `<Tabs>` 切换器 | ❌ |
+
+实际对外 API 路径(沿用 FastAPI router `prefix="/api/v1/projects"` 等):
+
+| 方法 | 实际路径 | 说明 |
+|------|----------|------|
+| POST | `/api/v1/projects/` | 立项并初始化 5 个 IPD 阶段,manager+ |
+| GET | `/api/v1/projects/overview` | 项目健康矩阵列表,支持分页、归档/临时项目开关、`health_status` 过滤 |
+| GET | `/api/v1/projects/{project_id}` | 项目详情 + 阶段列表 |
+| PATCH | `/api/v1/projects/{project_id}` | 更新项目基础信息,manager+ |
+| DELETE | `/api/v1/projects/{project_id}` | 项目归档,manager+ |
+| POST | `/api/v1/projects/{project_id}/members` | 添加项目成员,manager+ |
+| GET | `/api/v1/projects/{project_id}/members` | 查询项目当前成员,返回成员姓名、部门、轨道、项目内角色 |
+| DELETE | `/api/v1/projects/{project_id}/members/batch` | 批量移出项目成员,写入 `left_at`,manager+ |
+| GET | `/api/v1/trends/department-stats?days=` | 部门评分/提交率统计,使用内部 `GROUP BY User.department`,不是 `/api/admin/reports?group_by=department` |
+
+**待补齐清单**(Phase 10 后续 task 候选):
+
+- `departments` 独立表 / ORM / migration 尚未落地,当前仅有 `users.department` 字符串字段。
+- `/api/admin/reports?group_by=department` 与 `/api/admin/reports?group_by=project&project_id=` 对外 reports 分组端点尚未落地。
+- 前端总经理看板的全员 / 按部门 / 按项目 Tabs 切换器尚未落地。
+
 ---
 
 ## 完整实施路线（13 周）
