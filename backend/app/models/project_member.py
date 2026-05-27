@@ -16,7 +16,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, String
+from sqlalchemy import Date, Enum, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -31,6 +31,15 @@ class MemberTrack(str, enum.Enum):
 
 class ProjectMember(BaseMixin, Base):
     __tablename__ = "project_members"
+    __table_args__ = (
+        Index(
+            "ix_project_members_project_user_active",
+            "project_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("left_at IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
