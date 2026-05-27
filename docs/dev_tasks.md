@@ -77,6 +77,13 @@
   - 在 `backend/tests/test_kpi_phase9.py` 末尾追加 3 个测试(achievement 真路径计算 / router POST 创建 / manager RBAC),`pytest -v` 应 12 passed。
   - **完整执行契约见 `docs/T-907_spec.md`**(必读)。
 
+### 漂移修复 (Drift Fixes)
+- [/] **Task 8 (T-908): 修 metric 枚举漂移 (In Progress by Codex)**
+  - 出处:T-907 验收时勘察发现 —— 后端 ORM/migration `sprint_completion` 与前端 T-905/T-906 已 ship 的 `objective_completion` 命名不一致,导致前端 POST OKR 完成率会被后端 422,后端 seed `sprint_completion` 行在 dashboard 显示时指标名空白。
+  - 修复:新增 alembic migration `ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'`(PG native enum 原子重命名,seed 自动同步),同步 ORM `KpiMetric` Enum 与 Pydantic schema docstring。
+  - 不动前端 / 不动历史 migration / 不动测试代码 / 不动 service 逻辑。
+  - **完整执行契约见 `docs/T-908_spec.md`**(必读)。
+
 ## 质量闸门(Codex 提交前必跑)
 
 ```bash
@@ -104,29 +111,35 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-907**(已自动锁定为 `[/]`)—— **Phase 9 收官**:文档同步 + 后端测试补全 3 个用例,**纯文档 + 纯测试**,**严禁动 src 代码**。
-- **执行入口**: 阅读 `docs/T-907_spec.md`,不要重复 `chore(lock)`,直接动手。
+- **当前持牌任务**: **T-908**(已自动锁定为 `[/]`)—— Phase 9 **修补任务 + PR push 前最后一份契约**:统一前后端 KPI metric 枚举命名,**改后端单边**(ORM + Pydantic schema docstring + 新增 alembic migration `ALTER TYPE kpi_metric RENAME VALUE`),**不动前端、不动历史 migration、不动测试**。
+- **执行入口**: 阅读 `docs/T-908_spec.md`,不要重复 `chore(lock)`,直接动手。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `b4f6a8d2c9e1`),抄到新 migration 的 `down_revision`,**不要硬编码**。
 - **核心动作**:
-  1. **改** `docs/recap.md` —— line 5「当前阶段」改成 `**Phase 9 KPI 目标设定**(已闭环)` + 在「最新进度摘要」段末追加 6 条 Phase 9 bullet(T-901 ~ T-907)+ 在「历史移交记录」段顶部插入 7 条 `[2026-05-27]` 时间戳条目。详见 T-907_spec §3。
-  2. **追加** `docs/implementation-plan.md §9` —— 在 line 703 代码块结束之后、line 705 `---` 分隔符之前,新增 `### 实际落地路径(Phase 9)` 子节,内含偏差表(6 维度)+ 实际 API 路径表 + KpiAchievementRow 数据契约。详见 T-907_spec §4.2。
-  3. **追加** `backend/tests/test_kpi_phase9.py` —— 在文件末尾追加 3 个测试函数:`test_calculate_achievement_with_real_data`(种入 daily_reports + REFRESH MV + 算 gap/achievement_rate/status)、`test_router_post_creates_new_target`(POST 创建新行 + DB 持久化校验 + `created_by==str(admin.id)`)、`test_router_manager_get_returns_200`(manager 角色 RBAC 200)。**沿用现有 fixture**,不要新建文件。详见 T-907_spec §5.3。
-  4. **改** `docs/dev_tasks.md` —— Task 7 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
+  1. **新建** `backend/alembic/versions/20260527_<HHMM>_phase9_rename_metric_objective_completion.py` —— `upgrade()` 执行 `ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'`,`downgrade()` 反向 RENAME。docstring 按本仓库模板写实际背景/变更/实现说明,**不要保留模板占位**(pre-commit hook 会拒绝)。
+  2. **改** `backend/app/models/kpi_target.py:35` —— `sprint_completion = "sprint_completion"` → `objective_completion = "objective_completion"`,**Python Enum 顺序保持原位**(改名不重排)。
+  3. **改** `backend/app/schemas/kpi.py:7` 顶部 docstring —— metric 集合改为 `{submit_rate, avg_score, blocker_resolve_days, objective_completion}`。
+  4. **改** `docs/implementation-plan.md §9 实际落地路径(Phase 9)` 段 —— metric 枚举那一行从「漂移待修」改成「T-908 已统一」,数据源段把 `sprint_completion` 改成 `objective_completion`。详见 T-908_spec §3.4。
+  5. **改** `docs/recap.md` —— 在「最新进度摘要」段尾追加 1 条 Task 8 bullet,在「历史移交记录」顶部插入 1 条 [2026-05-27] 时间戳条目。详见 T-908_spec §3.5。
+  6. **改** `docs/dev_tasks.md` —— Task 8 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
 - **重要不要做**:
-  - **不要**改 `app/` `frontend/src/` 任何源代码(包括 model/schema/router/service/页面/组件/api 客户端)。T-907 是纯文档 + 纯测试任务。
-  - **不要**新建 Alembic migration。
-  - **不要**新建任何 src 文件,新测试**只追加**到现有 `tests/test_kpi_phase9.py`。
+  - **不要**改 `frontend/` 任何文件 —— 前端 `api/kpi.ts` / `admin/kpi/page.tsx` / `kpi-achievement-panel.tsx` 已经是目标命名。
+  - **不要**改历史 alembic migration(`20260527_1234_phase9_add_kpi_targets.py` + `_1317_phase9_fix_kpi_targets_unique_nulls.py`),即使其中 docstring/字面量含 `sprint_completion` —— 历史事实保留,alembic 顺序执行最终态正确。
+  - **不要**写 `UPDATE kpi_targets SET metric = ...` —— enum RENAME VALUE 自动同步元数据,自己 UPDATE 会因 enum cast 失败。
+  - **不要**改 `backend/app/services/kpi_service.py` —— `objective_completion` 继续走 no_data 分支,这是预期行为(actual 聚合留待 Phase 11+)。
+  - **不要**改测试代码 —— 现有 12 个测试不引用 `sprint_completion`,T-908 不补新测试,`pytest -v` 应自动仍 12 passed。
   - **不要**碰 `backend/uv.lock`(继续 untracked)。
-  - **不要**改 plan §9 原 SQL/API 表(只追加新子节)。
-  - **不要**自动 `git push`(由指挥官 Phase 9 sign-off 后统一推送)。
-  - **不要**自行启动 Phase 10(部门与项目分组)—— 那是另一份独立立项。
-- **闸门**(三步都必须绿):
+  - **不要**自动 `git push`(完工后由指挥官最终 sign-off 后统一推送 51+ commit)。
+  - **不要**自行启动 Phase 10。
+- **闸门**(都必须绿):
   ```bash
-  cd backend && .venv/bin/pytest tests/test_kpi_phase9.py -v       # 必须 12 passed(9 旧 + 3 新)
-  cd backend && .venv/bin/pytest tests/                            # 防回归全套
-  cd backend && .venv/bin/ruff check . && .venv/bin/mypy app/models/kpi_target.py app/services/kpi_service.py app/routers/kpi.py
+  cd backend
+  .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head && .venv/bin/alembic check
+  .venv/bin/pytest tests/test_kpi_phase9.py -v                # 必须 12 passed
+  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped
+  .venv/bin/ruff check . && .venv/bin/mypy app/models/kpi_target.py app/services/kpi_service.py app/routers/kpi.py
+  cd ../frontend && npm run lint && npm run typecheck         # 前端无破坏验证
   ```
 - **完工提交序列**(原子 3 commit,**顺序不可乱**):
-  1. `test(kpi): backfill achievement-with-data + POST insert + manager RBAC`(只含 `backend/tests/test_kpi_phase9.py`)
-  2. `docs(kpi): Phase 9 recap + plan §9 actual landing path`(只含 `docs/recap.md` + `docs/implementation-plan.md`)
-  3. `chore(progress): close T-907 + Phase 9 closeout`(只含 `docs/dev_tasks.md`,Task 7 → `[x]`)
-- **完工后**: 立即停手,等指挥官最终二次验收。T-907 是 **Phase 9 最后一个任务**,通过后指挥官将进入 Phase 9 整体 PR sign-off + 推送动作。
+  1. `fix(kpi): rename metric sprint_completion to objective_completion`(只含 `backend/app/models/kpi_target.py` + `backend/app/schemas/kpi.py` + 新 alembic migration)
+  2. `docs(kpi): mark Phase 9 metric drift resolved by T-908`(只含 `docs/implementation-plan.md` + `docs/recap.md`)
+  3. `chore(progress): close T-908 + Phase 9 PR ready`(只含 `docs/dev_tasks.md`,Task 8 → `[x]`)
+- **完工后**: 立即停手,等指挥官最终二次验收 + Phase 9 PR 整体 sign-off + 统一推送 51+ commit。T-908 是 Phase 9 PR push 前**最后一份**契约。
