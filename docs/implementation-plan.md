@@ -636,6 +636,18 @@ async def export_reports(
         )
 ```
 
+### 实际落地路径(Phase 8)
+
+Phase 8 实现时沿用现有 FastAPI router 前缀 `prefix="/api/v1/export"`，因此实际对外路径为:
+
+| 方法 | 实际路径 | 说明 |
+|------|----------|------|
+| GET | `/api/v1/export/reports?format=xlsx&start_date=&end_date=&department=` | 日报多维汇总 Excel |
+| GET | `/api/v1/export/scores?format=pdf&month=YYYY-MM&department=` | 月度评分 PDF |
+| GET | `/api/v1/export/project-summary?format=xlsx&project_id=` | 单项目摘要 Excel |
+
+兼容接口 `/api/v1/export/daily-reports` 与 `/api/v1/export/daily-reports-csv` 保持不变。PDF 生成选型固定为 `reportlab`，中文字体通过 `scripts/fetch_export_font.py` 首次部署下载并做 SHA256 校验，字体二进制不提交到 git。
+
 ---
 
 ## 9. KPI 目标设定
@@ -1067,4 +1079,3 @@ CREATE TABLE knowledge_assets (
 - 当前 head:`d2c623c6291a`(`schema_sync_v2_1_cleanup`)
 - `alembic check` 已通过 ` No new upgrade operations detected`
 - 详细迁移链与上线动作清单见 `RELEASE_NOTES_V2.0.md`
-
