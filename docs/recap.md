@@ -6,8 +6,10 @@
 - **架构指引**: 详见 `docs/implementation-plan.md` Section 7。
 - **Phase 7 Task 1**: 已创建 `mv_daily_user_stats` / `mv_weekly_dept_stats` Materialized Views 迁移，并在 scheduler 注册每日 00:45 刷新任务；本地 PostgreSQL 已验证 `alembic upgrade head`、MV refresh、`alembic check`。
 - **Phase 7 Task 2**: 已新增 `/api/analytics/*` FastAPI 接口：user-trend / department-compare / project-health / sprint-efficiency；集成测试覆盖 MV 读取、manager 访问和 employee 越权拦截。
+- **Phase 7 Task 3/4**: 已安装 Recharts、封装 `TrendLineChart` / `CompareBarChart`，并在 Dashboard 集成个人趋势、部门对比、项目健康、Sprint 效率四块图表；`npm run lint` 与 `npm run typecheck` 通过。
 
 ## 历史移交记录
+- [2026-05-27] Phase 7 Task 3/4 前端图表完成：Recharts 组件封装 + Dashboard Analytics 模块。
 - [2026-05-27] Phase 7 Task 2 Analytics API 完成：4 个接口 + Pytest 集成测试 + ruff 通过。
 - [2026-05-27] Phase 7 Task 1 数据库预聚合层完成：Materialized Views + CONCURRENTLY 刷新调度。
 - [2026-05-27] V2.6 删除清理 dry-run 和质量门禁加固完成。

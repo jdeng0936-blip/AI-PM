@@ -22,6 +22,16 @@ import {
   batchDeleteRiskAlerts,
   batchRestoreRiskAlerts,
 } from '@/api/dashboard'
+import {
+  getAnalyticsDepartmentCompare,
+  getAnalyticsProjectHealth,
+  getAnalyticsSprintEfficiency,
+  getAnalyticsUserTrend,
+  type AnalyticsDepartmentCompare,
+  type AnalyticsProjectHealth,
+  type AnalyticsSprintEfficiency,
+  type AnalyticsUserTrend,
+} from '@/api/analytics'
 import { getProjectsOverview, createProject } from '@/api/projects'
 import { batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
 import {
@@ -34,6 +44,7 @@ import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
 import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
 import ListActionBar from '@/components/list-action-bar'
+import { CompareBarChart, TrendLineChart } from '@/components/charts'
 import { toast } from 'sonner'
 import {
   LayoutDashboard,
@@ -47,7 +58,22 @@ import {
   Trophy,
   Trash2,
   Database,
+  TrendingUp,
+  BarChart3,
+  Activity,
 } from 'lucide-react'
+
+type DashboardAnalytics = {
+  userTrend: AnalyticsUserTrend | null
+  departmentCompare: AnalyticsDepartmentCompare | null
+  projectHealth: AnalyticsProjectHealth | null
+  sprintEfficiency: AnalyticsSprintEfficiency | null
+}
+
+function shortDate(value?: string) {
+  if (!value) return ''
+  return value.slice(5).replace('-', '/')
+}
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -72,6 +98,9 @@ export default function DashboardPage() {
 
   // V2.6 数据生命周期治理
   const [deletionStats, setDeletionStats] = useState<any>(null)
+
+  // Phase 7 历史趋势看板
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
 
   // 新建项目弹窗
   const [showCreate, setShowCreate] = useState(false)
@@ -99,6 +128,7 @@ export default function DashboardPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
+      let nextProjects: any[] = []
       const [ov, br, ra, tt, gov] = await Promise.allSettled([
         getProjectsOverview(),
         getMorningBriefing(),
@@ -108,8 +138,9 @@ export default function DashboardPage() {
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
+        nextProjects = data.projects || []
         setOverview(data)
-        setProjects(data.projects || [])
+        setProjects(nextProjects)
       }
       if (br.status === 'fulfilled') {
         const data = br.value as any
@@ -126,6 +157,25 @@ export default function DashboardPage() {
       }
       if (gov.status === 'fulfilled' && gov.value) {
         setDeletionStats(gov.value as any)
+      }
+
+      if (canManageAlerts) {
+        const targetProjectId = nextProjects[0]?.project_id as string | undefined
+        const [userTrend, departmentCompare, projectHealth, sprintEfficiency] = await Promise.allSettled([
+          getAnalyticsUserTrend({ days: 30 }),
+          getAnalyticsDepartmentCompare({ period: 'week', weeks: 8 }),
+          targetProjectId ? getAnalyticsProjectHealth({ project_id: targetProjectId, days: 60 }) : Promise.resolve(null),
+          getAnalyticsSprintEfficiency({ project_id: targetProjectId, last_n: 8 }),
+        ])
+
+        setAnalytics({
+          userTrend: userTrend.status === 'fulfilled' ? userTrend.value : null,
+          departmentCompare: departmentCompare.status === 'fulfilled' ? departmentCompare.value : null,
+          projectHealth: projectHealth.status === 'fulfilled' ? projectHealth.value : null,
+          sprintEfficiency: sprintEfficiency.status === 'fulfilled' ? sprintEfficiency.value : null,
+        })
+      } else {
+        setAnalytics(null)
       }
     } finally {
       setLoading(false)
@@ -293,6 +343,45 @@ export default function DashboardPage() {
     }
   }
 
+  const userTrendData = useMemo(
+    () =>
+      analytics?.userTrend?.daily.map((point) => ({
+        label: shortDate(point.date),
+        avg_score: point.avg_score,
+      })) || [],
+    [analytics?.userTrend],
+  )
+
+  const departmentCompareData = useMemo(
+    () =>
+      analytics?.departmentCompare?.departments.slice(0, 6).map((department) => ({
+        label: department.department.length > 6 ? `${department.department.slice(0, 6)}…` : department.department,
+        avg_score: department.latest_avg_score,
+        submitter_rate: department.latest_submitter_rate,
+      })) || [],
+    [analytics?.departmentCompare],
+  )
+
+  const projectHealthData = useMemo(
+    () =>
+      analytics?.projectHealth?.daily.map((point) => ({
+        label: shortDate(point.date),
+        avg_score: point.avg_score,
+        avg_progress: point.avg_progress,
+      })) || [],
+    [analytics?.projectHealth],
+  )
+
+  const sprintEfficiencyData = useMemo(
+    () =>
+      analytics?.sprintEfficiency?.sprints.map((sprint) => ({
+        label: `${sprint.project_code} #${sprint.sprint_number}`,
+        completion_rate: sprint.completion_rate,
+        velocity: sprint.velocity,
+      })) || [],
+    [analytics?.sprintEfficiency],
+  )
+
   return (
     <div className="page-container">
       {/* 页面标题 */}
@@ -388,6 +477,114 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Phase 7 历史趋势看板 */}
+      {canManageAlerts && (
+        <div className="mb-8 animate-in" style={{ animationDelay: '0.32s' }}>
+          <div className="section-title flex items-center gap-2">
+            <TrendingUp size={16} color="#3b82f6" />
+            历史趋势
+            {analytics?.userTrend && (
+              <span className="text-[10px] font-normal" style={{ color: 'var(--color-text-secondary)' }}>
+                {analytics.userTrend.user_name} · 近 {analytics.userTrend.period_days} 天
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <div className="stat-card">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    <TrendingUp size={15} color="#3b82f6" />
+                    个人评分趋势
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    平均 {analytics?.userTrend?.summary.avg_score ?? 0} · 通过率 {analytics?.userTrend?.summary.pass_rate ?? 0}%
+                  </div>
+                </div>
+              </div>
+              <TrendLineChart
+                data={userTrendData}
+                lines={[{ dataKey: 'avg_score', name: 'AI 分', color: '#3b82f6' }]}
+                yDomain={[0, 100]}
+                emptyLabel={loading ? '加载中...' : '暂无个人趋势数据'}
+              />
+            </div>
+
+            <div className="stat-card">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    <BarChart3 size={15} color="#a855f7" />
+                    部门对比
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {analytics?.departmentCompare?.weeks.length || 0} 周 · {analytics?.departmentCompare?.departments.length || 0} 个部门
+                  </div>
+                </div>
+              </div>
+              <CompareBarChart
+                data={departmentCompareData}
+                bars={[
+                  { dataKey: 'avg_score', name: '均分', color: '#a855f7' },
+                  { dataKey: 'submitter_rate', name: '提交率', color: '#22c55e' },
+                ]}
+                yDomain={[0, 100]}
+                emptyLabel={loading ? '加载中...' : '暂无部门对比数据'}
+              />
+            </div>
+
+            <div className="stat-card">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    <Activity size={15} color="#22c55e" />
+                    项目健康趋势
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {analytics?.projectHealth
+                      ? `${analytics.projectHealth.project_code} · 当前 ${analytics.projectHealth.current_health_score}`
+                      : '暂无项目样本'}
+                  </div>
+                </div>
+              </div>
+              <TrendLineChart
+                data={projectHealthData}
+                lines={[
+                  { dataKey: 'avg_score', name: 'AI 分', color: '#22c55e' },
+                  { dataKey: 'avg_progress', name: '进度', color: '#eab308' },
+                ]}
+                yDomain={[0, 100]}
+                emptyLabel={loading ? '加载中...' : '暂无项目健康数据'}
+              />
+            </div>
+
+            <div className="stat-card">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    <BarChart3 size={15} color="#06b6d4" />
+                    Sprint 效率
+                  </div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    平均速度 {analytics?.sprintEfficiency?.summary.avg_velocity ?? 0} pt · 完成率 {analytics?.sprintEfficiency?.summary.avg_completion_rate ?? 0}%
+                  </div>
+                </div>
+              </div>
+              <CompareBarChart
+                data={sprintEfficiencyData}
+                bars={[
+                  { dataKey: 'completion_rate', name: '完成率', color: '#06b6d4' },
+                  { dataKey: 'velocity', name: '速度', color: '#6366f1' },
+                ]}
+                yDomain={[0, 100]}
+                emptyLabel={loading ? '加载中...' : '暂无 Sprint 效率数据'}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI 日报明细 */}
       {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
