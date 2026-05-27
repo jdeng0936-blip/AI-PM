@@ -108,9 +108,44 @@
   - **完整执行契约见 `docs/T-1001_spec.md`**(必读)。
   - **不许写任何业务 src 代码 / 不许新建 alembic migration / 不许动测试**。
 
-### 后续任务(待 T-1001 勘察完工后由指挥官根据落地路径表起草)
-- [ ] Task 2 (T-1002): 待定 —— 视勘察结果决定优先补齐 departments 表 / group_by 端点 / 前端 Tabs 切换器 之中的哪一个。
-- [ ] Task 3+ : 待定。
+### 漏洞修复 (Drift Fixes)
+- [/] **Task 2 (T-1002): `ProjectMember` 联合 UNIQUE 补丁** — In Progress by Commander
+  - 出处:T-1001 勘察时发现 —— `ProjectMember` 已存在多年但**缺 `UNIQUE(project_id, user_id)` 约束**(只有单字段 index),意味着可以重复插入同一员工到同一项目,后续 `health_engine` 按成员聚合时会出现重复计数。
+  - 修复:**partial unique index** `WHERE left_at IS NULL` —— 软删除友好(允许员工离开后重新加入,生成新行),不破坏现有「离职/再入项目」工作流。
+  - 同步:`ProjectMember.__table_args__` 加 `Index(..., unique=True, postgresql_where=text("left_at IS NULL"))`,保持 ORM ↔ DB schema 一致。
+  - 不动种子数据 / 不动任何 service / router / 前端 / 测试 —— 纯 schema 补丁。
+  - **完整执行契约见 `docs/T-1002_spec.md`**(必读)。
+
+### 后续任务(待 T-1002 完工后由指挥官接力起草)
+- [ ] **Task 3 (T-1003): `departments` 独立表 + ORM + 7 seed**
+  - 新建 `backend/app/models/department.py`(`Department` 类,含 `id UUID PK / name UNIQUE / manager_id FK→users.id / BaseMixin`)。
+  - 新建 Alembic migration:`upgrade()` 建表 + 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部)+ 必要 index;`downgrade()` 反向 drop。
+  - 在 `app/models/__init__.py` 暴露 `Department`,加入 `__all__`。
+  - **不**改 `User.department: VARCHAR(64)` 字段(增量并存,FK 迁移延后到 Phase 11+)。
+
+- [ ] **Task 4 (T-1004): `/api/v1/admin/departments` 服务 + 路由**
+  - 新建 `backend/app/schemas/department.py`(`DepartmentIn / Out / WithMembers`)。
+  - 新建 `backend/app/services/department_service.py`(`list / create / get_with_members` 三函数,后者从 `User` 反查 `department == name`)。
+  - 新建 `backend/app/routers/departments.py`(`prefix="/api/v1/admin/departments"`, `tags=["Departments"]`),3 端点:GET 列表 / POST 新建 / GET `{id}/members`,RBAC `require_role(admin, manager)`。
+
+- [ ] **Task 5 (T-1005): `/api/v1/admin/reports?group_by=` 对外分组端点**
+  - 在 `routers/dashboard.py` 或新建 `routers/admin_reports.py` 中新增 `GET /api/v1/admin/reports?group_by=department|project&project_id=&start_date=&end_date=` 端点,把现有 `dashboard.py L319 / trends.py L99` 的内部 SQL `GROUP BY` 包装成对外 query param。
+  - 返回结构:`{ "技术部": [report...], "生产部": [...] }` 或 `{ "<project_id>": [...] }`。
+  - RBAC `require_role(admin, manager)`,参数校验 Pydantic 枚举。
+
+- [ ] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页**
+  - 新建 `frontend/src/app/admin/departments/page.tsx`(表格 + 新建 Modal,字段 name + manager_id,调 `/api/v1/admin/departments`)。
+  - 在 `/dashboard` 顶部加 `<Tabs>` 全员/按部门/按项目,按选择动态切换数据源(全员=现有 / 按部门=新端点 group_by=department / 按项目=新端点 group_by=project)。
+
+- [ ] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`**
+  - Model 层:ProjectMember 重复 `(project_id, user_id)` WHERE `left_at IS NULL` 必须抛 IntegrityError,但 `left_at` 不为空时允许重复;Department UNIQUE name 冲突。
+  - Service 层:`get_with_members` 反查正确性 + 空部门返回空列表。
+  - Router 层:200 路径 + RBAC + `group_by` 参数校验(`?group_by=invalid` 422)。
+  - 跑通后所有 quality gates 全绿,`pytest tests/` 必须无回归。
+
+- [ ] **Task 8 (T-1008): 文档收尾**
+  - 在 `docs/implementation-plan.md §10` 末尾再追加「实际落地路径(Phase 10 实施)」段,记录 6 列对照表对应维度从 ❌ → ✅ 的变化与最终对外路径。
+  - 更新 `docs/recap.md`「当前阶段」→ Phase 11 候选,新增 Phase 10 全 task bullet + 历史移交记录条目。
 
 ## 质量闸门(Codex 提交前必跑)
 
@@ -139,36 +174,30 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-1001**(已自动锁定为 `[/]`)—— Phase 10 **勘察先行轮**:对 plan §10「部门与项目分组」做**纯只读盘点 + 文档落盘**。Phase 9 KPI 已 push 完毕,Phase 10 起步不投实施代码 —— 先把 V2.0 已实现 / 未实现的真实状态盘清,把对照表落盘到 `implementation-plan.md §10` 末尾,指挥官再据此发后续 task。
-- **执行入口**: 阅读 `docs/T-1001_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入勘察阶段。
-- **核心动作**(纯文档,**严禁触碰任何 backend/app/ 或 frontend/src/ 业务代码**):
-  1. **只读勘察 6 个维度**(详见 T-1001_spec §3.1):
-     - `departments` 表是否存在(`grep -rn "class Department" backend/app/models/`)
-     - `User.department` 字段类型 / 是否 FK(`backend/app/models/user.py`)
-     - `ProjectMember` 表语义(`backend/app/models/project_member.py`)
-     - `routers/projects.py` 已对外暴露端点(`grep "@router\." backend/app/routers/projects.py`)
-     - `/api/admin/reports?group_by=` 端点是否存在(`grep "group_by" backend/app/routers/`)
-     - 前端总经理 Tabs 切换器是否存在(`frontend/src/app/admin/` 子目录 + `frontend/src/app/projects/page.tsx`)
-  2. **写**:在 `docs/implementation-plan.md §10` 末尾(原文 L784 `---` 之前)追加 `### 实际落地路径(Phase 10 勘察)` 章节 —— 6 列对照表 + 已实现 API 路径表 + 待补齐清单 3 段,**与 §9 末尾「实际落地路径(Phase 9)」格式严格对齐**。详见 T-1001_spec §3.2。
-  3. **写**:在 `docs/recap.md`「最新进度摘要」段顶部追加 1 条 `[2026-05-27] Phase 10 启动 — T-1001 勘察落盘` 条目;「当前阶段」改为 `Phase 10(勘察轮)`。详见 T-1001_spec §3.3。
-  4. **写**:在 `docs/dev_tasks.md` 现有 Phase 10 章节里把 Task 1 (T-1001) 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
-- **重要不要做**:
-  - **不要**改 `backend/app/` 任何 `.py` 业务文件(model / service / router / schema 全冻结)。
-  - **不要**新建任何 alembic migration —— Phase 10 第一轮不动 DB。
-  - **不要**改 `frontend/src/` 任何文件 —— 包括 api 客户端 / page / component。
-  - **不要**写或改任何测试 —— `tests/` 目录全冻结,完工后 `pytest -v` 仍应 160+2(零变化)。
-  - **不要**自行扩展勘察范围到 §10 之外(OKR / 资源负载 / 复盘等留给后续 Phase)。
-  - **不要**在勘察表里写「我建议下一步做 X」—— 落地路径段只列**事实**(已实现 / 未实现 / API 路径),建议留给指挥官。
-  - **不要**碰 `backend/uv.lock`(继续 untracked)。
-  - **不要**自动 `git push` —— T-1001 完工后立即停手等指挥官二次验收。
-- **闸门**(全文档任务,只跑形式校验):
+- **当前持牌任务**: **T-1002**(指挥官已通过 `chore(lock)` 在本 commit 一并加锁,Task 2 = `[/]`)—— Phase 10 **第一份代码任务,纯漏洞修复轮**:给 `ProjectMember` 补 partial unique index `(project_id, user_id) WHERE left_at IS NULL`。**单一漏洞,单一文件改动 + 一条 migration,严禁夹带任何其他 schema 改动 / 业务代码 / 测试**。
+- **执行入口**: 阅读 `docs/T-1002_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `e8c4a1d9f2b0`),抄到新 migration 的 `down_revision`,**不要硬编码**。
+- **核心动作**(严格按 T-1002_spec §3 顺序):
+  1. **新建** `backend/alembic/versions/20260527_<HHMM>_phase10_project_members_partial_unique.py` —— `upgrade()` 执行 `op.create_index("ix_project_members_project_user_active", "project_members", ["project_id", "user_id"], unique=True, postgresql_where=sa.text("left_at IS NULL"))`,`downgrade()` 反向 `op.drop_index`。docstring 按本仓库模板写**实际背景/变更/实现说明**,**不要保留模板占位**(pre-commit hook 会拒绝)。
+  2. **改** `backend/app/models/project_member.py` —— 在类 `ProjectMember` 上新增 `__table_args__ = (Index("ix_project_members_project_user_active", "project_id", "user_id", unique=True, postgresql_where=text("left_at IS NULL")),)`,顶部 import 同步补 `from sqlalchemy import Index, text`(已有的 import 不重复添加)。
+  3. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 2 从 `[/] In Progress` 改为 `[x]`(放最后一个 commit 一起 add)。
+- **严禁项**(违反则立即回滚):
+  - **严禁**改 `ProjectMember` 字段定义(`project_id` / `user_id` / `track` / `role_in_project` / `joined_at` / `left_at` 保留原样,只加 `__table_args__`)。
+  - **严禁**改任何其他 model / service / router / schema —— 这次只动 `project_member.py` 一个 src 文件 + 1 个 migration。
+  - **严禁**改 `frontend/src/` 任何文件。
+  - **严禁**碰 `backend/uv.lock`(继续 untracked)。
+  - **严禁**在迁移里写 `UPDATE / DELETE / 数据清洗` —— 若现有数据有重复 `(project_id, user_id)` 且 `left_at IS NULL`,upgrade 会因 UNIQUE 冲突失败 —— **不要自行清洗数据**,而是立即停手向指挥官报告,由指挥官决定是先清洗还是改约束方案。
+  - **严禁**补任何测试(留给 T-1007 集中补 phase 10 测试套件)。
+  - **严禁**自动 `git push`。
+  - **严禁**自行启动 T-1003。
+- **闸门**(都必须绿):
   ```bash
   cd backend
-  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped(零回归,任何变化都说明意外动了代码)
-  .venv/bin/ruff check .                                        # 仍 All checks passed(不应有变化)
-  cd ../frontend && npm run lint && npm run typecheck          # 仍零警告(不应有变化)
+  .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head && .venv/bin/alembic check
+  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped(零回归)
+  .venv/bin/ruff check . && .venv/bin/mypy app/models/project_member.py
+  cd ../frontend && npm run lint && npm run typecheck          # 前端无破坏验证
   ```
 - **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `docs(phase10): T-1001 §10 实物盘点 + 实际落地路径段落落盘`(只含 `docs/implementation-plan.md` + `docs/recap.md`)
-  2. `chore(progress): close T-1001 — Phase 10 勘察轮完工`(只含 `docs/dev_tasks.md`,Task 1 → `[x]`)
-- **完工后**: 立即停手汇报「T-1001 勘察落盘完成,落地路径段已写入 plan §10 末尾,等待指挥官审阅 + 起草 T-1002 实施契约」。不要自行启动 Task 2。
+  1. `fix(project): add partial unique index on project_members(project_id, user_id) WHERE left_at IS NULL`(只含 `backend/app/models/project_member.py` + 新 alembic migration)
+  2. `chore(progress): close T-1002 — ProjectMember partial unique index 落地`(只含 `docs/dev_tasks.md`,Task 2 → `[x]`)
+- **完工后**: 立即停手汇报「T-1002 完工,等待指挥官二次验收 + 起草 T-1003 (departments 表) 实施契约」。**不要**自行启动 T-1003。
