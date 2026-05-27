@@ -60,7 +60,7 @@
   - 调用 `/api/v1/admin/kpi` GET/POST,使用现有 `apiFetch` 帮助函数。
   - RBAC:页面入口在 admin / manager 可见;员工身份直接 redirect。
 
-- [ ] **Task 6 (T-906): 达成率仪表盘组件**
+- [/] **Task 6 (T-906): 达成率仪表盘组件**  *(In Progress by Codex)*
   - 在 `/dashboard` 加一个「KPI 达成率」面板(admin / manager 可见),调 `/api/v1/admin/kpi/achievement`。
   - 用现有 `CompareBarChart`(Phase 7 已封装)展示「目标 vs 实际」,达成的绿色,未达成的红色;`actual=null` 标灰并写「暂无数据」。
 
@@ -100,19 +100,18 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-905**(已自动锁定为 `[/]`)—— Phase 9 KPI 管理页前端 `frontend/src/app/admin/kpi/page.tsx` + API 客户端 `frontend/src/api/kpi.ts`
-- **执行入口**: 阅读 `docs/T-905_spec.md`,不要重复 `chore(lock)`,直接编码。对标 `frontend/src/app/users/page.tsx` 既有 admin 表格 + Modal 样板。
+- **当前持牌任务**: **T-906**(已自动锁定为 `[/]`)—— Phase 9 KPI 达成率仪表盘面板,在 `/dashboard` 内嵌
+- **执行入口**: 阅读 `docs/T-906_spec.md`,不要重复 `chore(lock)`,直接编码。对标 `frontend/src/app/dashboard/page.tsx:481-587` 既有 Phase 7 历史趋势看板的卡片模板。
 - **核心动作**:
-  1. 新建 `frontend/src/api/kpi.ts` —— 类型(`KpiScope/KpiMetric/KpiPeriod/KpiTargetIn/KpiTargetOut`)+ 两个端点封装 `listKpiTargets` / `upsertKpiTarget`,路径 `/admin/kpi/` **必须带尾斜杠**(约 50 行)。
-  2. 新建 `frontend/src/app/admin/kpi/page.tsx` —— `'use client'` 客户端组件,功能:
-     - 角色守卫: `userRole === 'admin' || userRole === 'manager'`,**不要**改 auth-store 加 `isManager`。
-     - 表格列出全部目标(7 列:范围/范围值/指标/周期/目标值/更新时间/操作)。
-     - 「+ 新建目标」Modal:scope/scope_value/metric/period/target_value 五字段 + 客户端三层校验(target_value>0、global 不带 scope_value、dept/role 必须带 scope_value)匹配后端 422。
-     - 行「编辑」Modal:**四元组 disabled**,只 target_value 可改,防止「编辑变创建新行」(后端 ON CONFLICT 按四元组,新四元组等于新主键)。
-     - 主题用 CSS 变量 `var(--color-bg-card)` 等,样式照搬 `users/page.tsx`。
-  3. `scope` 字面量陷阱:后端 Python enum 是 `KpiScope.global_`,但 DB/JSON 字符串是 `'global'`,前端 TS **必须**用 `'global'`(不带下划线)。
-- **闸门**: `cd frontend && npm run lint && npm run typecheck && npm run build` 三连全绿(build 是最权威闸门)。
+  1. **extend** `frontend/src/api/kpi.ts` —— 追加 3 类型(`AchievementStatus / KpiAchievementRow / KpiAchievementResponse`)+ 1 端点函数 `getKpiAchievement(period?)`,路径 `/admin/kpi/achievement` **不带尾斜杠**(与 `/admin/kpi/` 不同,因为 `@router.get("/achievement")` 无尾斜杠)。
+  2. **新建** `frontend/src/components/dashboard/kpi-achievement-panel.tsx` —— 含 period 选择器(周/月/季)+ `CompareBarChart`(target vs actual 蓝绿双柱)+ 详细表格(范围/指标/目标/实际/缺口/达成率/状态 7 列,状态用绿/红/灰彩色 tag)。**不要** import `useAuthStore`(父级 dashboard 已守卫)。
+  3. **改** `frontend/src/app/dashboard/page.tsx` —— 1 行 import + 在 Phase 7 历史趋势看板(`canManageAlerts && (...)` 块)**之后**插入 `{canManageAlerts && <KpiAchievementPanel />}`,**不动**其它 dashboard 业务逻辑。
+- **重要不要做**:
+  - **不要**改 `frontend/src/components/charts/compare-bar-chart.tsx`(Phase 7 凝固)。
+  - **不要**改 `frontend/src/app/admin/kpi/page.tsx`(T-905 凝固)。
+  - **不要**让 CompareBarChart 的柱子按 status 着色 —— status 颜色走**表格 tag**,图表柱子统一蓝(目标)+ 绿(实际)。
+- **闸门**: `cd frontend && npm run lint && npm run typecheck && npm run build` 三连全绿。
 - **完工提交序列**:
-  1. `feat(kpi): add admin KPI targets management page`
-  2. 改 `docs/dev_tasks.md` Task 5 → `[x]`,再提 `chore(progress): close T-905`
-- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-906(达成率仪表盘面板)—— 那是指挥官二次验收 T-905 通过后另发的契约。
+  1. `feat(kpi): add dashboard KPI achievement panel`
+  2. 改 `docs/dev_tasks.md` Task 6 → `[x]`,再提 `chore(progress): close T-906`
+- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-907(文档收尾)—— 那是 Phase 9 收官前的最后一份契约,由指挥官二次验收 T-906 通过后另发。
