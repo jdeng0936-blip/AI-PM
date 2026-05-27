@@ -4,7 +4,7 @@ app/schemas/kpi.py — Phase 9 KPI 目标与达成率 Pydantic V2 Schemas
 参考已落地的 ORM Model（app/models/kpi_target.py）字段约束：
   - scope ∈ {global, department, job_title}
   - scope_value 可空（global 模式必空，其他模式必填）
-  - metric ∈ {submit_rate, avg_score, sprint_completion, blocker_resolve_days}
+  - metric ∈ {submit_rate, avg_score, blocker_resolve_days, objective_completion}
   - period ∈ {weekly, monthly, quarterly}
 """
 

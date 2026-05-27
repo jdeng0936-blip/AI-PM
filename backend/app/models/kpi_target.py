@@ -32,7 +32,7 @@ class KpiScope(str, enum.Enum):
 class KpiMetric(str, enum.Enum):
     submit_rate = "submit_rate"
     avg_score = "avg_score"
-    sprint_completion = "sprint_completion"
+    objective_completion = "objective_completion"
     blocker_resolve_days = "blocker_resolve_days"
 
 
