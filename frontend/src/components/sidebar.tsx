@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Trash2,
   History,
+  Building2,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -58,6 +59,7 @@ const ADMIN_ITEMS: NavItem[] = [
   { href: '/users', label: '用户管理', icon: Users },
   { href: '/stats', label: '系统统计', icon: BarChart3 },
   { href: '/export', label: '数据导出', icon: Download },
+  { href: '/admin/departments', label: '部门管理', icon: Building2 },
   { href: '/admin/recycle-bin', label: '回收站', icon: Trash2 },  // V2.4 Stage 3 C4
 ]
 

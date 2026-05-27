@@ -34,6 +34,7 @@ import {
 } from '@/api/analytics'
 import { getProjectsOverview, createProject } from '@/api/projects'
 import { batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
+import { getGroupedReports, type ReportGroupRow } from '@/api/admin'
 import {
   MAIN_TRACK_OPTIONS,
   TEMP_TRACK_OPTIONS,
@@ -71,6 +72,8 @@ type DashboardAnalytics = {
   sprintEfficiency: AnalyticsSprintEfficiency | null
 }
 
+type ViewMode = 'all' | 'by_department' | 'by_project'
+
 function shortDate(value?: string) {
   if (!value) return ''
   return value.slice(5).replace('-', '/')
@@ -80,6 +83,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const { isAdmin, userRole } = useAuthStore()
   const canManageAlerts = userRole === 'admin' || userRole === 'manager'
+  const canSeeTabs = userRole === 'admin' || userRole === 'manager'
   const [loading, setLoading] = useState(false)
   const today = new Date().toLocaleDateString('zh-CN', {
     month: 'long',
@@ -102,6 +106,9 @@ export default function DashboardPage() {
 
   // Phase 7 历史趋势看板
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
+  const [groupedRows, setGroupedRows] = useState<ReportGroupRow[]>([])
+  const [groupedLoading, setGroupedLoading] = useState(false)
 
   // 新建项目弹窗
   const [showCreate, setShowCreate] = useState(false)
@@ -186,6 +193,27 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
+
+  useEffect(() => {
+    if (viewMode === 'all') return
+    let cancelled = false
+    ;(async () => {
+      setGroupedLoading(true)
+      try {
+        const res = await getGroupedReports({
+          group_by: viewMode === 'by_department' ? 'department' : 'project',
+        })
+        if (!cancelled) setGroupedRows(res.groups)
+      } catch {
+        if (!cancelled) toast.error('加载分组数据失败')
+      } finally {
+        if (!cancelled) setGroupedLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [viewMode])
 
   // V2.4 Stage 1:日报明细筛选(部门/合格/分数/进度)
   // department options 从当前数据 distinct(部门池动态变化)
@@ -421,6 +449,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {canSeeTabs && (
+        <div className="flex items-center gap-2 mb-4">
+          {(['all', 'by_department', 'by_project'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className="px-4 py-1.5 rounded-md text-sm transition-colors"
+              style={{
+                background: viewMode === mode ? '#3b82f6' : 'transparent',
+                color: viewMode === mode ? '#fff' : '#94a3b8',
+                border: viewMode === mode ? 'none' : '1px solid #334155',
+              }}
+            >
+              {mode === 'all' ? '全员视图' : mode === 'by_department' ? '按部门聚合' : '按项目聚合'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {viewMode === 'all' && (
+        <>
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
         {/* 活跃项目 */}
@@ -1074,6 +1124,48 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {viewMode !== 'all' && (
+        <section className="rounded-lg border p-6" style={{ borderColor: '#334155', background: '#0f172a' }}>
+          <h2 className="text-lg font-semibold mb-4" style={{ color: '#e2e8f0' }}>
+            {viewMode === 'by_department' ? '按部门聚合' : '按项目聚合'}
+          </h2>
+          {groupedLoading ? (
+            <div className="text-sm text-slate-400">加载中...</div>
+          ) : groupedRows.length === 0 ? (
+            <div className="text-sm text-slate-400">最近 30 天暂无数据</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr style={{ color: '#94a3b8' }}>
+                    <th className="text-left py-2">{viewMode === 'by_department' ? '部门' : '项目 ID'}</th>
+                    <th className="text-right py-2">日报数</th>
+                    <th className="text-right py-2">均分</th>
+                    <th className="text-right py-2">通过数</th>
+                    <th className="text-right py-2">通过率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedRows.map((row) => (
+                    <tr key={row.key} className="border-t" style={{ borderColor: '#1e293b' }}>
+                      <td className="py-2" style={{ color: '#e2e8f0' }}>
+                        {viewMode === 'by_project' && row.key ? `${row.key.slice(0, 8)}...` : row.key || '(未挂部门)'}
+                      </td>
+                      <td className="text-right py-2" style={{ color: '#e2e8f0' }}>{row.report_count}</td>
+                      <td className="text-right py-2" style={{ color: '#e2e8f0' }}>{row.avg_score.toFixed(1)}</td>
+                      <td className="text-right py-2" style={{ color: '#e2e8f0' }}>{row.pass_count}</td>
+                      <td className="text-right py-2" style={{ color: '#22c55e' }}>{row.pass_rate.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* 新建项目弹窗 */}
       {showCreate && (
