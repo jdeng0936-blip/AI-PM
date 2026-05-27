@@ -73,7 +73,7 @@
   - 若 `project_id` 不存在或已软删,抛 `HTTPException(404, "项目不存在或已删除")`。
 
 ### 后端 Router 层 (routers/export.py)
-- [ ] **Task 5: 在现有 `export.py` 追加 3 个端点**
+- [/] **Task 5: 在现有 `export.py` 追加 3 个端点**
   - `GET /api/v1/export/reports?format=xlsx&start_date=&end_date=&department=`
     - `format` 仅接受 `xlsx`,其余返回 400。
     - 默认日期范围:近 7 天(沿用现有 default 行为)。
@@ -92,7 +92,7 @@
   - 所有端点统一异常包装:openpyxl / reportlab 抛出时返回 500 + 中文错误信息,日志走 `logger.exception`。
 
 ### 测试 (tests/)
-- [ ] **Task 6: 服务层 + 路由层测试**
+- [/] **Task 6: 服务层 + 路由层测试**
   - 新增 `backend/tests/test_export_phase8.py`,沿用 `test_deletion_cleanup.py` 的本地 `db_session` fixture 模式(避免踩 pytest-asyncio 1.x loop_scope 坑)。
   - 单元测试:
     - `test_build_reports_workbook_returns_three_sheets` — 用 openpyxl 重新打开 BytesIO 校验 3 个 Sheet 标题。
