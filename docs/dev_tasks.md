@@ -22,6 +22,13 @@
   - 新建 Alembic migration `backend/alembic/versions/20260527_<HHMM>_phase9_add_kpi_targets.py`:`upgrade()` 建表 + 复合索引 + UNIQUE 约束 + 4 条 seed;`downgrade()` 反向回滚。
   - 在 `app/models/__init__.py` 暴露 `KpiTarget` 及三个 Enum,加入 `__all__`。
   - **完整执行契约见 `docs/T-901_spec.md`**(必读)。
+  - **验收回执(指挥官 2026-05-27)**: ruff / mypy / `alembic downgrade -1 + upgrade head + check` 全绿,seed 4 行准确,索引 + FK 完整。**但**负向测试发现 UNIQUE 在 `scope_value IS NULL` 时失效(PostgreSQL 默认 NULL DISTINCT 语义)—— 契约 §3.2 设计疏漏,指挥官承担,见 T-901-FIX。
+
+- [/] **Task 1.5 (T-901-FIX): UNIQUE 升级为 `NULLS NOT DISTINCT`**
+  - 新增 follow-up migration `backend/alembic/versions/20260527_<HHMM>_phase9_fix_kpi_targets_unique_nulls.py`,drop + recreate UNIQUE 约束并加 `postgresql_nulls_not_distinct=True`。
+  - 同步修改 `app/models/kpi_target.py` 的 `UniqueConstraint` 参数,保持 ORM 与 DB schema 一致。
+  - **完整执行契约见 `docs/T-901-FIX_spec.md`**(必读)。
+  - 验收通过条件:负向测试「重复 `(global, NULL, submit_rate, monthly)` 必须抛 `IntegrityError`」。
 
 ### 服务层 (services/)
 - [ ] **Task 2 (T-902): Pydantic Schemas + KPI 服务层**
@@ -86,3 +93,20 @@ cd frontend && npm run lint && npm run typecheck
 > 4. Alembic 新 migration 必须 `Revises` 指向当前 `alembic heads` 输出,**不要硬编码上一个 revision id**;`alembic downgrade -1` 必须可回滚。
 > 5. `backend/uv.lock` 继续保持未跟踪,不要 `git add`。
 > 6. 完工后更新 `docs/recap.md`,然后由 QA Agent(我)接手跑全套质量闸门 + 数据库级集成测试补强。
+
+---
+
+## 📣 恢复执行指令
+
+> **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
+
+- **当前持牌任务**: **T-901-FIX**(已自动锁定为 `[/]`)
+- **执行入口**: 阅读 `docs/T-901-FIX_spec.md`,不要重复 `chore(lock)`,直接编码。
+- **核心动作**:
+  1. 新建 `backend/alembic/versions/20260527_<HHMM>_phase9_fix_kpi_targets_unique_nulls.py`,drop + recreate `uq_kpi_targets_scope_metric_period`,加 `postgresql_nulls_not_distinct=True`。
+  2. 同步修改 `backend/app/models/kpi_target.py` 的 `__table_args__`,让 `UniqueConstraint(..., postgresql_nulls_not_distinct=True)`。
+- **闸门**: `ruff` + `mypy` + `alembic upgrade head/downgrade -1/check` + 负向 INSERT 必须抛 `IntegrityError`。
+- **完工提交序列**:
+  1. `feat(kpi): tighten UNIQUE on kpi_targets to NULLS NOT DISTINCT`
+  2. 改 `dev_tasks.md` Task 1.5 → `[x]`,再提 `chore(progress): close T-901-FIX`
+- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-902。
