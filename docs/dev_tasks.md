@@ -109,7 +109,7 @@
   - **不许写任何业务 src 代码 / 不许新建 alembic migration / 不许动测试**。
 
 ### 漏洞修复 (Drift Fixes)
-- [/] **Task 2 (T-1002): `ProjectMember` 联合 UNIQUE 补丁** — In Progress by Commander
+- [x] **Task 2 (T-1002): `ProjectMember` 联合 UNIQUE 补丁**
   - 出处:T-1001 勘察时发现 —— `ProjectMember` 已存在多年但**缺 `UNIQUE(project_id, user_id)` 约束**(只有单字段 index),意味着可以重复插入同一员工到同一项目,后续 `health_engine` 按成员聚合时会出现重复计数。
   - 修复:**partial unique index** `WHERE left_at IS NULL` —— 软删除友好(允许员工离开后重新加入,生成新行),不破坏现有「离职/再入项目」工作流。
   - 同步:`ProjectMember.__table_args__` 加 `Index(..., unique=True, postgresql_where=text("left_at IS NULL"))`,保持 ORM ↔ DB schema 一致。
