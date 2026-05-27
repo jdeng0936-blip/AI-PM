@@ -9,6 +9,7 @@ from app.models.base_mixin import BaseMixin
 from app.models.capacity import CapacityLevel, CapacitySnapshot
 from app.models.daily_report import DailyReport
 from app.models.deletion_history import DeletionHistory
+from app.models.department import Department
 from app.models.gate_review import GateReview
 
 # --- 知识库模型 ---
@@ -57,6 +58,7 @@ __all__ = [
     "User",
     "DailyReport",
     "DeletionHistory",
+    "Department",
     "RiskAlert",
     "TenantUsageLog",
     "AuditLog",
