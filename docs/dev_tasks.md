@@ -117,7 +117,7 @@
   - **完整执行契约见 `docs/T-1002_spec.md`**(必读)。
 
 ### 后续任务(T-1003 已起草,T-1004 及以后由指挥官在 T-1003 完工后接力起草)
-- [/] **Task 3 (T-1003): `departments` 独立表 + ORM + 7 seed** — In Progress by Codex(指挥官 `chore(spec)` commit 已加锁,2026-05-27 19:00)
+- [x] **Task 3 (T-1003): `departments` 独立表 + ORM + 7 seed**
   - 新建 `backend/app/models/department.py`(`Department(BaseMixin, Base)`,字段:`id UUID PK / name String(64) UNIQUE / manager_id UUID FK→users.id ON DELETE SET NULL nullable=True index=True`)。
   - 新建 Alembic migration:`upgrade()` 建表 + 2 个 index + bulk_insert 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部,顺序锁定,manager_id 全 NULL,tenant_id="default",id 用 Python `uuid.uuid4()` 预生成);`downgrade()` 反向 drop_index ×2 + drop_table。
   - 在 `app/models/__init__.py` 暴露 `Department`(插入式,不重排其他 import),加入 `__all__`(插入式,不重排其他字符串)。
