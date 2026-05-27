@@ -146,9 +146,13 @@
   - **完整执行契约见 `docs/T-1005_spec.md`**(必读)。
   - **验收回执(指挥官 `[2026-05-27 20:49:30]`)**:§8 验收清单 17 项 100% 通过。文件隔离正确(feat 4 文件 = main.py 插入式 2 行 + 3 新建 / chore 1 文件 dev_tasks.md +1 -1,零夹带 alembic/tests/frontend/models/dashboard.py/trends.py/reports.py/departments.py);代码闸门全绿(ruff All passed / mypy 目标 4 文件 0 error[现有 analytics.py + scheduled_tasks.py 4 个存量 error 与 T-1004 同源,spec §6 已签字不修] / pytest `160 passed, 2 skipped` 零回归 / alembic check `No new upgrade operations detected.` head 仍 `b58bb129c24b` / 前端 lint+typecheck 干净);Schema 3 公开类型对齐 §3.1 / Service 2 公开 + 2 `_*` 私有零 HTTPException 对齐 §3.2 / Router 1 GET + `_map_value_error` 仅映射 `date_range_invalid` + 兜底 500 对齐 §3.3 / RBAC `admin + manager` 零 employee / 过滤口径强制 `DailyReport.deleted_at.is_(None) + tenant_id == "default" + Project.deleted_at.is_(None)`(仅 project 路径) + **不**过滤 `User.is_active`;`group_by=project` 用 inner join 剔除 NULL project_id 行;两 commit 均含 `Worker timestamp:` 行;📣 锚点 T-1005 持牌保留待统一替换。
 
-- [ ] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页**
-  - 新建 `frontend/src/app/admin/departments/page.tsx`(表格 + 新建 Modal,字段 name + manager_id,调 `/api/v1/admin/departments`)。
-  - 在 `/dashboard` 顶部加 `<Tabs>` 全员/按部门/按项目,按选择动态切换数据源(全员=现有 / 按部门=新端点 group_by=department / 按项目=新端点 group_by=project)。
+- [/] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页** — In Progress by Codex(指挥官 `chore(spec)` commit 已加锁,`[2026-05-27 21:34:30]`)
+  - **新建** `frontend/src/api/admin.ts`(~110 行,6 函数 + 6 类型:`listDepartments / createDepartment / getDepartmentWithMembers / updateDepartment / deleteDepartment / getGroupedReports`)。
+  - **新建** `frontend/src/app/admin/departments/page.tsx`(~280 行,表格 5 列 + Modal 新建/编辑共用 + 删除 confirm,字段 name + manager_id,RBAC 守卫仿 `/admin/kpi`)。
+  - **改造** `frontend/src/app/dashboard/page.tsx`(+60/-0 局部插入 5 个插入点:imports / state / effect / Tabs JSX / sections wrap,**严禁**重排现有 5 sections 内部 markup;`viewMode === 'all'` 时所有现有行为 100% 不变)。
+  - **改造** `frontend/src/components/sidebar.tsx`(+1/-0:`Building2` import + ADMIN_ITEMS 数组在 recycle-bin 之前插入 `{href: '/admin/departments', label: '部门管理', icon: Building2}`)。
+  - **改** `docs/dev_tasks.md`(Task 6 → `[x]`,与最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1008 时统一替换)。
+  - **完整执行契约见 `docs/T-1006_spec.md`**(必读,~660 行 10 章 + 📣 附录)。
 
 - [x] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`** — Done by Codex(`[2026-05-27 21:27:47]`)
   - **新建** `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*` case)。
@@ -188,71 +192,71 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 20:55:00]`(指挥官 T-1005 验收闭环 + T-1007 spec 落盘 + 锚点替换)
+> **更新时间戳**: `[2026-05-27 21:35:00]`(指挥官 T-1007 验收闭环 + T-1006 spec 落盘 + 锚点替换)
 
-- **当前持牌任务**: **T-1007**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 7 = `[/]`)—— Phase 10 **第五份代码任务,后端测试集中补主线轮**:新建 1 个测试文件 `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*`),三层覆盖 T-1003/04/05 全部端到端行为(Model layer ProjectMember partial UNIQUE + Department.name UNIQUE / Service layer get_with_members 反查 + admin_reports 双路径聚合 + _validate_date_range / Router layer T-1004 5 端点 + T-1005 1 端点 RBAC + 错误码)。**1 个新建 test 文件 + 1 个 dev_tasks.md 收口,严禁夹带任何 ORM / migration / service / router / main.py / conftest.py / 其他既有 test_*.py / frontend / seed_data.py 改动**。
-- **执行入口**: 阅读 `docs/T-1007_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `backend/tests/conftest.py` 已提供 `db_session`(auto-rollback) + `client`(dependency_overrides `get_db`) 双 fixture,**直接消费**,**禁止**新建 conftest 或自定义 engine;② `tests/test_kpi_phase9.py` L147-164 的 `_make_user / _headers` 体例已锁定,本契约**照搬不变形**(只改字段值);③ `ProjectMember.__table_args__` 是 partial UNIQUE Index `(project_id, user_id) WHERE left_at IS NULL`(`models/project_member.py` L34-42),测试必须跑在 PG 测试库,SQLite 不支持 partial index(CI 失败非 Worker 责任);④ `Department.name = unique=True`(`models/department.py` L34),无 partial 条件;⑤ `DailyReport.content` 字段 NOT NULL,helper 必须塞默认值;⑥ Phase 7 MV `mv_daily_user_stats / mv_weekly_dept_stats` **不**复用,本测试零 DDL;⑦ 已完工 T-1005 的 `admin_reports_service` 中私有函数 `_validate_date_range` 可直接 import(`from app.services.admin_reports_service import _validate_date_range, group_reports_by_department, group_reports_by_project`)。
-- **核心动作**(严格按 T-1007_spec §3 顺序):
-  1. **新建** `backend/tests/test_phase10_dept_group.py` —— 头部 docstring + imports(`pytest / pytest_asyncio / httpx.AsyncClient / SQLAlchemy / delete / IntegrityError / app.models.* / app.services.* / app.middleware.rbac.create_access_token`)。`TENANT_ID = "default"` 常量。6 个 `_*` 私有 helpers:`_cleanup_phase10_test_data(db)`(按 DailyReport → ProjectMember → Project → Department → User 顺序 delete,`wechat_userid.like("phase10_%")` 精准锁定本测试用户) + `_make_user(db, role, name, department="技术部", is_active=True)` + `_headers(user) -> dict` + `_make_department(db, name, manager_id=None)` + `_make_project(db, name="Phase10 项目")` + `_make_daily_report(db, user_id, project_id, report_date, ai_score, pass_check)`。然后 **18-19 个** `@pytest.mark.asyncio async def test_*` 函数,按 Model(3)/Service(5)/Router T-1004(5)/Router T-1005(5) 4 块顺序。**每个 case 入口强制** `await _cleanup_phase10_test_data(db_session)`。
-  2. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 7 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1006 / T-1008 时统一替换)。
-- **严禁项**(违反则立即回滚):
-  - **严禁**改 `backend/app/models/` 任何文件(零 ORM 改动)。
-  - **严禁**新增任何 alembic migration(本任务零 DB schema 改动,head 仍 `b58bb129c24b`)。
-  - **严禁**改 `backend/app/services/ backend/app/routers/ backend/app/schemas/ backend/app/main.py` 任意一行(T-1003/04/05 已落地代码保留)。
-  - **严禁**改 `backend/tests/conftest.py`(只消费其 fixture,不改动)。
-  - **严禁**改 `backend/tests/` 下其他既有 19 个 `test_*.py` 文件;**严禁** import 它们的 helper(零横向耦合,本测试 6 个 helper 自封闭)。
-  - **严禁**改 `frontend/src/` 任何文件(留给 T-1006)。
-  - **严禁**改 `backend/scripts/seed_data.py`。
-  - **严禁** 使用 mock(`unittest.mock / pytest_mock / monkeypatch` 零导入,全部走真库 + 真 ORM + 真 service + 真 router)。
-  - **严禁** 写 `pytest.mark.skip` / `pytest.skip()` / `pytest.skip_if(...)`(所有 case 必须执行)。
-  - **严禁** 写 `print(...)` / `logger.info(...)` / `logger.debug(...)` 测试副作用。
-  - **严禁** 引入新依赖(只用 `pytest / pytest_asyncio / httpx / sqlalchemy` + `app.*`)。
-  - **严禁** 执行任何 DDL(CREATE TABLE / CREATE MATERIALIZED VIEW / ALTER ...)。
-  - **严禁** 跳过 `_cleanup_phase10_test_data` 入口,即使是看起来"简单"的 case。
-  - **严禁** 使用 `tenant_id != "default"` 的值。
-  - **严禁** 用 `asyncio.sleep` / `time.sleep`。
-  - **严禁** hard-code UUID(必须 `uuid.uuid4()`)。
-  - **严禁** 自行扩 / 减 case 总数(锁定 18 ±1)。
-  - **严禁** 碰 `backend/uv.lock` / `.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md`(继续 untracked)。
+- **当前持牌任务**: **T-1006**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 6 = `[/]`)—— Phase 10 **第六份代码任务,前端管理后台 + Dashboard Tabs 切换器主线轮**:**3 新建 + 2 改造,共 5 文件 ±0 夹带**。新建 `frontend/src/api/admin.ts`(~110 行,6 函数 + 6 类型) + `frontend/src/app/admin/departments/page.tsx`(~280 行,表格 + Modal 新建/编辑 + 删除 confirm,字段 name + manager_id);改造 `frontend/src/app/dashboard/page.tsx`(+60/-0 5 个局部插入点:imports / state / effect / Tabs JSX / sections wrap) + `frontend/src/components/sidebar.tsx`(+1/-0 ADMIN_ITEMS 数组追加 `/admin/departments`)。**严禁夹带任何 backend/ / 既有 test_*.py / 既有 admin 子路由 / Dashboard 现有 5 sections 内部 markup 改动**。
+- **执行入口**: 阅读 `docs/T-1006_spec.md`(~660 行,10 章 + 📣 附录),不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `frontend/src/app/admin/kpi/page.tsx` 是镜像参考(role guard L86-103 + Modal + form state + toast 错误模式,**照搬体例不变形**);② `frontend/src/api/kpi.ts` 是 API 客户端镜像参考(`request.get/post + as unknown as Promise<T>` 体例);③ `frontend/src/components/sidebar.tsx` L48-62 已锁定 ADMIN_ITEMS 插入位(`/admin/recycle-bin` 之前一行);④ `frontend/src/app/dashboard/page.tsx` 是 1212 行大文件,L386 `return (` 之后 L392 "监控台"标题之后插 Tabs,**所有插入点为局部**,严禁重排;⑤ 项目**无 shadcn UI kit**,Modal 用原生 `<div fixed inset-0>` 自绘,**不要**新建 `@/components/ui`;⑥ 项目有 `sonner` toast + `lucide-react`(`Building2 / Pencil / Plus / Trash2` 现有图标),**不要**新引入 npm 依赖;⑦ 后端 contract 已锁(`DepartmentIn = {name, manager_id?}` / `DepartmentOut = {id, name, manager_id, created_at, updated_at, created_by, tenant_id}` / `GroupedReportsResponse = {group_by, start_date, end_date, project_id, groups: [{key, report_count, avg_score, pass_count, pass_rate}]}`,详见 §3.6 完整骨架)。
+- **核心动作**(严格按 T-1006_spec §4 5 步顺序):
+  1. **新建** `frontend/src/api/admin.ts` —— 按 §3.6 完整骨架照搬 ~110 行,6 函数 + 6 类型,**禁止**改名(`listDepartments / createDepartment / getDepartmentWithMembers / updateDepartment / deleteDepartment / getGroupedReports`)。
+  2. **新建** `frontend/src/app/admin/departments/page.tsx` —— 按 §3.4 + §4 Step 2 骨架照搬 ~280 行,**UUID_REGEX 正则字面量** = `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`;错误码 4 项 mapping 落齐(409 name_conflict / 400 manager_not_found / 400 department_not_found / 403 → redirect /);**严禁**引入 manager dropdown。
+  3. **改造** `frontend/src/app/dashboard/page.tsx` —— 5 个**局部插入点**(imports / state `ViewMode = 'all' | 'by_department' | 'by_project'` / effect 监听 viewMode / Tabs JSX 三按钮组 / 现有 5 sections 外包 `{viewMode === 'all' && (...)}`),**严禁**重排现有 5 sections 内部 markup,`viewMode === 'all'` 时所有现有行为 100% 不变(零回归);**`canSeeTabs` 不新建独立 state**,直接 `userRole === 'admin' || userRole === 'manager'` 内联判断。
+  4. **改造** `frontend/src/components/sidebar.tsx` —— lucide-react import 追加 `Building2` + `ADMIN_ITEMS` 数组在 `{ href: '/admin/recycle-bin', ... }` **之前**插入 `{ href: '/admin/departments', label: '部门管理', icon: Building2 }` 一行。**严禁**改其它 admin 项的顺序 / 图标。
+  5. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 6 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1008 时统一替换)。
+- **严禁项**(违反则立即回滚,详见 §5 红线表 20 项):
+  - **严禁**改 `backend/` 任何文件(后端契约护栏完毕,纯前端 task)。
+  - **严禁**改任何已有测试文件 / `seed_data.py` / `conftest.py`。
+  - **严禁**引入新 npm 依赖(只用 `react / next / @/api/request / sonner / lucide-react` 现有库)。
+  - **严禁**改 `package.json` / `tsconfig.json` / `next.config.*` / `tailwind.config.*` / `postcss.config.*`。
+  - **严禁**改 4 既定 untracked 文件(`.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md` / `backend/uv.lock`)。
+  - **严禁**动 `/admin/kpi` / `/admin/recycle-bin` 路由文件(沿用,只新增 `/admin/departments`)。
+  - **严禁**动 dashboard 现有 5 sections **内部 markup**(只在最外层加 `{viewMode === 'all' && (...)}` 包装)。
+  - **严禁**引入图表(`CompareBarChart` / `TrendLineChart`)到分组视图,只用原生 `<table>`(T-1008 后再视情况补)。
+  - **严禁**引入 manager dropdown / date picker(降复杂度,UUID 文本输入足够)。
+  - **严禁**写自动化测试(本 task 纯 UI,后端 178 case 已护栏)。
+  - **严禁**持久化 `viewMode` 到 localStorage / URL(避免污染 router 模式)。
+  - **严禁**调 `/users` 拉取 manager 列表(避免爆炸面)。
+  - **严禁**传 `start_date / end_date / project_id` 到 `/admin/reports`(让后端走默认窗口 today-30 ~ today)。
+  - **严禁**破坏 employee 视图(employee 仍看到现有 Dashboard 全员视图,只是 Tabs 不显示)。
+  - **严禁** 改 📣 锚点(留给指挥官 T-1006 验收闭环时替换)。
   - **严禁** 自动 `git push`。
-  - **严禁** 自行启动 T-1006 / T-1008。
-  - **严禁** 改 📣 锚点("当前持牌任务: T-1007" 保留,留给指挥官在起草 T-1006 / T-1008 时统一替换)。
-- **测试 case 锁定表**(18 个,允许 ±1 偏差;命名 100% 对齐,T-1007 验收会按此 grep):
+  - **严禁** 自启 T-1008。
+  - **严禁** 新建 `@/components/ui`(项目无 shadcn,Modal 用原生 div 自绘)。
+  - **严禁** commit 时夹带 `node_modules` / `.next` / `.cache`。
+- **设计决策签字锁定**(T-1006_spec §3,Worker 不得偏离):
 
-  | # | 块 | Case 名 | 期望 |
-  |---|---|---------|------|
-  | 1 | Model | `test_project_member_unique_active_blocks_duplicate` | IntegrityError |
-  | 2 | Model | `test_project_member_unique_active_allows_after_left` | 两条都成功 |
-  | 3 | Model | `test_department_unique_name_blocks_duplicate` | IntegrityError |
-  | 4 | Service | `test_dept_service_get_with_members_returns_active_users` | 仅返回 is_active=True |
-  | 5 | Service | `test_dept_service_get_with_members_empty_returns_empty_list` | `members == []` |
-  | 6 | Service | `test_admin_reports_group_by_department_aggregates_correctly` | 4 项指标数值精确 |
-  | 7 | Service | `test_admin_reports_group_by_project_inner_join_excludes_null_project` | 仅 1 行,NULL project_id 行被排除 |
-  | 8 | Service | `test_validate_date_range_raises_when_start_after_end` | `ValueError("date_range_invalid")` |
-  | 9 | Router T-1004 | `test_router_dept_list_admin_returns_200` | 200 |
-  | 10 | Router T-1004 | `test_router_dept_list_manager_returns_200` | 200 |
-  | 11 | Router T-1004 | `test_router_dept_list_employee_returns_403` | 403 |
-  | 12 | Router T-1004 | `test_router_dept_create_name_conflict_returns_409` | 409 |
-  | 13 | Router T-1004 | `test_router_dept_create_invalid_manager_id_returns_400` | 400 |
-  | 14 | Router T-1005 | `test_router_admin_reports_admin_dept_returns_200` | 200 + `group_by == "department"` |
-  | 15 | Router T-1005 | `test_router_admin_reports_manager_project_returns_200` | 200 + `group_by == "project"` |
-  | 16 | Router T-1005 | `test_router_admin_reports_employee_returns_403` | 403 |
-  | 17 | Router T-1005 | `test_router_admin_reports_invalid_group_by_returns_422` | 422 |
-  | 18 | Router T-1005 | `test_router_admin_reports_date_range_invalid_returns_400` | 400 + detail 字面量 `"start_date 不能晚于 end_date"` |
+  | 决策 | 锁定值 |
+  |------|--------|
+  | Tabs 位置 | "监控台"标题下方,4 个统计卡片之上一行 |
+  | Tabs 形态 | 3 个原生 button(全员视图 / 按部门聚合 / 按项目聚合) |
+  | Tabs 可见性 | 仅 `admin + manager`(employee 不显示) |
+  | viewMode 默认值 | `'all'`(进入页第一次始终全员) |
+  | viewMode 持久化 | **不持久化**(无 localStorage / URL) |
+  | 'all' 行为 | 现有 5 sections 100% 不变 |
+  | 'by_*' 行为 | **隐藏** 5 sections + 显示 1 个 5 列表格 |
+  | 表格 5 列 | 部门 (or project_id 前 8 位...) / 日报数 / 均分 / 通过数 / 通过率 |
+  | 分组数据源参数 | 不传 start_date / end_date / project_id(后端默认窗口 today-30 ~ today) |
+  | departments 页 RBAC | useEffect 内 toast + router.replace('/')(模仿 kpi 页 L98-103) |
+  | departments 页 Modal 字段 | name(必填,1-64) + manager_id(可选,UUID 正则) |
+  | UUID_REGEX | `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` |
+  | 删除 confirm | `window.confirm(\`确认删除部门「${row.name}」?\`)` |
+  | 错误码 mapping | 409 name_conflict / 400 manager_not_found / 400 department_not_found / 403 redirect / fallback "操作失败" |
+  | sidebar 插入位 | ADMIN_ITEMS 数组 `/admin/recycle-bin` 之前 |
+  | sidebar 图标 | `Building2`(lucide-react 现有) |
+  | sidebar label | "部门管理" |
 
-- **闸门**(都必须绿):
+- **闸门**(全绿才提交):
   ```bash
-  cd backend
-  .venv/bin/ruff check .
-  .venv/bin/mypy tests/test_phase10_dept_group.py
-  .venv/bin/pytest tests/test_phase10_dept_group.py -v          # 18 ±1 case 全 passed
-  .venv/bin/pytest tests/ -q                                     # 总数 ~177-181 passed, 2 skipped 零回归
-  .venv/bin/alembic upgrade head && .venv/bin/alembic check      # head 仍 b58bb129c24b
-  cd ../frontend && npm run lint && npm run typecheck            # 前端零改动应干净
+  cd frontend
+  npm run lint          # eslint 全过,零 warning
+  npm run typecheck     # tsc --noEmit 0 error
   ```
-  注:`scheduled_tasks.py:609 + analytics.py:107-109` 4 个存量 mypy error 与 T-1004/T-1005 同源,不在本契约范围,**不修**。
+  **手动验证 4 场景**(指挥官 T-1006 验收会按此核验):
+  1. admin 账户 → `/admin/departments` → 加载列表 → 新建部门 → 编辑 → 删除。
+  2. admin / manager 账户 → `/dashboard` → 顶部 Tabs 3 按钮切换:全员视图 / 按部门聚合 / 按项目聚合。
+  3. employee 账户 → `/dashboard` → **不显示** Tabs(canSeeTabs=false)。
+  4. employee 账户访问 `/admin/departments` → toast 报错 + redirect `/`。
 - **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `feat(tests): add test_phase10_dept_group.py — Phase 10 后端 3 层 18 case 测试`(只含 `backend/tests/test_phase10_dept_group.py` 新建,共 1 个文件)
-  2. `chore(progress): close T-1007 — Phase 10 后端 3 层 18 case 测试上线`(只含 `docs/dev_tasks.md`,Task 7 → `[x]`)
+  1. `feat(admin): Phase 10 前端 admin/departments 管理页 + Dashboard Tabs 切换器`(4 文件:2 新建 `api/admin.ts` + `admin/departments/page.tsx` + 2 改造 `dashboard/page.tsx` + `sidebar.tsx`)
+  2. `chore(progress): close T-1006 — Phase 10 前端管理后台 + Tabs 切换器上线`(只含 `docs/dev_tasks.md`,Task 6 → `[x]`)
 - **时间戳纪律**: 所有 commit message 末尾(`Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 一行)、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
-- **完工后**: 立即停手汇报「T-1007 完工,等待指挥官二次验收 + 起草 T-1006 (前端 Dashboard Tabs 切换器) 或 T-1008 (文档收尾) 实施契约」。**不要**自行启动任何下游 task。
+- **完工后**: 立即停手汇报「T-1006 完工,等待指挥官二次验收 + 起草 T-1008 (文档收尾) 实施契约」。**不要**自行启动 T-1008。
