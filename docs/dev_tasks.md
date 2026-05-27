@@ -13,7 +13,7 @@
 ## 任务看板
 
 ### 依赖与基础设施 (Deps & Foundation)
-- [ ] **Task 1: 引入 reportlab / pypdf / 中文字体获取脚本(一次性收口所有依赖问题)**
+- [/] **Task 1: 引入 reportlab / pypdf / 中文字体获取脚本(一次性收口所有依赖问题)**
   - **requirements.txt 追加三项**(分块标注):
     - `reportlab>=4.0,<5.0` — PDF 生成(纯 Python,无系统依赖,优于 weasyprint)
     - `pypdf>=4.0,<6.0` — PDF 文本抽取,**仅测试用**,放在 `# ── 数据导出测试 (Phase 8) ──` 注释块下
