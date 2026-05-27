@@ -14,6 +14,9 @@ from app.models.gate_review import GateReview
 # --- 知识库模型 ---
 from app.models.knowledge import KnowledgeCategory, KnowledgeItem, RetroScope
 
+# --- KPI 目标设定模型 (Phase 9) ---
+from app.models.kpi_target import KpiMetric, KpiPeriod, KpiScope, KpiTarget
+
 # --- 通知推送模型 ---
 from app.models.notification import (
     Notification,
@@ -86,4 +89,8 @@ __all__ = [
     "NotificationTemplate",
     "Attachment",
     "AttachmentKind",
+    "KpiTarget",
+    "KpiScope",
+    "KpiMetric",
+    "KpiPeriod",
 ]
