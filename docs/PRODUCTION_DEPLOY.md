@@ -82,6 +82,14 @@ docker logs -f aipm-caddy
 # 看到 "certificate obtained successfully" 即成功
 ```
 
+### Step 4.1:初始化 Phase 8 PDF 中文字体
+```bash
+# 数据导出 PDF 需要 Noto Sans CJK 中文字体(SIL Open Font License)。
+# 字体文件较大,不随 git 提交,首次部署时由脚本下载并校验 SHA256。
+docker exec aipm-backend python scripts/fetch_export_font.py
+# 期望:字体下载完成,并输出 SHA256 校验通过
+```
+
 ### Step 5:数据库迁移(关键!)
 ```bash
 cd /opt/aipm/backend

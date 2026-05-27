@@ -13,11 +13,11 @@
 ## 任务看板
 
 ### 依赖与基础设施 (Deps & Foundation)
-- [/] **Task 1: 引入 reportlab / pypdf / 中文字体获取脚本(一次性收口所有依赖问题)**
-  - **requirements.txt 追加三项**(分块标注):
+- [x] **Task 1: 引入 reportlab / pypdf / 中文字体获取脚本(一次性收口所有依赖问题)**
+  - **requirements.txt 追加两项**(分块标注):
     - `reportlab>=4.0,<5.0` — PDF 生成(纯 Python,无系统依赖,优于 weasyprint)
     - `pypdf>=4.0,<6.0` — PDF 文本抽取,**仅测试用**,放在 `# ── 数据导出测试 (Phase 8) ──` 注释块下
-  - **中文字体获取策略**:**不**将字体二进制 commit 进 git(体积 ~10MB,git 不友好)。
+  - **中文字体获取策略**:**不**将字体二进制 commit 进 git(体积约 17MB,git 不友好)。
     - 新建 `backend/scripts/fetch_export_font.py`:
       ```python
       # 从 jsDelivr CDN(国内可达)拉取 NotoSansSC-Regular.ttf
@@ -25,6 +25,7 @@
       TARGET = Path(__file__).parent.parent / "app/services/export/fonts/NotoSansSC-Regular.ttf"
       # 用 httpx/urllib 下载,SHA256 校验后落盘
       ```
+      - 实际脚本保留上述 URL 作为 primary,若 jsDelivr 因 package-size limit 返回 403,自动回退到官方 `notofonts/noto-cjk` 仓库的 `NotoSansSC-VF.ttf` TTF 源,并用 SHA256 固定内容。
     - SHA256 期望值在脚本内硬编码(下载后第一次跑出来记下来),后续校验失败直接 raise。
     - `backend/app/services/export/fonts/` 目录建立,加 `.gitkeep` + `.gitignore`(忽略 `*.ttf`/`*.otf`)。
     - 在 `backend/README.md` 或 `docs/PRODUCTION_DEPLOY.md` 加一节「Phase 8 首次部署需跑 `python scripts/fetch_export_font.py`」。
@@ -137,5 +138,5 @@ cd frontend && npm run lint && npm run typecheck
 > 1. 每次认领任务前,将上方对应方括号修改为 `[/]`,并立即提交 `chore(lock): wip for task X`。
 > 2. 完成后修改为 `[x]` 并进行相关原子 `feat(export):` 或 `fix(export):` 提交。
 > 3. **不要删改** `/api/v1/export/daily-reports` 与 `/daily-reports-csv` 两个旧接口 —— 它们是 backward compat 保留品。
-> 4. PDF 中文字体文件较大,如 license 允许请直接 commit 进仓库;若不允许则改用 `assets-loader` 启动时下载,并在 README 提示。
+> 4. PDF 中文字体文件较大,不要 commit 字体二进制;运行 `python scripts/fetch_export_font.py` 下载,`fonts/*.ttf` / `fonts/*.otf` 已被 `.gitignore` 忽略。
 > 5. 完工后更新 `docs/recap.md`,然后由 QA Agent(我)接手跑全套质量闸门 + 数据库级集成测试补强。
