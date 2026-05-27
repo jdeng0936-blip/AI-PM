@@ -8,7 +8,7 @@ Stage 3 只做 dry-run:统计 30 天过期软删对象与 FK 影响,写 audit_lo
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +24,33 @@ from app.models.sprint_task import SprintTask
 DELETION_CLEANUP_RETENTION_DAYS = 30
 
 
+class TableCounts(TypedDict):
+    daily_reports: int
+    projects: int
+    sprint_tasks: int
+    risk_alerts: int
+    knowledge_items: int
+
+
+class CascadeImpacts(TypedDict):
+    risk_alerts_cascade_from_daily_reports: int
+    daily_reports_detach_from_projects: int
+    knowledge_items_detach_from_projects: int
+    project_members_cascade_from_projects: int
+    daily_reports_detach_from_sprint_tasks: int
+
+
+class DeletionCleanupStats(TypedDict):
+    mode: str
+    retention_days: int
+    generated_at: str
+    cutoff: str
+    tables: TableCounts
+    impacts: CascadeImpacts
+    open_history_batches: int
+    total_candidates: int
+
+
 async def _count(db: AsyncSession, stmt: Select[tuple[int]]) -> int:
     return int((await db.execute(stmt)).scalar() or 0)
 
@@ -37,7 +64,7 @@ async def build_deletion_cleanup_dry_run(
     *,
     retention_days: int = DELETION_CLEANUP_RETENTION_DAYS,
     now: Optional[datetime] = None,
-) -> dict[str, Any]:
+) -> DeletionCleanupStats:
     """返回 dry-run 统计结果;不修改任何业务表。"""
     effective_now = now or datetime.now(timezone.utc)
     cutoff = effective_now - timedelta(days=retention_days)
@@ -52,7 +79,7 @@ async def build_deletion_cleanup_dry_run(
     )
     task_candidates = select(SprintTask.id).where(SprintTask.deleted_at.is_not(None), SprintTask.deleted_at < cutoff)
 
-    tables = {
+    tables: TableCounts = {
         "daily_reports": await _count(
             db,
             _count_stmt(DailyReport, DailyReport.deleted_at.is_not(None), DailyReport.deleted_at < cutoff),
@@ -80,7 +107,7 @@ async def build_deletion_cleanup_dry_run(
         ),
     }
 
-    impacts = {
+    impacts: CascadeImpacts = {
         "risk_alerts_cascade_from_daily_reports": await _count(
             db,
             _count_stmt(RiskAlert, RiskAlert.report_id.in_(report_candidates)),
@@ -121,7 +148,13 @@ async def build_deletion_cleanup_dry_run(
         "tables": tables,
         "impacts": impacts,
         "open_history_batches": open_history_batches,
-        "total_candidates": sum(tables.values()),
+        "total_candidates": (
+            tables["daily_reports"]
+            + tables["projects"]
+            + tables["sprint_tasks"]
+            + tables["risk_alerts"]
+            + tables["knowledge_items"]
+        ),
     }
 
 

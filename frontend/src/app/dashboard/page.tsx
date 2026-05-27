@@ -130,7 +130,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [canManageAlerts])
 
   useEffect(() => {
     fetchAll()
@@ -749,7 +749,7 @@ export default function DashboardPage() {
                 {/* 级联警告 */}
                 <div className="pt-3 border-t text-[11px] space-y-1" style={{ borderColor: 'var(--color-border-subtle)' }}>
                   <div style={{ color: 'var(--color-text-secondary)' }}>潜在级联影响 (执行后将发生)：</div>
-                  {Object.entries(deletionStats.latest?.cascade_impacts || {}).filter(([_, v]: [string, any]) => v > 0).length > 0 ? (
+                  {Object.entries(deletionStats.latest?.cascade_impacts || {}).filter(([, v]: [string, any]) => v > 0).length > 0 ? (
                     Object.entries(deletionStats.latest?.cascade_impacts || {}).map(([key, val]: [string, any]) => {
                       if (!val) return null;
                       return <div key={key} style={{ color: '#eab308' }}>⚠️ {key}: {val} 条关联记录</div>
