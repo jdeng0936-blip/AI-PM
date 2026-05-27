@@ -18,8 +18,10 @@
 - **Phase 9 Task 5 (T-905)**: 已新增 `frontend/src/app/admin/kpi/page.tsx` admin/manager 管理页(表格 + Modal 新建/编辑 + 编辑模式四元组锁 + 三层客户端校验 + hydrate 安全占位 + 422 detail 解析)。
 - **Phase 9 Task 6 (T-906)**: 已新增 `frontend/src/components/dashboard/kpi-achievement-panel.tsx`(period 切换器 + `CompareBarChart` 目标蓝/实际绿双柱 + 7 列状态彩色 tag 详情表),在 `/dashboard` 通过 `canManageAlerts` 守卫嵌入,不动 Phase 7 `CompareBarChart` 与 T-905 管理页。
 - **Phase 9 Task 7 (T-907)**: 文档收尾 + 后端测试补全 3 个用例(achievement 真路径计算 / router POST 创建 / manager RBAC),Phase 9 全闭环。
+- **Phase 9 Task 8 (T-908)**: 修 metric 枚举漂移,后端 ORM/PG ENUM `sprint_completion` → `objective_completion`(单条 `ALTER TYPE RENAME VALUE` DDL 原子重命名 + seed 自动同步),前后端命名统一。Phase 9 PR 已自洽。
 
 ## 历史移交记录
+- [2026-05-27] Phase 9 Task 8 (T-908) 完成:后端 KpiMetric `sprint_completion` → `objective_completion`,前后端枚举对齐,Phase 9 PR 闭环可推送。
 - [2026-05-27] Phase 9 Task 7 完成:`docs/recap.md` + `docs/implementation-plan.md §9` 同步,后端测试补全 3 个用例。Phase 9 闭环。
 - [2026-05-27] Phase 9 Task 6 (T-906) 完成:Dashboard `KpiAchievementPanel` 面板,target-vs-actual `CompareBarChart` + 状态彩色 tag 详情表;`/dashboard` 12.8 kB / 338 kB First Load。
 - [2026-05-27] Phase 9 Task 5 (T-905) 完成:`/admin/kpi` 管理页,admin/manager RBAC + scope 联动 + 四元组编辑锁 + 422 detail 数组解析;`/admin/kpi` 4.17 kB / 220 kB First Load。
