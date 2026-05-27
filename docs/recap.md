@@ -9,8 +9,10 @@
 - **Phase 7 Task 3/4**: 已安装 Recharts、封装 `TrendLineChart` / `CompareBarChart`，并在 Dashboard 集成个人趋势、部门对比、项目健康、Sprint 效率四块图表；`npm run lint` 与 `npm run typecheck` 通过。
 - **Phase 8 Task 1**: 已引入 `reportlab` / `pypdf`，新增 `scripts/fetch_export_font.py` 字体下载与 SHA256 校验脚本，建立 `app/services/export/` 字体 lazy 注册入口，并补充生产首次部署字体初始化说明；字体二进制不提交入库。
 - **Phase 8 Task 2/3/4**: 已新增数据导出 service 层：日报多 Sheet Excel、月度评分 PDF、项目摘要 Excel；PDF 入口统一调用 `_ensure_font()`，项目摘要缺失/软删返回 HTTP 404。
+- **Phase 8 Task 5/6**: 已在 `/api/v1/export` 暴露 reports / scores / project-summary 三个新端点，并新增 `tests/test_export_phase8.py` 覆盖 service、路由、权限、参数校验与 PDF 中文抽取。
 
 ## 历史移交记录
+- [2026-05-27] Phase 8 Task 5/6 后端闭环完成：3 个导出 API + Pytest 集成测试与 PDF 中文校验。
 - [2026-05-27] Phase 8 Task 2/3/4 导出 service 层完成：`reports_excel.py`、`scores_pdf.py`、`project_summary_excel.py` 与公共 Excel 样式模块。
 - [2026-05-27] Phase 8 Task 1 数据导出基础设施完成：PDF/测试依赖、Noto Sans SC 字体脚本、字体忽略策略与部署说明。
 - [2026-05-27] Phase 7 Task 3/4 前端图表完成：Recharts 组件封装 + Dashboard Analytics 模块。

@@ -5,10 +5,13 @@ GET /api/v1/export/daily-reports — 按日期范围导出日报为 Excel (.xlsx
 """
 
 import io
+import logging
 from datetime import date, timedelta
 from typing import Optional
+from urllib.parse import quote
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -18,9 +21,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import require_role
 from app.models.daily_report import DailyReport
+from app.models.project import Project
 from app.models.user import User, UserRole
+from app.services.export.project_summary_excel import build_project_summary_workbook
+from app.services.export.reports_excel import build_reports_workbook
+from app.services.export.scores_pdf import build_scores_pdf
 
 router = APIRouter(prefix="/api/v1/export", tags=["数据导出"])
+logger = logging.getLogger(__name__)
+
+EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PDF_MEDIA_TYPE = "application/pdf"
+
+
+def _attachment_headers(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
 @router.get("/daily-reports")
@@ -236,3 +251,95 @@ async def export_daily_reports_csv(
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
         },
     )
+
+
+@router.get("/reports")
+async def export_reports_phase8(
+    format: str = Query("xlsx", description="导出格式,仅支持 xlsx"),
+    start_date: Optional[date] = Query(None, description="起始日期"),
+    end_date: Optional[date] = Query(None, description="结束日期"),
+    department: Optional[str] = Query(None, description="部门筛选"),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+):
+    """导出日报多维汇总 Excel。"""
+    if format != "xlsx":
+        raise HTTPException(status_code=400, detail="reports 仅支持 xlsx 格式")
+    if not end_date:
+        end_date = date.today()
+    if not start_date:
+        start_date = end_date - timedelta(days=6)
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date 不能晚于 end_date")
+
+    try:
+        output = await build_reports_workbook(
+            db,
+            start_date=start_date,
+            end_date=end_date,
+            department=department,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("生成日报多维汇总 Excel 失败")
+        raise HTTPException(status_code=500, detail="生成日报多维汇总 Excel 失败") from exc
+
+    filename = f"AI日报汇总_{start_date}_{end_date}.xlsx"
+    return StreamingResponse(output, media_type=EXCEL_MEDIA_TYPE, headers=_attachment_headers(filename))
+
+
+@router.get("/scores")
+async def export_scores_phase8(
+    format: str = Query("pdf", description="导出格式,仅支持 pdf"),
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="月份,格式 YYYY-MM"),
+    department: Optional[str] = Query(None, description="部门筛选"),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+):
+    """导出月度评分 PDF。"""
+    if format != "pdf":
+        raise HTTPException(status_code=400, detail="scores 仅支持 pdf 格式")
+
+    try:
+        output = await build_scores_pdf(db, month=month, department=department)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("生成月度评分 PDF 失败")
+        raise HTTPException(status_code=500, detail="生成月度评分 PDF 失败") from exc
+
+    filename = f"评分报告_{month}.pdf"
+    return StreamingResponse(output, media_type=PDF_MEDIA_TYPE, headers=_attachment_headers(filename))
+
+
+@router.get("/project-summary")
+async def export_project_summary_phase8(
+    format: str = Query("xlsx", description="导出格式,仅支持 xlsx"),
+    project_id: UUID = Query(..., description="项目 UUID"),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+):
+    """导出单项目多 Sheet 摘要。"""
+    if format != "xlsx":
+        raise HTTPException(status_code=400, detail="project-summary 仅支持 xlsx 格式")
+
+    try:
+        output = await build_project_summary_workbook(db, project_id=project_id)
+        project = await _get_project_for_filename(db, project_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("生成项目摘要 Excel 失败")
+        raise HTTPException(status_code=500, detail="生成项目摘要 Excel 失败") from exc
+
+    filename = f"项目摘要_{project.code}_{date.today()}.xlsx"
+    return StreamingResponse(output, media_type=EXCEL_MEDIA_TYPE, headers=_attachment_headers(filename))
+
+
+async def _get_project_for_filename(db: AsyncSession, project_id: UUID) -> Project:
+    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在或已删除")
+    return project
