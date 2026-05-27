@@ -43,7 +43,7 @@
     3. `pip install -r requirements.txt` 在 clean venv 内成功。
 
 ### 后端 Service 层 (services/export/)
-- [/] **Task 2: `services/export/reports_excel.py` — 多 Sheet 日报汇总**
+- [x] **Task 2: `services/export/reports_excel.py` — 多 Sheet 日报汇总**
   - 函数签名:`async def build_reports_workbook(db, *, start_date, end_date, department=None) -> BytesIO`。
   - 3 个 Sheet:
     1. **汇总** — 期间提交率、平均分、合格率、退回率、Top 5 高分员工。
@@ -52,7 +52,7 @@
   - 样式继续沿用现有 `header_fill / pass_fill / fail_fill / thin_border` 三件套,提取为 `_styles.py` 公共模块。
   - 冻结每 Sheet 首行,Sheet 1 末尾追加一张原生 Excel 柱状图(`BarChart`,数据来自部门小结)。
 
-- [/] **Task 3: `services/export/scores_pdf.py` — 月度评分 PDF 报告**
+- [x] **Task 3: `services/export/scores_pdf.py` — 月度评分 PDF 报告**
   - 函数签名:`async def build_scores_pdf(db, *, month: str, department=None) -> BytesIO`,`month` 形如 `"2026-05"`。
   - 内容版面(A4 纵向,自上而下):
     1. 封面标题 + 期间 + 部门(全部门时显示「全公司」)+ 生成时间。
@@ -63,7 +63,7 @@
     6. 页脚:页码 `Page X / Y` + 生成时间戳。
   - 中文字体注册见 Task 1,不能让 reportlab 默认 Helvetica 处理中文。
 
-- [/] **Task 4: `services/export/project_summary_excel.py` — 单项目多 Sheet 摘要**
+- [x] **Task 4: `services/export/project_summary_excel.py` — 单项目多 Sheet 摘要**
   - 函数签名:`async def build_project_summary_workbook(db, *, project_id: UUID) -> BytesIO`。
   - 4 个 Sheet:
     1. **项目概况** — 名称 / 编码 / track / 当前阶段 / 健康度 / 负责人 / 创建时间。
