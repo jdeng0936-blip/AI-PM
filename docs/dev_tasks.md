@@ -102,7 +102,7 @@
 ## 任务看板
 
 ### 勘察 (Survey & Documentation)
-- [/] **Task 1 (T-1001): §10 实物盘点 + plan 实际落地路径段落落盘** — In Progress by Commander
+- [x] **Task 1 (T-1001): §10 实物盘点 + plan 实际落地路径段落落盘**
   - 对 `models/project.py / project_member.py / project_stage.py / user.py`、`routers/projects.py / dashboard.py / trends.py` 做只读勘察,提取 6 个维度对照(参见 T-1001_spec §3)。
   - 在 `docs/implementation-plan.md §10` 末尾**追加**「实际落地路径(Phase 10 勘察)」段,与 §9 末尾的「实际落地路径(Phase 9)」格式对齐:6 列对照表 + 已实现 API 路径表 + 待补齐清单。
   - **完整执行契约见 `docs/T-1001_spec.md`**(必读)。
