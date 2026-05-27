@@ -178,7 +178,7 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 19:30:00]`(指挥官 T-1004 spec 落盘 + 锚点替换)
+> **更新时间戳**: `[2026-05-27 20:05:00]`(指挥官 T-1004 spec 勘误 — User 模型无 `deleted_at`,过滤改用 `is_active.is_(True)`;初次落盘时间 `[2026-05-27 19:30:00]`)
 
 - **当前持牌任务**: **T-1004**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 4 = `[/]`)—— Phase 10 **第三份代码任务,服务/路由层主线轮**:新建 `/api/v1/admin/departments` 5 端点(CRUD + 成员反查),`schemas + service + router` 三件套 + `main.py` 注册。**4 个 src 文件改动(3 新建 + 1 插入式) + 1 个 dev_tasks.md 收口,严禁夹带任何 ORM / migration / 测试 / 前端 / `User.department` 字段改造**。
 - **执行入口**: 阅读 `docs/T-1004_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `User` 模型**无** `deleted_at` 字段,软删除信号 = `User.is_active.is_(True)`(已在多处使用,见 `chat_tools/people.py:117 / chat_tools/reports.py:315 / export/reports_excel.py:117 / routers/users.py:72,237,256`);② `User` 不继承 `BaseMixin`(避免 `created_by` FK 循环依赖,见 `models/user.py` L4-7 注释);③ `main.py` import 块按字母序排列(L13-26),`departments` 插入点在 `dashboard,` 之后 `erp,` 之前。
