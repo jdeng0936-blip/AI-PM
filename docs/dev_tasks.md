@@ -17,7 +17,7 @@
 ## 任务看板
 
 ### 数据层 (Models & Migrations)
-- [/] **Task 1 (T-901): `kpi_targets` 表与 SQLAlchemy Model**
+- [x] **Task 1 (T-901): `kpi_targets` 表与 SQLAlchemy Model**
   - 新建 `backend/app/models/kpi_target.py`(`KpiTarget` 类 + `KpiScope` / `KpiMetric` / `KpiPeriod` 三个 Enum)。
   - 新建 Alembic migration `backend/alembic/versions/20260527_<HHMM>_phase9_add_kpi_targets.py`:`upgrade()` 建表 + 复合索引 + UNIQUE 约束 + 4 条 seed;`downgrade()` 反向回滚。
   - 在 `app/models/__init__.py` 暴露 `KpiTarget` 及三个 Enum,加入 `__all__`。
