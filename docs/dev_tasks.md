@@ -150,11 +150,12 @@
   - 新建 `frontend/src/app/admin/departments/page.tsx`(表格 + 新建 Modal,字段 name + manager_id,调 `/api/v1/admin/departments`)。
   - 在 `/dashboard` 顶部加 `<Tabs>` 全员/按部门/按项目,按选择动态切换数据源(全员=现有 / 按部门=新端点 group_by=department / 按项目=新端点 group_by=project)。
 
-- [ ] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`**
-  - Model 层:ProjectMember 重复 `(project_id, user_id)` WHERE `left_at IS NULL` 必须抛 IntegrityError,但 `left_at` 不为空时允许重复;Department UNIQUE name 冲突。
-  - Service 层:`get_with_members` 反查正确性 + 空部门返回空列表。
-  - Router 层:200 路径 + RBAC + `group_by` 参数校验(`?group_by=invalid` 422)。
-  - 跑通后所有 quality gates 全绿,`pytest tests/` 必须无回归。
+- [/] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`** — In Progress by Codex(指挥官 chore(spec) commit 已加锁,`[2026-05-27 20:55:00]`)
+  - **新建** `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*` case)。
+  - **覆盖**:Model 层 3 case(ProjectMember partial UNIQUE `(project_id, user_id) WHERE left_at IS NULL` + `left_at` 非空允许重复 + Department.name UNIQUE) + Service 层 5 case(`get_department_with_members` 反查活跃用户 + 空部门返回 `[]` + `group_reports_by_department` 4 指标聚合精确 + `group_reports_by_project` inner join 剔除 NULL project_id + `_validate_date_range` start>end 抛 `ValueError("date_range_invalid")`) + Router 层 10 case(T-1004 5 端点 admin/manager/employee RBAC + name_conflict 409 + manager_not_found 400 + T-1005 admin/manager 200 + employee 403 + `?group_by=invalid` 422 + `start_date>end_date` 400 detail 字面量)。
+  - **fixtures**:消费 `conftest.py` 已有 `db_session(auto-rollback) + client(dependency_overrides)`,**不**新建 fixture。私有 helpers 6 个(`_cleanup_phase10_test_data / _make_user / _headers / _make_department / _make_project / _make_daily_report`)。每 case 入口**强制** `await _cleanup_phase10_test_data(db_session)`。
+  - **改** `docs/dev_tasks.md`(Task 7 → `[x]`,与最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1006 / T-1008 时统一替换)。
+  - **完整执行契约见 `docs/T-1007_spec.md`**(必读)。
 
 - [ ] **Task 8 (T-1008): 文档收尾**
   - 在 `docs/implementation-plan.md §10` 末尾再追加「实际落地路径(Phase 10 实施)」段,记录 6 列对照表对应维度从 ❌ → ✅ 的变化与最终对外路径。
@@ -186,73 +187,71 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 20:25:00]`(指挥官 T-1005 spec 落盘 + 锚点替换)
+> **更新时间戳**: `[2026-05-27 20:55:00]`(指挥官 T-1005 验收闭环 + T-1007 spec 落盘 + 锚点替换)
 
-- **当前持牌任务**: **T-1005**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 5 = `[/]`)—— Phase 10 **第四份代码任务,对外分组聚合主线轮**:新建 `/api/v1/admin/reports?group_by=department|project` 1 个 GET 端点(对齐 plan §10 L737-784,供 T-1006 前端 Dashboard Tabs 切换器消费)。`schemas + service + router` 三件套 + `main.py` 注册。**4 个 src 文件改动(3 新建 + 1 插入式) + 1 个 dev_tasks.md 收口,严禁夹带任何 ORM / migration / 测试 / 前端 / 既有 dashboard.py / trends.py / reports.py / departments.py / kpi.py 改造**。
-- **执行入口**: 阅读 `docs/T-1005_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `DailyReport(BaseMixin, Base)` 含 `deleted_at: DateTime(timezone=True) nullable index`(V2.4 Stage 2 软删除信号,`models/daily_report.py` L82-87),与 User 不同必须过滤;② `Project(BaseMixin, Base)` 含 `deleted_at` + `name: String(128)` + `is_temporary`;③ 现有按部门/项目聚合体例已在 `trends.py L77-122` + `dashboard.py L300-323` 落地,**不复用不修改**,本契约新建独立端点并存;④ `main.py` import 块字母序,`admin_reports,` 插入点在 `analytics,` 之前(字母序最靠前);⑤ **不**复用 Phase 7 物化视图 `mv_daily_user_stats` / `mv_weekly_dept_stats`(MV 刷新有时滞,即时 query 更准且 admin 工具 QPS 极低)。
-- **核心动作**(严格按 T-1005_spec §3 顺序):
-  1. **新建** `backend/app/schemas/admin_reports.py` —— Pydantic V2,3 个公开类型:`GroupBy = Literal["department", "project"]` + `ReportGroupRow(key str, report_count int ge=0, avg_score float ge=0, pass_count int ge=0, pass_rate float ge=0 le=100, ConfigDict(from_attributes=True))` + `GroupedReportsResponse(group_by: GroupBy, start_date: date, end_date: date, project_id: Optional[uuid.UUID], groups: list[ReportGroupRow])`。**严禁**加 validator / @property / Computed / 导入 ORM。
-  2. **新建** `backend/app/services/admin_reports_service.py` —— `TENANT_ID = "default"` 常量 + `_validate_date_range(start_date, end_date)`(`start_date > end_date` → `raise ValueError("date_range_invalid")`,**严禁**改 `>` 为 `>=`) + `_row_to_group(key, report_count, avg_score, pass_count) -> ReportGroupRow`(`pass_rate = round(pass_count / max(report_count, 1) * 100, 1)`) + `group_reports_by_department(db, start_date, end_date, project_id)`(`select(User.department.label("key"), func.count, func.coalesce(func.avg, 0), func.count().filter(...))` + `join(User, DailyReport.user_id == User.id)` + 强制 `DailyReport.deleted_at.is_(None) + DailyReport.tenant_id == TENANT_ID`,可选 `DailyReport.project_id == project_id`,`group_by(User.department).order_by(avg desc)`) + `group_reports_by_project(db, start_date, end_date, project_id)`(同上但 `select(Project.id.label("key"), ...)` + **inner join** `Project` 剔除未挂项目日报 + 额外强制 `Project.deleted_at.is_(None)`,可选 `Project.id == project_id`,`group_by(Project.id)`)。**严禁 raise HTTPException**;**严禁** 引入 `app.routers.*`;**严禁** print / logger;**严禁** 加分页 / limit / offset;**严禁** 复用 Phase 7 MV;**严禁** 过滤 `User.is_active`(用户状态不影响历史日报权重);**严禁** 在 group_by=project 用 outerjoin(必须 inner join);**严禁** 给 `_row_to_group` 加除 4 项之外的额外字段。
-  3. **新建** `backend/app/routers/admin_reports.py` —— `router = APIRouter(prefix="/api/v1/admin/reports", tags=["Admin Reports"])` + `_mgr_or_admin = require_role(UserRole.admin, UserRole.manager)` + `_map_value_error(exc)`(`date_range_invalid → 400 "start_date 不能晚于 end_date"`,兜底 500)。**1 个 GET 端点** `@router.get("/", response_model=GroupedReportsResponse)`,参数:`group_by: GroupBy = Query(...)` 必传 / `project_id: Optional[uuid.UUID] = Query(None)` / `start_date: Optional[date] = Query(None)` / `end_date: Optional[date] = Query(None)` + `db: AsyncSession = Depends(get_db)` + `_user: User = Depends(_mgr_or_admin)`。**默认窗口**:`end_d = end_date or date.today()`;`start_d = start_date or (end_d - timedelta(days=30))`。try/except `ValueError` + `raise _map_value_error(e) from None`,分发到 `group_reports_by_department` 或 `group_reports_by_project`。**严禁** router 做 ORM;**严禁** RBAC 加 employee 或去 manager;**严禁** 扩端点(POST/PATCH/DELETE/OPTIONS)或减端点 —— 必须严格 1 个 GET。
-  4. **改** `backend/app/main.py` —— 插入式 2 行:① 在 `from app.routers import (...)` 块中 `admin_reports,` 字母序插在 `analytics,` 之前(必须最靠前);② `app.include_router(admin_reports.router)` 紧邻 `app.include_router(departments.router)` 之后。**严禁** 重排其他 import 或 include_router 顺序;**严禁** 改 Sentry / lifespan / 中间件。
-  5. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 5 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1006 时统一替换)。
+- **当前持牌任务**: **T-1007**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 7 = `[/]`)—— Phase 10 **第五份代码任务,后端测试集中补主线轮**:新建 1 个测试文件 `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*`),三层覆盖 T-1003/04/05 全部端到端行为(Model layer ProjectMember partial UNIQUE + Department.name UNIQUE / Service layer get_with_members 反查 + admin_reports 双路径聚合 + _validate_date_range / Router layer T-1004 5 端点 + T-1005 1 端点 RBAC + 错误码)。**1 个新建 test 文件 + 1 个 dev_tasks.md 收口,严禁夹带任何 ORM / migration / service / router / main.py / conftest.py / 其他既有 test_*.py / frontend / seed_data.py 改动**。
+- **执行入口**: 阅读 `docs/T-1007_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `backend/tests/conftest.py` 已提供 `db_session`(auto-rollback) + `client`(dependency_overrides `get_db`) 双 fixture,**直接消费**,**禁止**新建 conftest 或自定义 engine;② `tests/test_kpi_phase9.py` L147-164 的 `_make_user / _headers` 体例已锁定,本契约**照搬不变形**(只改字段值);③ `ProjectMember.__table_args__` 是 partial UNIQUE Index `(project_id, user_id) WHERE left_at IS NULL`(`models/project_member.py` L34-42),测试必须跑在 PG 测试库,SQLite 不支持 partial index(CI 失败非 Worker 责任);④ `Department.name = unique=True`(`models/department.py` L34),无 partial 条件;⑤ `DailyReport.content` 字段 NOT NULL,helper 必须塞默认值;⑥ Phase 7 MV `mv_daily_user_stats / mv_weekly_dept_stats` **不**复用,本测试零 DDL;⑦ 已完工 T-1005 的 `admin_reports_service` 中私有函数 `_validate_date_range` 可直接 import(`from app.services.admin_reports_service import _validate_date_range, group_reports_by_department, group_reports_by_project`)。
+- **核心动作**(严格按 T-1007_spec §3 顺序):
+  1. **新建** `backend/tests/test_phase10_dept_group.py` —— 头部 docstring + imports(`pytest / pytest_asyncio / httpx.AsyncClient / SQLAlchemy / delete / IntegrityError / app.models.* / app.services.* / app.middleware.rbac.create_access_token`)。`TENANT_ID = "default"` 常量。6 个 `_*` 私有 helpers:`_cleanup_phase10_test_data(db)`(按 DailyReport → ProjectMember → Project → Department → User 顺序 delete,`wechat_userid.like("phase10_%")` 精准锁定本测试用户) + `_make_user(db, role, name, department="技术部", is_active=True)` + `_headers(user) -> dict` + `_make_department(db, name, manager_id=None)` + `_make_project(db, name="Phase10 项目")` + `_make_daily_report(db, user_id, project_id, report_date, ai_score, pass_check)`。然后 **18-19 个** `@pytest.mark.asyncio async def test_*` 函数,按 Model(3)/Service(5)/Router T-1004(5)/Router T-1005(5) 4 块顺序。**每个 case 入口强制** `await _cleanup_phase10_test_data(db_session)`。
+  2. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 7 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1006 / T-1008 时统一替换)。
 - **严禁项**(违反则立即回滚):
   - **严禁**改 `backend/app/models/` 任何文件(零 ORM 改动)。
   - **严禁**新增任何 alembic migration(本任务零 DB schema 改动,head 仍 `b58bb129c24b`)。
-  - **严禁**改 `routers/dashboard.py / trends.py / reports.py / departments.py / kpi.py` 任意一行(现有端点保留并存)。
-  - **严禁**写测试(留给 T-1007 集中补)。
+  - **严禁**改 `backend/app/services/ backend/app/routers/ backend/app/schemas/ backend/app/main.py` 任意一行(T-1003/04/05 已落地代码保留)。
+  - **严禁**改 `backend/tests/conftest.py`(只消费其 fixture,不改动)。
+  - **严禁**改 `backend/tests/` 下其他既有 19 个 `test_*.py` 文件;**严禁** import 它们的 helper(零横向耦合,本测试 6 个 helper 自封闭)。
   - **严禁**改 `frontend/src/` 任何文件(留给 T-1006)。
   - **严禁**改 `backend/scripts/seed_data.py`。
-  - **严禁** service 层 raise `HTTPException`。
-  - **严禁** router 层做 ORM 查询(全部走 service 函数)。
-  - **严禁** 自行扩端点(POST/PATCH/DELETE/OPTIONS)或减端点 —— 必须严格 1 个 GET。
-  - **严禁** RBAC 范围加 `employee` 或去掉 `manager`。
-  - **严禁** 复用 Phase 7 物化视图 `mv_daily_user_stats` / `mv_weekly_dept_stats`。
-  - **严禁** 在 service 加分页 / `limit` / `offset` 参数。
-  - **严禁** 重排 `main.py` import 块或 `include_router` 的其他元素。
-  - **严禁** 给 service / router 加 `print` 或 `logger.info` 副作用。
-  - **严禁** 在过滤条件加 `User.is_active`(User 状态不影响历史日报聚合权重)。
-  - **严禁** 在 `group_by=project` 路径用 `outerjoin Project`(必须 `inner join`,剔除未挂项目日报)。
-  - **严禁** 改 `_validate_date_range` 的 `>` 为 `>=`(允许同日聚合,语义保留)。
-  - **严禁** 给 `_row_to_group` 加除 4 项(`report_count / avg_score / pass_count / pass_rate`)之外的额外字段。
+  - **严禁** 使用 mock(`unittest.mock / pytest_mock / monkeypatch` 零导入,全部走真库 + 真 ORM + 真 service + 真 router)。
+  - **严禁** 写 `pytest.mark.skip` / `pytest.skip()` / `pytest.skip_if(...)`(所有 case 必须执行)。
+  - **严禁** 写 `print(...)` / `logger.info(...)` / `logger.debug(...)` 测试副作用。
+  - **严禁** 引入新依赖(只用 `pytest / pytest_asyncio / httpx / sqlalchemy` + `app.*`)。
+  - **严禁** 执行任何 DDL(CREATE TABLE / CREATE MATERIALIZED VIEW / ALTER ...)。
+  - **严禁** 跳过 `_cleanup_phase10_test_data` 入口,即使是看起来"简单"的 case。
+  - **严禁** 使用 `tenant_id != "default"` 的值。
+  - **严禁** 用 `asyncio.sleep` / `time.sleep`。
+  - **严禁** hard-code UUID(必须 `uuid.uuid4()`)。
+  - **严禁** 自行扩 / 减 case 总数(锁定 18 ±1)。
   - **严禁** 碰 `backend/uv.lock` / `.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md`(继续 untracked)。
   - **严禁** 自动 `git push`。
-  - **严禁** 自行启动 T-1006 / T-1007 / T-1008。
-  - **严禁** 改 📣 锚点("当前持牌任务: T-1005" 保留,留给指挥官在起草 T-1006 时统一替换)。
-- **端点 + 错误码 + RBAC 锁定表**(必须 100% 对齐,T-1007 测试会按此 assert):
+  - **严禁** 自行启动 T-1006 / T-1008。
+  - **严禁** 改 📣 锚点("当前持牌任务: T-1007" 保留,留给指挥官在起草 T-1006 / T-1008 时统一替换)。
+- **测试 case 锁定表**(18 个,允许 ±1 偏差;命名 100% 对齐,T-1007 验收会按此 grep):
 
-  | 方法 | 路径 | 响应模型 | 状态码 | RBAC |
-  |------|------|----------|--------|------|
-  | GET | `/api/v1/admin/reports/?group_by=department\|project&project_id=&start_date=&end_date=` | `GroupedReportsResponse` | 200 | admin + manager |
+  | # | 块 | Case 名 | 期望 |
+  |---|---|---------|------|
+  | 1 | Model | `test_project_member_unique_active_blocks_duplicate` | IntegrityError |
+  | 2 | Model | `test_project_member_unique_active_allows_after_left` | 两条都成功 |
+  | 3 | Model | `test_department_unique_name_blocks_duplicate` | IntegrityError |
+  | 4 | Service | `test_dept_service_get_with_members_returns_active_users` | 仅返回 is_active=True |
+  | 5 | Service | `test_dept_service_get_with_members_empty_returns_empty_list` | `members == []` |
+  | 6 | Service | `test_admin_reports_group_by_department_aggregates_correctly` | 4 项指标数值精确 |
+  | 7 | Service | `test_admin_reports_group_by_project_inner_join_excludes_null_project` | 仅 1 行,NULL project_id 行被排除 |
+  | 8 | Service | `test_validate_date_range_raises_when_start_after_end` | `ValueError("date_range_invalid")` |
+  | 9 | Router T-1004 | `test_router_dept_list_admin_returns_200` | 200 |
+  | 10 | Router T-1004 | `test_router_dept_list_manager_returns_200` | 200 |
+  | 11 | Router T-1004 | `test_router_dept_list_employee_returns_403` | 403 |
+  | 12 | Router T-1004 | `test_router_dept_create_name_conflict_returns_409` | 409 |
+  | 13 | Router T-1004 | `test_router_dept_create_invalid_manager_id_returns_400` | 400 |
+  | 14 | Router T-1005 | `test_router_admin_reports_admin_dept_returns_200` | 200 + `group_by == "department"` |
+  | 15 | Router T-1005 | `test_router_admin_reports_manager_project_returns_200` | 200 + `group_by == "project"` |
+  | 16 | Router T-1005 | `test_router_admin_reports_employee_returns_403` | 403 |
+  | 17 | Router T-1005 | `test_router_admin_reports_invalid_group_by_returns_422` | 422 |
+  | 18 | Router T-1005 | `test_router_admin_reports_date_range_invalid_returns_400` | 400 + detail 字面量 `"start_date 不能晚于 end_date"` |
 
-  | 错误信号 | service ValueError 字面量 | router HTTPException | detail |
-  |---------|--------------------------|----------------------|--------|
-  | 日期范围反 | `"date_range_invalid"` | 400 | `"start_date 不能晚于 end_date"` |
-  | group_by 非法 | (Pydantic Literal 自动) | 422 | FastAPI 默认 |
-  | project_id 非 UUID | (Pydantic 自动) | 422 | FastAPI 默认 |
-  | RBAC 不足 | (require_role 自动) | 403 | RBAC 中间件默认 |
-
-- **聚合指标 4 项锁定**(对齐 `trends.py L92-101`):
-  - `report_count`:`func.count(DailyReport.id)` → int
-  - `avg_score`:`func.coalesce(func.avg(DailyReport.ai_score), 0)` round 1 位 → float
-  - `pass_count`:`func.count().filter(DailyReport.pass_check.is_(True))` → int
-  - `pass_rate`:`round(pass_count / max(report_count, 1) * 100, 1)` → float 0-100
-- **过滤条件锁定**:
-  - 两条路径**强制**:`DailyReport.report_date >= start_date AND <= end_date` + `DailyReport.deleted_at.is_(None)` + `DailyReport.tenant_id == TENANT_ID`("default")
-  - `group_by=department` 可选叠加:`DailyReport.project_id == project_id`
-  - `group_by=project` 必加:`Project.deleted_at.is_(None)`;可选叠加:`Project.id == project_id`
-  - **不**过滤 `User.is_active`
 - **闸门**(都必须绿):
   ```bash
   cd backend
   .venv/bin/ruff check .
-  .venv/bin/mypy app/schemas/admin_reports.py app/services/admin_reports_service.py app/routers/admin_reports.py app/main.py
-  .venv/bin/pytest tests/ -q                                    # 必须零回归(160 passed + 2 skipped,与 T-1004 完工一致)
-  .venv/bin/alembic upgrade head && .venv/bin/alembic check     # head 仍 b58bb129c24b
-  cd ../frontend && npm run lint && npm run typecheck
+  .venv/bin/mypy tests/test_phase10_dept_group.py
+  .venv/bin/pytest tests/test_phase10_dept_group.py -v          # 18 ±1 case 全 passed
+  .venv/bin/pytest tests/ -q                                     # 总数 ~177-181 passed, 2 skipped 零回归
+  .venv/bin/alembic upgrade head && .venv/bin/alembic check      # head 仍 b58bb129c24b
+  cd ../frontend && npm run lint && npm run typecheck            # 前端零改动应干净
   ```
+  注:`scheduled_tasks.py:609 + analytics.py:107-109` 4 个存量 mypy error 与 T-1004/T-1005 同源,不在本契约范围,**不修**。
 - **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `feat(admin_reports): add /api/v1/admin/reports?group_by= 对外分组聚合端点`(只含 `backend/app/schemas/admin_reports.py` 新建 + `backend/app/services/admin_reports_service.py` 新建 + `backend/app/routers/admin_reports.py` 新建 + `backend/app/main.py` 插入式 2 行 共 4 个文件)
-  2. `chore(progress): close T-1005 — /api/v1/admin/reports 对外分组聚合端点上线`(只含 `docs/dev_tasks.md`,Task 5 → `[x]`)
-- **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
-- **完工后**: 立即停手汇报「T-1005 完工,等待指挥官二次验收 + 起草 T-1006 (前端 Dashboard Tabs 切换器) 或 T-1007 (测试集中补) 实施契约」。**不要**自行启动任何下游 task。
+  1. `feat(tests): add test_phase10_dept_group.py — Phase 10 后端 3 层 18 case 测试`(只含 `backend/tests/test_phase10_dept_group.py` 新建,共 1 个文件)
+  2. `chore(progress): close T-1007 — Phase 10 后端 3 层 18 case 测试上线`(只含 `docs/dev_tasks.md`,Task 7 → `[x]`)
+- **时间戳纪律**: 所有 commit message 末尾(`Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 一行)、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
+- **完工后**: 立即停手汇报「T-1007 完工,等待指挥官二次验收 + 起草 T-1006 (前端 Dashboard Tabs 切换器) 或 T-1008 (文档收尾) 实施契约」。**不要**自行启动任何下游 task。
