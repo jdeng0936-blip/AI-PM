@@ -79,7 +79,8 @@ app/schemas/department.py — Phase 10 部门 Pydantic V2 Schemas
 
 成员反查口径:
   - 从 User.department: String(64) 字符串字段按 name 等值匹配反查
-  - 仅返回未软删除用户(deleted_at IS NULL)
+  - 仅返回 is_active=True 的活跃用户(本仓库 User 软删除信号 = is_active=False,**无** deleted_at 字段;
+    User 模型不继承 BaseMixin,见 backend/app/models/user.py L4-7 注释)
   - 字段裁剪到 id / name / role / department,不暴露密码/手机号等敏感字段
 """
 
@@ -206,10 +207,13 @@ async def _get_department_or_raise(db: AsyncSession, dept_id: uuid.UUID) -> Depa
 
 
 async def _verify_manager_exists(db: AsyncSession, manager_id: uuid.UUID) -> None:
-    """校验 manager_id 对应 user 存在且未软删除。"""
+    """校验 manager_id 对应 user 存在且活跃(is_active=True)。
+
+    本仓库 User 不使用 deleted_at,软删除 = is_active=False(见 backend/app/routers/users.py:223)。
+    """
     stmt = select(User.id).where(
         User.id == manager_id,
-        User.deleted_at.is_(None),
+        User.is_active.is_(True),
     )
     if (await db.execute(stmt)).scalar_one_or_none() is None:
         raise ValueError("manager_not_found")
@@ -292,7 +296,7 @@ async def get_department_with_members(
         select(User)
         .where(
             User.department == dept.name,
-            User.deleted_at.is_(None),
+            User.is_active.is_(True),
             User.tenant_id == TENANT_ID,
         )
         .order_by(User.name.asc())
@@ -312,9 +316,12 @@ async def get_department_with_members(
 - **严禁** 调用 `app/services/deletion_history.py` 或写入 `deletion_history` 表(Department 不在软删除框架内,T-1004 范围)。
 - **严禁** 自行追加 `manager_id` FK 校验之外的复杂业务校验。
 
-#### `User.deleted_at` 校验前置探针
+#### User 活跃字段说明(已勘察实证,无需 Codex 再做探针)
 
-- 在写 `_verify_manager_exists` 与 `get_department_with_members` 之前,Codex **必须** `grep -n "deleted_at" backend/app/models/user.py` 确认 `User.deleted_at` 字段确实存在;若不存在(字段名为 `is_deleted` 或其他变体),立即停手向指挥官报告,**不要**擅自改字段名。
+- 本仓库 `User` 模型**不**继承 BaseMixin,**没有** `deleted_at` 字段(见 `backend/app/models/user.py` L4-7 注释 + L82-92 通用字段段落)。
+- 软删除信号: `is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)`(L59)。
+- 现有体例: `User.is_active.is_(True)` 已在多处使用(`services/chat_tools/people.py:117` / `services/chat_tools/reports.py:315` / `services/export/reports_excel.py:117` / `routers/users.py:72,237,256`)。本契约 §3.2 服务层完全对齐此体例。
+- 用户软删除路径 = `routers/users.py:223`(`user.is_active = False`),硬删除路径无(只走停用)。
 
 ---
 
@@ -493,7 +500,7 @@ async def delete(
 - 找到行 128(`- [ ] **Task 4 (T-1004): ...**`),把状态从 `[/] In Progress by Codex(...)` 改为 `[x]`。
 - **附加** 第 4-5 个 bullet 描述 PATCH 与 DELETE 端点,以及成员反查的口径:
   - 子描述追加:`PATCH /api/v1/admin/departments/{id}(部分更新 name / manager_id)` + `DELETE /api/v1/admin/departments/{id}(硬删除,返回 204)`。
-  - 子描述追加成员反查口径:`GET /{id}/members 从 User.department: String(64) 等值反查 + deleted_at IS NULL 过滤`。
+  - 子描述追加成员反查口径:`GET /{id}/members 从 User.department: String(64) 等值反查 + User.is_active.is_(True) 过滤(本仓库无 deleted_at 字段)`。
 
 #### 编辑 B: 📣 锚点保留不动
 
