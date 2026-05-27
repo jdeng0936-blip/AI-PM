@@ -31,7 +31,7 @@
   - 验收通过条件:负向测试「重复 `(global, NULL, submit_rate, monthly)` 必须抛 `IntegrityError`」。
 
 ### 服务层 (services/)
-- [/] **Task 2 (T-902): Pydantic Schemas + KPI 服务层**  *(In Progress by Codex)*
+- [x] **Task 2 (T-902): Pydantic Schemas + KPI 服务层**
   - 新建 `backend/app/schemas/kpi.py`:`KpiTargetIn` / `KpiTargetOut` / `KpiAchievementRow` / `KpiAchievementResponse`。
   - 新建 `backend/app/services/kpi_service.py`:
     - `list_kpi_targets(db) -> list[KpiTargetOut]`
