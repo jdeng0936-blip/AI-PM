@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import init_db
 from app.routers import (
+    admin_reports,
     analytics,
     auth,
     dashboard,
@@ -133,6 +134,7 @@ app.include_router(export.router)
 app.include_router(analytics.router)
 app.include_router(kpi.router)
 app.include_router(departments.router)
+app.include_router(admin_reports.router)
 # ── 基础功能 ─────────────────────────────────────
 app.include_router(wechat.router)
 app.include_router(dashboard.router)
