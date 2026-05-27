@@ -3,12 +3,12 @@
 ## 当前状态与上下文
 - V2.6 删除治理已完成代码加固和原子 Commit (提交哈希: `f7987dd`)。
 - 业务流转入 **Phase 7**。目标是基于已有的日报和项目数据，建立数据汇聚视图（PostgreSQL Materialized Views），并通过图表（Recharts）向管理层直观展示。
-- 当前正在执行：**准备阶段**，由 Codex 认领并开始执行。
+- 当前正在执行：**Task 2 待认领**。Task 1 已由 Codex 完成。
 
 ## 任务看板
 
 ### 数据库层 (DB Views & Migrations)
-- [/] **Task 1: 创建 Materialized Views 迁移脚本**
+- [x] **Task 1: 创建 Materialized Views 迁移脚本**
   - 创建 Alembic migration 文件。
   - 编写 `mv_daily_user_stats` 和 `mv_weekly_dept_stats` 的 SQL (参考 `implementation-plan.md` Section 7)。
   - 在 scheduler 中配置定时刷新（`REFRESH MATERIALIZED VIEW CONCURRENTLY`），暂定每日凌晨触发。

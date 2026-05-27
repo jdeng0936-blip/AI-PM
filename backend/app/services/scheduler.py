@@ -8,6 +8,7 @@ Redis 不可用时 graceful 降级为单实例语义,不阻塞业务。
 定时任务列表：
   - 00:05      请假/出差到期自动恢复 active
   - 00:30      跨日健康度全量重算
+  - 00:45      历史趋势 Materialized Views 刷新(Phase 7)
   - 09:00      晨报 AI 生成 + 推送
   - 17:30      催报（友好提醒）
   - 20:00      催报（二次催促）
@@ -40,6 +41,7 @@ def start_scheduler() -> None:
     from app.services.scheduled_tasks import (
         archive_old_audit_logs,
         auto_recover_expired_status,
+        refresh_analytics_materialized_views,
         remind_unreported_deadline,
         remind_unreported_friendly,
         remind_unreported_urgent,
@@ -92,6 +94,15 @@ def start_scheduler() -> None:
         CronTrigger(hour=0, minute=30),
         id="health_refresh",
         name="健康度全量重算",
+        replace_existing=True,
+    )
+
+    # ── Phase 7 历史趋势 MV 刷新 ─────────────────────────────────
+    scheduler.add_job(
+        with_distributed_lock("analytics_mv_refresh", _LOCK_TTL)(refresh_analytics_materialized_views),
+        CronTrigger(hour=0, minute=45),
+        id="analytics_mv_refresh",
+        name="历史趋势MV刷新",
         replace_existing=True,
     )
 

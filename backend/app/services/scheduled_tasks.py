@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 
 from app.database import AsyncSessionLocal
 from app.models.audit_log import AuditLog
@@ -504,6 +504,36 @@ def _is_quarter_end(d) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Phase 7 历史趋势 Materialized Views 刷新
+# ═══════════════════════════════════════════════════════════════════
+
+
+async def refresh_analytics_materialized_views() -> None:
+    """每日凌晨 — 刷新历史趋势看板使用的 PostgreSQL Materialized Views。"""
+    logger.info("⏰ [00:45] 刷新历史趋势 Materialized Views")
+
+    views = ("mv_daily_user_stats", "mv_weekly_dept_stats")
+
+    async with AsyncSessionLocal() as db:
+        for view_name in views:
+            relation = await db.scalar(text("SELECT to_regclass(:view_name)"), {"view_name": view_name})
+            if relation is None:
+                logger.warning("   %s 不存在,跳过刷新;请先执行 alembic upgrade head", view_name)
+                continue
+
+            try:
+                await db.execute(text(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {view_name}"))
+                await db.commit()
+                logger.info("   %s 刷新完成", view_name)
+            except Exception as exc:
+                await db.rollback()
+                logger.exception("   %s 并发刷新失败,回退到普通刷新: %s", view_name, exc)
+                await db.execute(text(f"REFRESH MATERIALIZED VIEW {view_name}"))
+                await db.commit()
+                logger.info("   %s 普通刷新完成", view_name)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 审计日志归档(Stage 1)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -513,8 +543,6 @@ async def archive_old_audit_logs(retention_months: int = 12) -> None:
 
     使用 raw SQL 在单事务里 INSERT INTO ... SELECT + DELETE,保证原子性。
     """
-    from sqlalchemy import text
-
     logger.info("⏰ [Day1 02:00] 审计日志归档(>%d 个月)", retention_months)
 
     async with AsyncSessionLocal() as db:
