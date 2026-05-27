@@ -360,3 +360,130 @@ async def test_router_post_invalid_payload_returns_422(client: AsyncClient, db_s
         },
     )
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_calculate_achievement_with_real_data(db_session: AsyncSession) -> None:
+    actor = await _make_user(db_session, UserRole.admin, "T907_REAL")
+    actor_id = str(actor.id)
+    first_report_id = uuid.uuid4()
+    second_report_id = uuid.uuid4()
+
+    try:
+        await upsert_kpi_target(
+            db_session,
+            KpiTargetIn(
+                scope=KpiScope.global_,
+                scope_value=None,
+                metric=KpiMetric.submit_rate,
+                target_value=50.0,
+                period=KpiPeriod.monthly,
+            ),
+            actor,
+        )
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO daily_reports (
+                    id,
+                    user_id,
+                    report_date,
+                    raw_input_text,
+                    pass_check,
+                    ai_score,
+                    tenant_id
+                )
+                VALUES
+                    (
+                        CAST(:first_report_id AS uuid),
+                        CAST(:user_id AS uuid),
+                        CURRENT_DATE - INTERVAL '1 day',
+                        'T-907 KPI achievement test report 1',
+                        TRUE,
+                        88,
+                        'default'
+                    ),
+                    (
+                        CAST(:second_report_id AS uuid),
+                        CAST(:user_id AS uuid),
+                        CURRENT_DATE - INTERVAL '2 days',
+                        'T-907 KPI achievement test report 2',
+                        TRUE,
+                        92,
+                        'default'
+                    )
+                """
+            ),
+            {
+                "first_report_id": str(first_report_id),
+                "second_report_id": str(second_report_id),
+                "user_id": actor_id,
+            },
+        )
+        await db_session.commit()
+
+        await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_daily_user_stats"))
+        await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_weekly_dept_stats"))
+
+        resp = await calculate_kpi_achievement(db_session, KpiPeriod.monthly)
+        row = next(
+            r
+            for r in resp.rows
+            if r.scope == KpiScope.global_ and r.metric == KpiMetric.submit_rate and r.period == KpiPeriod.monthly
+        )
+
+        assert row.actual_value is not None
+        assert row.gap == pytest.approx(row.actual_value - row.target_value, abs=1e-6)
+        assert row.achievement_rate == pytest.approx(row.actual_value / row.target_value * 100, abs=1e-6)
+        expected_status = "on_track" if row.actual_value >= row.target_value else "below_target"
+        assert row.status == expected_status
+    finally:
+        await db_session.rollback()
+        await db_session.execute(
+            text("DELETE FROM daily_reports WHERE user_id = CAST(:user_id AS uuid)"),
+            {"user_id": actor_id},
+        )
+        await db_session.commit()
+        await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_daily_user_stats"))
+        await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_weekly_dept_stats"))
+        await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_router_post_creates_new_target(client: AsyncClient, db_session: AsyncSession) -> None:
+    admin = await _make_user(db_session, UserRole.admin, "POST_ADM")
+    payload = {
+        "scope": "department",
+        "scope_value": "测试部",
+        "metric": "avg_score",
+        "target_value": 80.0,
+        "period": "monthly",
+    }
+
+    response = await client.post("/api/v1/admin/kpi/", headers=_headers(admin), json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "department"
+    assert body["scope_value"] == "测试部"
+    assert body["target_value"] == 80.0
+    assert body["created_by"] == str(admin.id)
+
+    row = (
+        await db_session.execute(
+            select(KpiTarget).where(
+                KpiTarget.scope == KpiScope.department,
+                KpiTarget.scope_value == "测试部",
+                KpiTarget.metric == KpiMetric.avg_score,
+                KpiTarget.period == KpiPeriod.monthly,
+            )
+        )
+    ).scalar_one()
+    assert row.target_value == 80.0
+
+
+@pytest.mark.asyncio
+async def test_router_manager_get_returns_200(client: AsyncClient, db_session: AsyncSession) -> None:
+    manager = await _make_user(db_session, UserRole.manager, "MGR")
+    response = await client.get("/api/v1/admin/kpi/", headers=_headers(manager))
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
