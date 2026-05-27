@@ -39,7 +39,7 @@
     - `calculate_kpi_achievement(db, period) -> list[KpiAchievementRow]` —— 复用 Phase 7 的 MV(`mv_daily_user_stats / mv_weekly_dept_stats`)+ 现有 `analytics_service` 中的部门聚合做 actual 值,缺数据时 `actual=None / gap=None` 而不是 0。
 
 ### 路由层 (routers/)
-- [/] **Task 3 (T-903): `/api/v1/admin/kpi` 三端点**  *(In Progress by Codex)*
+- [x] **Task 3 (T-903): `/api/v1/admin/kpi` 三端点**
   - 新增 `backend/app/routers/kpi.py`(`prefix="/api/v1/admin/kpi"`,`tags=["KPI"]`),并在 `app.main.py` 注册。
   - `GET /` — 列出所有目标,`require_role(UserRole.admin, UserRole.manager)`。
   - `POST /` — 创建/更新目标,同样 RBAC。请求体经 Pydantic 校验 scope/metric/period 枚举。
