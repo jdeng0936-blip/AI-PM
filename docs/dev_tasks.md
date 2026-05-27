@@ -55,7 +55,7 @@
   - 跑通后所有 quality gates 必须全绿。
 
 ### 前端 (frontend/src/app/)
-- [/] **Task 5 (T-905): KPI 管理页 `/admin/kpi`**  *(In Progress by Codex)*
+- [x] **Task 5 (T-905): KPI 管理页 `/admin/kpi`**
   - 新建 `frontend/src/app/admin/kpi/page.tsx`,表格 + 新建/编辑 Modal,字段含 scope / scope_value / metric / target_value / period。
   - 调用 `/api/v1/admin/kpi` GET/POST,使用现有 `apiFetch` 帮助函数。
   - RBAC:页面入口在 admin / manager 可见;员工身份直接 redirect。
