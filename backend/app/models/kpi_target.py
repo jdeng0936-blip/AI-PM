@@ -45,7 +45,14 @@ class KpiPeriod(str, enum.Enum):
 class KpiTarget(BaseMixin, Base):
     __tablename__ = "kpi_targets"
     __table_args__ = (
-        UniqueConstraint("scope", "scope_value", "metric", "period", name="uq_kpi_targets_scope_metric_period"),
+        UniqueConstraint(
+            "scope",
+            "scope_value",
+            "metric",
+            "period",
+            name="uq_kpi_targets_scope_metric_period",
+            postgresql_nulls_not_distinct=True,
+        ),
         Index("ix_kpi_targets_scope_metric", "scope", "metric"),
     )
 
