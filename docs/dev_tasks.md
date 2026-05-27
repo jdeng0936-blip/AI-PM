@@ -116,12 +116,14 @@
   - 不动种子数据 / 不动任何 service / router / 前端 / 测试 —— 纯 schema 补丁。
   - **完整执行契约见 `docs/T-1002_spec.md`**(必读)。
 
-### 后续任务(待 T-1002 完工后由指挥官接力起草)
-- [ ] **Task 3 (T-1003): `departments` 独立表 + ORM + 7 seed**
-  - 新建 `backend/app/models/department.py`(`Department` 类,含 `id UUID PK / name UNIQUE / manager_id FK→users.id / BaseMixin`)。
-  - 新建 Alembic migration:`upgrade()` 建表 + 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部)+ 必要 index;`downgrade()` 反向 drop。
-  - 在 `app/models/__init__.py` 暴露 `Department`,加入 `__all__`。
+### 后续任务(T-1003 已起草,T-1004 及以后由指挥官在 T-1003 完工后接力起草)
+- [/] **Task 3 (T-1003): `departments` 独立表 + ORM + 7 seed** — In Progress by Codex(指挥官 `chore(spec)` commit 已加锁,2026-05-27 19:00)
+  - 新建 `backend/app/models/department.py`(`Department(BaseMixin, Base)`,字段:`id UUID PK / name String(64) UNIQUE / manager_id UUID FK→users.id ON DELETE SET NULL nullable=True index=True`)。
+  - 新建 Alembic migration:`upgrade()` 建表 + 2 个 index + bulk_insert 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部,顺序锁定,manager_id 全 NULL,tenant_id="default",id 用 Python `uuid.uuid4()` 预生成);`downgrade()` 反向 drop_index ×2 + drop_table。
+  - 在 `app/models/__init__.py` 暴露 `Department`(插入式,不重排其他 import),加入 `__all__`(插入式,不重排其他字符串)。
   - **不**改 `User.department: VARCHAR(64)` 字段(增量并存,FK 迁移延后到 Phase 11+)。
+  - **不**写 service / router / schema(留给 T-1004) / 前端 / 测试 / `scripts/seed_data.py`。
+  - **完整执行契约见 `docs/T-1003_spec.md`**(必读)。
 
 - [ ] **Task 4 (T-1004): `/api/v1/admin/departments` 服务 + 路由**
   - 新建 `backend/app/schemas/department.py`(`DepartmentIn / Out / WithMembers`)。
@@ -173,31 +175,40 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
+> **更新时间戳**: `[2026-05-27 19:00:00]`(指挥官 T-1003 spec 落盘 + 锚点替换)
 
-- **当前持牌任务**: **T-1002**(指挥官已通过 `chore(lock)` 在本 commit 一并加锁,Task 2 = `[/]`)—— Phase 10 **第一份代码任务,纯漏洞修复轮**:给 `ProjectMember` 补 partial unique index `(project_id, user_id) WHERE left_at IS NULL`。**单一漏洞,单一文件改动 + 一条 migration,严禁夹带任何其他 schema 改动 / 业务代码 / 测试**。
-- **执行入口**: 阅读 `docs/T-1002_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `e8c4a1d9f2b0`),抄到新 migration 的 `down_revision`,**不要硬编码**。
-- **核心动作**(严格按 T-1002_spec §3 顺序):
-  1. **新建** `backend/alembic/versions/20260527_<HHMM>_phase10_project_members_partial_unique.py` —— `upgrade()` 执行 `op.create_index("ix_project_members_project_user_active", "project_members", ["project_id", "user_id"], unique=True, postgresql_where=sa.text("left_at IS NULL"))`,`downgrade()` 反向 `op.drop_index`。docstring 按本仓库模板写**实际背景/变更/实现说明**,**不要保留模板占位**(pre-commit hook 会拒绝)。
-  2. **改** `backend/app/models/project_member.py` —— 在类 `ProjectMember` 上新增 `__table_args__ = (Index("ix_project_members_project_user_active", "project_id", "user_id", unique=True, postgresql_where=text("left_at IS NULL")),)`,顶部 import 同步补 `from sqlalchemy import Index, text`(已有的 import 不重复添加)。
-  3. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 2 从 `[/] In Progress` 改为 `[x]`(放最后一个 commit 一起 add)。
+- **当前持牌任务**: **T-1003**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 3 = `[/]`)—— Phase 10 **第二份代码任务,数据层主线轮**:新建 `departments` 独立表 + ORM `Department` 类 + Alembic migration 建表 + bulk_insert 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部)。**3 个 src 文件改动 + 1 条 migration,严禁夹带任何 service / router / schema / 前端 / 测试 / `User.department` 字段改造**。
+- **执行入口**: 阅读 `docs/T-1003_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `4f8e370435ea`,即 T-1002 落地后的 head),抄到新 migration 的 `down_revision`,**不要硬编码**。
+- **核心动作**(严格按 T-1003_spec §3 顺序):
+  1. **新建** `backend/app/models/department.py` —— `class Department(BaseMixin, Base)`,3 字段:`id UUID PK default uuid.uuid4` / `name Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment=...)` / `manager_id Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True, comment=...)`。BaseMixin 自动注入 `created_at/updated_at/created_by/tenant_id`。**严禁**加 `relationship` / `__table_args__` / 业务方法 / classmethod / property。
+  2. **新建** `backend/alembic/versions/20260527_<HHMM>_phase10_create_departments_table.py` —— `revision_id` 12 位随机 hex(`python -c "import secrets; print(secrets.token_hex(6))"`);`down_revision = "4f8e370435ea"`(或 `alembic heads` 实测值)。`upgrade()` 执行:① `op.create_table("departments", ...)` 含 7 列(`id UUID PK` + `name String(64) NOT NULL` + `manager_id UUID FK→users.id ON DELETE SET NULL nullable=True` + BaseMixin 4 列 `created_at/updated_at/created_by/tenant_id`) + `sa.UniqueConstraint("name", name="uq_departments_name")`;② `op.create_index("ix_departments_manager_id", ..., ["manager_id"])` + `op.create_index("ix_departments_tenant_id", ..., ["tenant_id"])`;③ `op.bulk_insert(sa.table("departments", ...), [...])` 写入 7 seed,**顺序严格锁定**为 `技术部/生产部/采购部/财务部/商务部/销售部/仓储部`,每行 `manager_id=None`,`tenant_id="default"`,`id` 用 Python 端 `uuid.uuid4()` 预生成(`import uuid as _uuid` + `"id": _uuid.uuid4()`)。`downgrade()` 反向 `drop_index` ×2 + `drop_table("departments")`。docstring 按本仓库模板写**实际背景/变更/实现说明**,**不要保留模板占位**(pre-commit hook 会拒绝)。
+  3. **改** `backend/app/models/__init__.py` —— ① **插入** 1 行 `from app.models.department import Department`(放在 `from app.models.deletion_history import DeletionHistory` 之后,`from app.models.gate_review import GateReview` 之前);② 在 `__all__` 列表中**插入** 1 个 `"Department",`(放在 `"DeletionHistory",` 之后,`"RiskAlert",` 之前)。**严禁**重排其他 import 或 `__all__` 元素,**严禁**删除任何分块注释(`# --- Mixin ---` 等)。
+  4. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 3 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1004 时统一替换)。
 - **严禁项**(违反则立即回滚):
-  - **严禁**改 `ProjectMember` 字段定义(`project_id` / `user_id` / `track` / `role_in_project` / `joined_at` / `left_at` 保留原样,只加 `__table_args__`)。
-  - **严禁**改任何其他 model / service / router / schema —— 这次只动 `project_member.py` 一个 src 文件 + 1 个 migration。
-  - **严禁**改 `frontend/src/` 任何文件。
+  - **严禁**改 `User.department` 字段(`String(64), nullable=False, default=""` 保留原样;FK 化迁移延后到 Phase 11+)。
+  - **严禁**改任何其他 model(`User / Project / ProjectMember / KpiTarget` 等全冻结)。
+  - **严禁**写 service / router / schema(留给 T-1004) —— 这次只动 `department.py` 新建 + `__init__.py` 插入 + 1 个新 migration。
+  - **严禁**改 `frontend/src/` 任何文件(留给 T-1006)。
+  - **严禁**补任何测试(留给 T-1007 集中补 Phase 10 测试套件)。
+  - **严禁**改 `backend/scripts/seed_data.py`(本 task seed 走 alembic `bulk_insert`,与初始化脚本解耦)。
+  - **严禁**给 `Department` 加 `relationship` / `back_populates` / `members` 反向关系(留给 Phase 11+)。
   - **严禁**碰 `backend/uv.lock`(继续 untracked)。
-  - **严禁**在迁移里写 `UPDATE / DELETE / 数据清洗` —— 若现有数据有重复 `(project_id, user_id)` 且 `left_at IS NULL`,upgrade 会因 UNIQUE 冲突失败 —— **不要自行清洗数据**,而是立即停手向指挥官报告,由指挥官决定是先清洗还是改约束方案。
-  - **严禁**补任何测试(留给 T-1007 集中补 phase 10 测试套件)。
+  - **严禁**在迁移里写 `UPDATE / DELETE` 任何数据 SQL,**严禁**触动 `users` 表的数据 —— 若 upgrade 失败,**不要自行清洗**,立即停手向指挥官报告。
+  - **严禁**改 `__init__.py` 时重排其他 import 或 `__all__` 元素顺序(只允许插入)。
   - **严禁**自动 `git push`。
-  - **严禁**自行启动 T-1003。
+  - **严禁**自行启动 T-1004。
+  - **严禁**改 📣 锚点("当前持牌任务: T-1003" 保留,留给指挥官在起草 T-1004 时统一替换)。
+- **7 seed 顺序锁定**:`SEED_DEPARTMENTS = ["技术部", "生产部", "采购部", "财务部", "商务部", "销售部", "仓储部"]` —— **不可重排**,T-1007 测试会按此顺序 assert。
 - **闸门**(都必须绿):
   ```bash
   cd backend
   .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head && .venv/bin/alembic check
   .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped(零回归)
-  .venv/bin/ruff check . && .venv/bin/mypy app/models/project_member.py
+  .venv/bin/ruff check . && .venv/bin/mypy app/models/department.py app/models/__init__.py
   cd ../frontend && npm run lint && npm run typecheck          # 前端无破坏验证
   ```
 - **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `fix(project): add partial unique index on project_members(project_id, user_id) WHERE left_at IS NULL`(只含 `backend/app/models/project_member.py` + 新 alembic migration)
-  2. `chore(progress): close T-1002 — ProjectMember partial unique index 落地`(只含 `docs/dev_tasks.md`,Task 2 → `[x]`)
-- **完工后**: 立即停手汇报「T-1002 完工,等待指挥官二次验收 + 起草 T-1003 (departments 表) 实施契约」。**不要**自行启动 T-1003。
+  1. `feat(department): add Department model + migration + 7 seed (技术部/生产部/采购部/财务部/商务部/销售部/仓储部)`(只含 `backend/app/models/department.py` 新建 + `backend/app/models/__init__.py` 插入式改动 + 新 alembic migration 共 3 个文件)
+  2. `chore(progress): close T-1003 — departments 表 + 7 seed 落地`(只含 `docs/dev_tasks.md`,Task 3 → `[x]`)
+- **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
+- **完工后**: 立即停手汇报「T-1003 完工,等待指挥官二次验收 + 起草 T-1004 (`/api/v1/admin/departments` 服务 + 路由) 实施契约」。**不要**自行启动 T-1004。
