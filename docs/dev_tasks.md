@@ -150,7 +150,7 @@
   - 新建 `frontend/src/app/admin/departments/page.tsx`(表格 + 新建 Modal,字段 name + manager_id,调 `/api/v1/admin/departments`)。
   - 在 `/dashboard` 顶部加 `<Tabs>` 全员/按部门/按项目,按选择动态切换数据源(全员=现有 / 按部门=新端点 group_by=department / 按项目=新端点 group_by=project)。
 
-- [/] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`** — In Progress by Codex(指挥官 chore(spec) commit 已加锁,`[2026-05-27 20:55:00]`)
+- [x] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`** — Done by Codex(`[2026-05-27 21:27:47]`)
   - **新建** `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*` case)。
   - **覆盖**:Model 层 3 case(ProjectMember partial UNIQUE `(project_id, user_id) WHERE left_at IS NULL` + `left_at` 非空允许重复 + Department.name UNIQUE) + Service 层 5 case(`get_department_with_members` 反查活跃用户 + 空部门返回 `[]` + `group_reports_by_department` 4 指标聚合精确 + `group_reports_by_project` inner join 剔除 NULL project_id + `_validate_date_range` start>end 抛 `ValueError("date_range_invalid")`) + Router 层 10 case(T-1004 5 端点 admin/manager/employee RBAC + name_conflict 409 + manager_not_found 400 + T-1005 admin/manager 200 + employee 403 + `?group_by=invalid` 422 + `start_date>end_date` 400 detail 字面量)。
   - **fixtures**:消费 `conftest.py` 已有 `db_session(auto-rollback) + client(dependency_overrides)`,**不**新建 fixture。私有 helpers 6 个(`_cleanup_phase10_test_data / _make_user / _headers / _make_department / _make_project / _make_daily_report`)。每 case 入口**强制** `await _cleanup_phase10_test_data(db_session)`。
