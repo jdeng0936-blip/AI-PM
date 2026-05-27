@@ -46,7 +46,7 @@
   - `GET /achievement?period=monthly` — 计算达成率快照,`period` 默认 `monthly`,支持 `weekly|monthly|quarterly`。
 
 ### 测试 (tests/)
-- [ ] **Task 4 (T-904): 后端测试**
+- [/] **Task 4 (T-904): 后端测试**  *(In Progress by Codex)*
   - 新增 `backend/tests/test_kpi_phase9.py`(沿用 `test_deletion_cleanup.py` 的本地 `db_session` fixture 模式)。
   - 必须覆盖:
     - Model 层:UNIQUE `(scope, scope_value, metric, period)` 冲突抛 `IntegrityError`;Enum 值非法插入失败。
@@ -100,17 +100,17 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-903**(已自动锁定为 `[/]`)—— `/api/v1/admin/kpi` 三端点 + RBAC + main 注册
-- **执行入口**: 阅读 `docs/T-903_spec.md`,不要重复 `chore(lock)`,直接编码。
+- **当前持牌任务**: **T-904**(已自动锁定为 `[/]`)—— 后端测试 `backend/tests/test_kpi_phase9.py`
+- **执行入口**: 阅读 `docs/T-904_spec.md`,不要重复 `chore(lock)`,直接编码。
 - **核心动作**:
-  1. 新建 `backend/app/routers/kpi.py`(`prefix="/api/v1/admin/kpi"`,`tags=["KPI"]`),三端点:
-     - `GET /` —— 复用 `list_kpi_targets`,RBAC `admin / manager`。
-     - `POST /` —— 复用 `upsert_kpi_target`,Body 入参 `KpiTargetIn`,RBAC `admin / manager`,返回 `KpiTargetOut`。
-     - `GET /achievement` —— Query `period` 默认 `monthly`,Pydantic Enum 校验非法值自动 422,复用 `calculate_kpi_achievement`,RBAC `admin / manager`。
-  2. 在 `backend/app/main.py` 的 router 注册区(参考既有 `app.include_router(analytics.router)`)插一行 `app.include_router(kpi.router)`。
-  3. **不写测试、不动前端** —— 那是 T-904 / T-905 的事。
-- **闸门**: `ruff check` + `mypy app/routers/kpi.py` + 服务启动 smoke(`from app.main import app; print([r.path for r in app.routes if "/admin/kpi" in r.path])` 必须列出 3 条路径) + 403/422 路径靠 §5 指挥官内联脚本复测。
+  1. 新建 `backend/tests/test_kpi_phase9.py`,沿用 `test_deletion_cleanup.py` 的**本地 `db_session` fixture 模式**(规避 conftest 全局 fixture 的 loop-scope 坑)。
+  2. 三层覆盖:
+     - **Model 层**(2 case): UNIQUE `(scope, NULL, metric, period)` 重复抛 `IntegrityError`;非法 Enum 值插入失败。
+     - **Service 层**(3 case): `upsert_kpi_target` 二次写同 key 走 UPDATE 不产生新行;`calculate_kpi_achievement` 在 MV 数据缺失时返回 `actual=None / status="no_data"`;`list_kpi_targets` 按 scope/metric 排序稳定。
+     - **Router 层**(4 case): admin GET / → 200; employee GET / → 403; admin GET `/achievement?period=daily` → 422; admin POST 非法 payload(global+scope_value)→ 422。
+  3. 用 `create_access_token` + Bearer header 走真 token 路径(参考 `tests/test_analytics.py:53`),不要用 dependency_overrides 绕过 RBAC。
+- **闸门**: `cd backend && .venv/bin/pytest tests/test_kpi_phase9.py -v` 必须全绿;`ruff check` + `mypy tests/test_kpi_phase9.py` 也要全绿。
 - **完工提交序列**:
-  1. `feat(kpi): add /api/v1/admin/kpi router with RBAC`(含 2 个文件:新 router + main.py 注册行)
-  2. 改 `docs/dev_tasks.md` Task 3 → `[x]`,再提 `chore(progress): close T-903`
-- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-904(tests)。
+  1. `test(kpi): cover models, services, routers for phase 9 KPI module`
+  2. 改 `docs/dev_tasks.md` Task 4 → `[x]`,再提 `chore(progress): close T-904`
+- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-905(前端)—— 那是指挥官二次验收 T-904 通过后另发的契约。
