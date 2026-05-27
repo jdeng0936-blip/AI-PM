@@ -65,13 +65,17 @@
   - 用现有 `CompareBarChart`(Phase 7 已封装)展示「目标 vs 实际」,达成的绿色,未达成的红色;`actual=null` 标灰并写「暂无数据」。
 
 ### 文档与收尾
-- [ ] **Task 7 (T-907): 文档同步**
-  - 更新 `docs/recap.md` 追加 Phase 9 章节。
-  - 在 `docs/implementation-plan.md §9` 末尾补「实际落地路径」段:
+- [/] **Task 7 (T-907): 文档收尾 + 后端测试补全 (In Progress by Codex)**
+  - 更新 `docs/recap.md` 追加 Phase 9 章节(「当前阶段」改为 Phase 9 + 6 条 bullet + 7 条历史移交记录)。
+  - 在 `docs/implementation-plan.md §9` 末尾**追加**「实际落地路径(Phase 9)」段:
     - `id` 字段类型偏差(SERIAL → Integer autoincrement,plan 原意保留)。
     - `created_by` 类型校正(INT → UUID FK)。
     - 路由前缀(`/api/admin/kpi` → `/api/v1/admin/kpi`)。
     - 引入 `tenant_id / created_at` 字段(继承 BaseMixin)。
+    - UNIQUE NULLS NOT DISTINCT(T-901-FIX 补,plan 漏列)。
+    - metric 枚举校正(`sprint_completion` → `objective_completion`)。
+  - 在 `backend/tests/test_kpi_phase9.py` 末尾追加 3 个测试(achievement 真路径计算 / router POST 创建 / manager RBAC),`pytest -v` 应 12 passed。
+  - **完整执行契约见 `docs/T-907_spec.md`**(必读)。
 
 ## 质量闸门(Codex 提交前必跑)
 
@@ -100,18 +104,29 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-906**(已自动锁定为 `[/]`)—— Phase 9 KPI 达成率仪表盘面板,在 `/dashboard` 内嵌
-- **执行入口**: 阅读 `docs/T-906_spec.md`,不要重复 `chore(lock)`,直接编码。对标 `frontend/src/app/dashboard/page.tsx:481-587` 既有 Phase 7 历史趋势看板的卡片模板。
+- **当前持牌任务**: **T-907**(已自动锁定为 `[/]`)—— **Phase 9 收官**:文档同步 + 后端测试补全 3 个用例,**纯文档 + 纯测试**,**严禁动 src 代码**。
+- **执行入口**: 阅读 `docs/T-907_spec.md`,不要重复 `chore(lock)`,直接动手。
 - **核心动作**:
-  1. **extend** `frontend/src/api/kpi.ts` —— 追加 3 类型(`AchievementStatus / KpiAchievementRow / KpiAchievementResponse`)+ 1 端点函数 `getKpiAchievement(period?)`,路径 `/admin/kpi/achievement` **不带尾斜杠**(与 `/admin/kpi/` 不同,因为 `@router.get("/achievement")` 无尾斜杠)。
-  2. **新建** `frontend/src/components/dashboard/kpi-achievement-panel.tsx` —— 含 period 选择器(周/月/季)+ `CompareBarChart`(target vs actual 蓝绿双柱)+ 详细表格(范围/指标/目标/实际/缺口/达成率/状态 7 列,状态用绿/红/灰彩色 tag)。**不要** import `useAuthStore`(父级 dashboard 已守卫)。
-  3. **改** `frontend/src/app/dashboard/page.tsx` —— 1 行 import + 在 Phase 7 历史趋势看板(`canManageAlerts && (...)` 块)**之后**插入 `{canManageAlerts && <KpiAchievementPanel />}`,**不动**其它 dashboard 业务逻辑。
+  1. **改** `docs/recap.md` —— line 5「当前阶段」改成 `**Phase 9 KPI 目标设定**(已闭环)` + 在「最新进度摘要」段末追加 6 条 Phase 9 bullet(T-901 ~ T-907)+ 在「历史移交记录」段顶部插入 7 条 `[2026-05-27]` 时间戳条目。详见 T-907_spec §3。
+  2. **追加** `docs/implementation-plan.md §9` —— 在 line 703 代码块结束之后、line 705 `---` 分隔符之前,新增 `### 实际落地路径(Phase 9)` 子节,内含偏差表(6 维度)+ 实际 API 路径表 + KpiAchievementRow 数据契约。详见 T-907_spec §4.2。
+  3. **追加** `backend/tests/test_kpi_phase9.py` —— 在文件末尾追加 3 个测试函数:`test_calculate_achievement_with_real_data`(种入 daily_reports + REFRESH MV + 算 gap/achievement_rate/status)、`test_router_post_creates_new_target`(POST 创建新行 + DB 持久化校验 + `created_by==str(admin.id)`)、`test_router_manager_get_returns_200`(manager 角色 RBAC 200)。**沿用现有 fixture**,不要新建文件。详见 T-907_spec §5.3。
+  4. **改** `docs/dev_tasks.md` —— Task 7 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
 - **重要不要做**:
-  - **不要**改 `frontend/src/components/charts/compare-bar-chart.tsx`(Phase 7 凝固)。
-  - **不要**改 `frontend/src/app/admin/kpi/page.tsx`(T-905 凝固)。
-  - **不要**让 CompareBarChart 的柱子按 status 着色 —— status 颜色走**表格 tag**,图表柱子统一蓝(目标)+ 绿(实际)。
-- **闸门**: `cd frontend && npm run lint && npm run typecheck && npm run build` 三连全绿。
-- **完工提交序列**:
-  1. `feat(kpi): add dashboard KPI achievement panel`
-  2. 改 `docs/dev_tasks.md` Task 6 → `[x]`,再提 `chore(progress): close T-906`
-- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-907(文档收尾)—— 那是 Phase 9 收官前的最后一份契约,由指挥官二次验收 T-906 通过后另发。
+  - **不要**改 `app/` `frontend/src/` 任何源代码(包括 model/schema/router/service/页面/组件/api 客户端)。T-907 是纯文档 + 纯测试任务。
+  - **不要**新建 Alembic migration。
+  - **不要**新建任何 src 文件,新测试**只追加**到现有 `tests/test_kpi_phase9.py`。
+  - **不要**碰 `backend/uv.lock`(继续 untracked)。
+  - **不要**改 plan §9 原 SQL/API 表(只追加新子节)。
+  - **不要**自动 `git push`(由指挥官 Phase 9 sign-off 后统一推送)。
+  - **不要**自行启动 Phase 10(部门与项目分组)—— 那是另一份独立立项。
+- **闸门**(三步都必须绿):
+  ```bash
+  cd backend && .venv/bin/pytest tests/test_kpi_phase9.py -v       # 必须 12 passed(9 旧 + 3 新)
+  cd backend && .venv/bin/pytest tests/                            # 防回归全套
+  cd backend && .venv/bin/ruff check . && .venv/bin/mypy app/models/kpi_target.py app/services/kpi_service.py app/routers/kpi.py
+  ```
+- **完工提交序列**(原子 3 commit,**顺序不可乱**):
+  1. `test(kpi): backfill achievement-with-data + POST insert + manager RBAC`(只含 `backend/tests/test_kpi_phase9.py`)
+  2. `docs(kpi): Phase 9 recap + plan §9 actual landing path`(只含 `docs/recap.md` + `docs/implementation-plan.md`)
+  3. `chore(progress): close T-907 + Phase 9 closeout`(只含 `docs/dev_tasks.md`,Task 7 → `[x]`)
+- **完工后**: 立即停手,等指挥官最终二次验收。T-907 是 **Phase 9 最后一个任务**,通过后指挥官将进入 Phase 9 整体 PR sign-off + 推送动作。
