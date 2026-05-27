@@ -146,13 +146,15 @@
   - **完整执行契约见 `docs/T-1005_spec.md`**(必读)。
   - **验收回执(指挥官 `[2026-05-27 20:49:30]`)**:§8 验收清单 17 项 100% 通过。文件隔离正确(feat 4 文件 = main.py 插入式 2 行 + 3 新建 / chore 1 文件 dev_tasks.md +1 -1,零夹带 alembic/tests/frontend/models/dashboard.py/trends.py/reports.py/departments.py);代码闸门全绿(ruff All passed / mypy 目标 4 文件 0 error[现有 analytics.py + scheduled_tasks.py 4 个存量 error 与 T-1004 同源,spec §6 已签字不修] / pytest `160 passed, 2 skipped` 零回归 / alembic check `No new upgrade operations detected.` head 仍 `b58bb129c24b` / 前端 lint+typecheck 干净);Schema 3 公开类型对齐 §3.1 / Service 2 公开 + 2 `_*` 私有零 HTTPException 对齐 §3.2 / Router 1 GET + `_map_value_error` 仅映射 `date_range_invalid` + 兜底 500 对齐 §3.3 / RBAC `admin + manager` 零 employee / 过滤口径强制 `DailyReport.deleted_at.is_(None) + tenant_id == "default" + Project.deleted_at.is_(None)`(仅 project 路径) + **不**过滤 `User.is_active`;`group_by=project` 用 inner join 剔除 NULL project_id 行;两 commit 均含 `Worker timestamp:` 行;📣 锚点 T-1005 持牌保留待统一替换。
 
-- [x] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页** — Done by Codex(`[2026-05-27 21:57:16]`)
+- [/] **Task 6 (T-1006): 前端 Dashboard Tabs 切换器 + admin/departments 管理页** — Submitted by Codex(`[2026-05-27 21:57:16]`),**指挥官驳回复议中** `[2026-05-27 22:04:30]`
   - **新建** `frontend/src/api/admin.ts`(~110 行,6 函数 + 6 类型:`listDepartments / createDepartment / getDepartmentWithMembers / updateDepartment / deleteDepartment / getGroupedReports`)。
   - **新建** `frontend/src/app/admin/departments/page.tsx`(~280 行,表格 5 列 + Modal 新建/编辑共用 + 删除 confirm,字段 name + manager_id,RBAC 守卫仿 `/admin/kpi`)。
   - **改造** `frontend/src/app/dashboard/page.tsx`(+60/-0 局部插入 5 个插入点:imports / state / effect / Tabs JSX / sections wrap,**严禁**重排现有 5 sections 内部 markup;`viewMode === 'all'` 时所有现有行为 100% 不变)。
   - **改造** `frontend/src/components/sidebar.tsx`(+1/-0:`Building2` import + ADMIN_ITEMS 数组在 recycle-bin 之前插入 `{href: '/admin/departments', label: '部门管理', icon: Building2}`)。
   - **改** `docs/dev_tasks.md`(Task 6 → `[x]`,与最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1008 时统一替换)。
   - **完整执行契约见 `docs/T-1006_spec.md`**(必读,~660 行 10 章 + 📣 附录)。
+  - **指挥官二次验收(`[2026-05-27 22:04:30]`)**:**⚠️ 驳回(18/19 PASS + 1 FAIL)**。**唯一 BLOCKER**:`frontend/src/app/admin/departments/page.tsx` **L17 UUID_REGEX 缺第 4 段 `[0-9a-f]{4}-`**,字面量违反契约 §3.4 + §9 验收清单 #13 锁定值。Worker 实际写入 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(只有 8-4-4-12 共 **4** 段),契约签字字面量 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(8-4-4-4-12 共 **5** 段)。**复现证据**(node REPL):合法 UUID `550e8400-e29b-41d4-a716-446655440000` 在 Worker regex 下返回 `false`,在契约 regex 下返回 `true`。**业务影响**:用户在新建/编辑部门时,若填入任何合法 UUID 作为 manager_id,前端 toast `"负责人 ID 必须是合法 UUID"` 报错,**manager_id 字段实际不可填**(必须留空才能 submit),违反契约 §3.4 "字段 2:负责人 user.id(UUID 文本输入,可选)" 设计意图。其余 18 项全通过:① commit `e62279b → 72111e2 → d0e2443` 链路干净 ② `git diff d0e2443..HEAD -- backend/` 完全空(零 backend 夹带) ③ `api/admin.ts` 83 行 6 函数 + 6 类型 100% 对齐契约 §3.6 ④ `admin/departments/page.tsx` 306 行 + 6 imports 完整 + Modal 字段 2 项(name + manager_id)无第三字段夹带 ⑤ `dashboard/page.tsx` 现有 5 sections **markup 0 删除**(grep `^-[^-]` zero hits)+ `ViewMode / viewMode / groupedRows / groupedLoading` 命名 100% 对齐 ⑥ `canSeeTabs` 内联无独立 state ⑦ Tabs 三按钮 + canSeeTabs gate ✅ ⑧ 5 列表格列名 100% 对齐("部门 / 日报数 / 均分 / 通过数 / 通过率") ⑨ `(未挂部门)` fallback + project_id 前 8 位短串 ⑩ `sidebar.tsx` `Building2` lucide-react import + ADMIN_ITEMS 数组 recycle-bin 之前一行 ⑪ npm run lint 干净 ⑫ npm run typecheck 0 error ⑬ 后端 pytest 178 passed 零回归 ⑭ 4 既定 untracked 保留 ⑮ Worker timestamp 双 commit 均带(`21:58:04` / `21:58:28`) ⑯ 📣 锚点保留 T-1006 持牌(待指挥官替换) ⑰ window.confirm `"确认删除部门「${row.name}」?"` 字面量对齐 ⑱ `mapDepartmentError` 实现 4 项错误码 mapping(意外加分 — 包了双向英中文 detail 兼容,合理扩展无副作用)。**亮点**:Worker 把 4 项错误码 mapping 抽成 `mapDepartmentError(error, router, fallback)` helper,共用给 loadRows/handleSubmit/handleDelete,降低代码重复;Modal 添加 click-outside-to-close + stopPropagation,改善 UX。**减分**:① UUID_REGEX 缺第 4 段(BLOCKER) ② 双 commit message 极简(仅 Worker timestamp 一行,无描述体,影响后续审计可读性 — 非 BLOCKER,记一项)。
+  - **🛠 复议指令(物理交接单)**:Codex 必须执行**一行修复 + 1 commit**:① `frontend/src/app/admin/departments/page.tsx` L17 把 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` 改为 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(插入第 4 段 `[0-9a-f]{4}-`)。② `docs/dev_tasks.md` 本行 `[/]` 改为 `[x]`,同时本「指挥官二次验收」段保留(不擦除)。③ 闸门:`cd frontend && npm run lint && npm run typecheck` + Node REPL 复检 `550e8400-e29b-41d4-a716-446655440000` 必须 `true`。④ 单一原子 commit:`fix(admin): T-1006 复议 — UUID_REGEX 补回缺失第 4 段 [0-9a-f]{4}-`,2 文件改动(`departments/page.tsx` + `dev_tasks.md`)。**严禁**改其他文件,**严禁**改 `mapDepartmentError` / Modal 行为 / 任何其他逻辑,**严禁** `git push`。完工后停手汇报「T-1006 复议完工,等待指挥官三次验收 + T-1008 起草」。
 
 - [x] **Task 7 (T-1007): 后端测试 `test_phase10_dept_group.py`** — Done by Codex(`[2026-05-27 21:27:47]`)
   - **新建** `backend/tests/test_phase10_dept_group.py`(~380 行,~19 个 `async def test_*` case)。
@@ -192,71 +194,39 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 21:35:00]`(指挥官 T-1007 验收闭环 + T-1006 spec 落盘 + 锚点替换)
+> **更新时间戳**: `[2026-05-27 22:05:00]`(指挥官 T-1006 一次验收驳回 — UUID_REGEX bug 复议,**单行 fix**)
 
-- **当前持牌任务**: **T-1006**(指挥官已通过本 `chore(spec)` commit 一并加锁,Task 6 = `[/]`)—— Phase 10 **第六份代码任务,前端管理后台 + Dashboard Tabs 切换器主线轮**:**3 新建 + 2 改造,共 5 文件 ±0 夹带**。新建 `frontend/src/api/admin.ts`(~110 行,6 函数 + 6 类型) + `frontend/src/app/admin/departments/page.tsx`(~280 行,表格 + Modal 新建/编辑 + 删除 confirm,字段 name + manager_id);改造 `frontend/src/app/dashboard/page.tsx`(+60/-0 5 个局部插入点:imports / state / effect / Tabs JSX / sections wrap) + `frontend/src/components/sidebar.tsx`(+1/-0 ADMIN_ITEMS 数组追加 `/admin/departments`)。**严禁夹带任何 backend/ / 既有 test_*.py / 既有 admin 子路由 / Dashboard 现有 5 sections 内部 markup 改动**。
-- **执行入口**: 阅读 `docs/T-1006_spec.md`(~660 行,10 章 + 📣 附录),不要重复 `chore(lock)`(已由指挥官打过),直接进入实施阶段。**前置勘察已由指挥官完成,无需 Codex 再验**:① `frontend/src/app/admin/kpi/page.tsx` 是镜像参考(role guard L86-103 + Modal + form state + toast 错误模式,**照搬体例不变形**);② `frontend/src/api/kpi.ts` 是 API 客户端镜像参考(`request.get/post + as unknown as Promise<T>` 体例);③ `frontend/src/components/sidebar.tsx` L48-62 已锁定 ADMIN_ITEMS 插入位(`/admin/recycle-bin` 之前一行);④ `frontend/src/app/dashboard/page.tsx` 是 1212 行大文件,L386 `return (` 之后 L392 "监控台"标题之后插 Tabs,**所有插入点为局部**,严禁重排;⑤ 项目**无 shadcn UI kit**,Modal 用原生 `<div fixed inset-0>` 自绘,**不要**新建 `@/components/ui`;⑥ 项目有 `sonner` toast + `lucide-react`(`Building2 / Pencil / Plus / Trash2` 现有图标),**不要**新引入 npm 依赖;⑦ 后端 contract 已锁(`DepartmentIn = {name, manager_id?}` / `DepartmentOut = {id, name, manager_id, created_at, updated_at, created_by, tenant_id}` / `GroupedReportsResponse = {group_by, start_date, end_date, project_id, groups: [{key, report_count, avg_score, pass_count, pass_rate}]}`,详见 §3.6 完整骨架)。
-- **核心动作**(严格按 T-1006_spec §4 5 步顺序):
-  1. **新建** `frontend/src/api/admin.ts` —— 按 §3.6 完整骨架照搬 ~110 行,6 函数 + 6 类型,**禁止**改名(`listDepartments / createDepartment / getDepartmentWithMembers / updateDepartment / deleteDepartment / getGroupedReports`)。
-  2. **新建** `frontend/src/app/admin/departments/page.tsx` —— 按 §3.4 + §4 Step 2 骨架照搬 ~280 行,**UUID_REGEX 正则字面量** = `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`;错误码 4 项 mapping 落齐(409 name_conflict / 400 manager_not_found / 400 department_not_found / 403 → redirect /);**严禁**引入 manager dropdown。
-  3. **改造** `frontend/src/app/dashboard/page.tsx` —— 5 个**局部插入点**(imports / state `ViewMode = 'all' | 'by_department' | 'by_project'` / effect 监听 viewMode / Tabs JSX 三按钮组 / 现有 5 sections 外包 `{viewMode === 'all' && (...)}`),**严禁**重排现有 5 sections 内部 markup,`viewMode === 'all'` 时所有现有行为 100% 不变(零回归);**`canSeeTabs` 不新建独立 state**,直接 `userRole === 'admin' || userRole === 'manager'` 内联判断。
-  4. **改造** `frontend/src/components/sidebar.tsx` —— lucide-react import 追加 `Building2` + `ADMIN_ITEMS` 数组在 `{ href: '/admin/recycle-bin', ... }` **之前**插入 `{ href: '/admin/departments', label: '部门管理', icon: Building2 }` 一行。**严禁**改其它 admin 项的顺序 / 图标。
-  5. **改** `docs/dev_tasks.md` —— Phase 10 看板 Task 6 从 `[/] In Progress by Codex` 改为 `[x]`(放最后一个 commit 一起 add)。**不动** 📣 锚点(留给指挥官在起草 T-1008 时统一替换)。
-- **严禁项**(违反则立即回滚,详见 §5 红线表 20 项):
-  - **严禁**改 `backend/` 任何文件(后端契约护栏完毕,纯前端 task)。
-  - **严禁**改任何已有测试文件 / `seed_data.py` / `conftest.py`。
-  - **严禁**引入新 npm 依赖(只用 `react / next / @/api/request / sonner / lucide-react` 现有库)。
-  - **严禁**改 `package.json` / `tsconfig.json` / `next.config.*` / `tailwind.config.*` / `postcss.config.*`。
-  - **严禁**改 4 既定 untracked 文件(`.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md` / `backend/uv.lock`)。
-  - **严禁**动 `/admin/kpi` / `/admin/recycle-bin` 路由文件(沿用,只新增 `/admin/departments`)。
-  - **严禁**动 dashboard 现有 5 sections **内部 markup**(只在最外层加 `{viewMode === 'all' && (...)}` 包装)。
-  - **严禁**引入图表(`CompareBarChart` / `TrendLineChart`)到分组视图,只用原生 `<table>`(T-1008 后再视情况补)。
-  - **严禁**引入 manager dropdown / date picker(降复杂度,UUID 文本输入足够)。
-  - **严禁**写自动化测试(本 task 纯 UI,后端 178 case 已护栏)。
-  - **严禁**持久化 `viewMode` 到 localStorage / URL(避免污染 router 模式)。
-  - **严禁**调 `/users` 拉取 manager 列表(避免爆炸面)。
-  - **严禁**传 `start_date / end_date / project_id` 到 `/admin/reports`(让后端走默认窗口 today-30 ~ today)。
-  - **严禁**破坏 employee 视图(employee 仍看到现有 Dashboard 全员视图,只是 Tabs 不显示)。
-  - **严禁** 改 📣 锚点(留给指挥官 T-1006 验收闭环时替换)。
+- **当前持牌任务**: **T-1006-FIX**(指挥官二次验收发现 BLOCKER,T-1006 主体 18/19 PASS + 1 FAIL,Task 6 = `[/]` 重新加锁待复议)—— **单行 typo 修复**:`frontend/src/app/admin/departments/page.tsx` **L17 UUID_REGEX 缺第 4 段 `[0-9a-f]{4}-`**。Worker 实际写 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(8-4-4-12 共 4 段),契约 §3.4 + §9 #13 签字字面量 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(8-4-4-**4**-12 共 5 段)。**复现证据**(Node REPL):合法 UUID `550e8400-e29b-41d4-a716-446655440000` 在 Worker regex 下返回 `false`,在契约 regex 下返回 `true`。**业务影响**:用户在新建/编辑部门时,若填入任何合法 UUID 作为 manager_id,前端 toast `"负责人 ID 必须是合法 UUID"` 报错,**manager_id 字段实际不可填**(必须留空才能 submit),违反契约 §3.4 设计意图(可选 UUID 字段)。
+
+- **执行入口**: **不要**重读完整 `T-1006_spec.md` —— 本 fix **仅 2 文件 1 行核心改动**:
+  1. **改** `frontend/src/app/admin/departments/page.tsx` L17 —— 把 `const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` 改为 `const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(**插入第 4 段 `[0-9a-f]{4}-`**)。
+  2. **改** `docs/dev_tasks.md` Task 6 行首 `[/]` → `[x]`(同时**保留**「指挥官二次验收 `[2026-05-27 22:04:30]`」段不擦除,留作审计)。
+
+- **严禁项**(违反立即驳回):
+  - **严禁**改 `frontend/src/app/admin/departments/page.tsx` L17 之外的任何行。
+  - **严禁**改 `mapDepartmentError` / Modal / 表格 / 任何其他逻辑(它们都 PASS,不要"顺手优化")。
+  - **严禁**改 `frontend/src/api/admin.ts` / `frontend/src/app/dashboard/page.tsx` / `frontend/src/components/sidebar.tsx`(它们都 PASS)。
+  - **严禁**改 `backend/` / 任何测试文件 / 4 既定 untracked 文件。
+  - **严禁**改 📣 锚点(留给指挥官 T-1006-FIX 验收闭环时替换)。
   - **严禁** 自动 `git push`。
   - **严禁** 自启 T-1008。
-  - **严禁** 新建 `@/components/ui`(项目无 shadcn,Modal 用原生 div 自绘)。
-  - **严禁** commit 时夹带 `node_modules` / `.next` / `.cache`。
-- **设计决策签字锁定**(T-1006_spec §3,Worker 不得偏离):
-
-  | 决策 | 锁定值 |
-  |------|--------|
-  | Tabs 位置 | "监控台"标题下方,4 个统计卡片之上一行 |
-  | Tabs 形态 | 3 个原生 button(全员视图 / 按部门聚合 / 按项目聚合) |
-  | Tabs 可见性 | 仅 `admin + manager`(employee 不显示) |
-  | viewMode 默认值 | `'all'`(进入页第一次始终全员) |
-  | viewMode 持久化 | **不持久化**(无 localStorage / URL) |
-  | 'all' 行为 | 现有 5 sections 100% 不变 |
-  | 'by_*' 行为 | **隐藏** 5 sections + 显示 1 个 5 列表格 |
-  | 表格 5 列 | 部门 (or project_id 前 8 位...) / 日报数 / 均分 / 通过数 / 通过率 |
-  | 分组数据源参数 | 不传 start_date / end_date / project_id(后端默认窗口 today-30 ~ today) |
-  | departments 页 RBAC | useEffect 内 toast + router.replace('/')(模仿 kpi 页 L98-103) |
-  | departments 页 Modal 字段 | name(必填,1-64) + manager_id(可选,UUID 正则) |
-  | UUID_REGEX | `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` |
-  | 删除 confirm | `window.confirm(\`确认删除部门「${row.name}」?\`)` |
-  | 错误码 mapping | 409 name_conflict / 400 manager_not_found / 400 department_not_found / 403 redirect / fallback "操作失败" |
-  | sidebar 插入位 | ADMIN_ITEMS 数组 `/admin/recycle-bin` 之前 |
-  | sidebar 图标 | `Building2`(lucide-react 现有) |
-  | sidebar label | "部门管理" |
+  - **严禁** revert T-1006 commit(`72111e2` + `e62279b` 保留,fix 是叠加 commit)。
 
 - **闸门**(全绿才提交):
   ```bash
   cd frontend
-  npm run lint          # eslint 全过,零 warning
-  npm run typecheck     # tsc --noEmit 0 error
+  npm run lint
+  npm run typecheck
+  # Node REPL 复检 UUID_REGEX:
+  node -e "const R = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$/i; console.log(R.test('550e8400-e29b-41d4-a716-446655440000'));"
+  # 必须输出 true
   ```
-  **手动验证 4 场景**(指挥官 T-1006 验收会按此核验):
-  1. admin 账户 → `/admin/departments` → 加载列表 → 新建部门 → 编辑 → 删除。
-  2. admin / manager 账户 → `/dashboard` → 顶部 Tabs 3 按钮切换:全员视图 / 按部门聚合 / 按项目聚合。
-  3. employee 账户 → `/dashboard` → **不显示** Tabs(canSeeTabs=false)。
-  4. employee 账户访问 `/admin/departments` → toast 报错 + redirect `/`。
-- **完工提交序列**(原子 2 commit,**顺序不可乱**):
-  1. `feat(admin): Phase 10 前端 admin/departments 管理页 + Dashboard Tabs 切换器`(4 文件:2 新建 `api/admin.ts` + `admin/departments/page.tsx` + 2 改造 `dashboard/page.tsx` + `sidebar.tsx`)
-  2. `chore(progress): close T-1006 — Phase 10 前端管理后台 + Tabs 切换器上线`(只含 `docs/dev_tasks.md`,Task 6 → `[x]`)
-- **时间戳纪律**: 所有 commit message 末尾(`Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 一行)、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
-- **完工后**: 立即停手汇报「T-1006 完工,等待指挥官二次验收 + 起草 T-1008 (文档收尾) 实施契约」。**不要**自行启动 T-1008。
+
+- **完工提交序列**(单一原子 1 commit):
+  - `fix(admin): T-1006 复议 — UUID_REGEX 补回缺失第 4 段 [0-9a-f]{4}-` —— 2 文件改动(`frontend/src/app/admin/departments/page.tsx` L17 + `docs/dev_tasks.md` Task 6 `[/]` → `[x]`)。
+
+  commit message 末尾必须含 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 一行,**建议在 message body 补充修复说明**(类似 T-1005 / T-1007 commit message 风格,不要再写极简一行 — 这次审计可读性收紧)。
+
+- **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
+
+- **完工后**: 立即停手汇报「T-1006 复议完工,UUID_REGEX 已补,Node REPL 复检通过,等待指挥官三次验收 + T-1008 起草」。**不要**自行启动 T-1008。
