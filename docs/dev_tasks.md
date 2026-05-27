@@ -84,6 +84,34 @@
   - 不动前端 / 不动历史 migration / 不动测试代码 / 不动 service 逻辑。
   - **完整执行契约见 `docs/T-908_spec.md`**(必读)。
 
+---
+
+# Phase 10: 部门与项目分组(勘察先行轮)
+
+## 当前状态与上下文
+
+- Phase 9(KPI 目标设定)已 100% 闭环并推送至 `origin/main`(`0b2a150`),全部 54 commit 已合并。
+- Phase 10 启动时发现**真实歧义**:`implementation-plan.md` §10 原文(L737-784)描述「`departments` 独立表 + `/api/admin/reports?group_by=` 端点 + 前端 Tabs 切换器」,但**附录 A L1077** 又标 §10 ✅(关键文件 `models/{project,project_member,project_stage}.py`、`routers/projects.py`)。
+- 指挥官初步勘察证实**部分实现 + 部分空白**:
+  - ✅ 已实现:`Project` / `ProjectMember` / `ProjectStage` 三个 ORM + `routers/projects.py` 31KB + 前端 `/projects` 列表 + `/project/[id]` 详情 + `users.department VARCHAR` 字段 + `trends.py / dashboard.py` 内部 `group_by(department)` 聚合。
+  - ❌ 未实现:**`departments` 独立表 ORM/migration(只有 user 上的字符串字段)** / **`/api/admin/reports?group_by=department\|project` 对外端点** / **前端总经理看板的 Tabs 切换器(全员/按部门/按项目)**。
+- **Phase 10 第一步定位:勘察先行,落盘后再投实施任务**。本轮(T-1001)是**纯文档勘察 + 落盘任务**,Worker 仅做只读 grep + 文档写入,**严禁写任何业务 src 代码 / 迁移 / 测试**。
+- 当前 alembic head:`e8c4a1d9f2b0`(`20260527_1722_phase9_rename_metric_objective_completion.py`),Phase 10 后续任何 migration 必须以此为 `down_revision`。
+- 工作树干净,仅 4 既定 untracked(`.cursorrules` / `CLAUDE.md` / `CONVENTIONS.md` / `backend/uv.lock` 继续不动)。
+
+## 任务看板
+
+### 勘察 (Survey & Documentation)
+- [/] **Task 1 (T-1001): §10 实物盘点 + plan 实际落地路径段落落盘** — In Progress by Commander
+  - 对 `models/project.py / project_member.py / project_stage.py / user.py`、`routers/projects.py / dashboard.py / trends.py` 做只读勘察,提取 6 个维度对照(参见 T-1001_spec §3)。
+  - 在 `docs/implementation-plan.md §10` 末尾**追加**「实际落地路径(Phase 10 勘察)」段,与 §9 末尾的「实际落地路径(Phase 9)」格式对齐:6 列对照表 + 已实现 API 路径表 + 待补齐清单。
+  - **完整执行契约见 `docs/T-1001_spec.md`**(必读)。
+  - **不许写任何业务 src 代码 / 不许新建 alembic migration / 不许动测试**。
+
+### 后续任务(待 T-1001 勘察完工后由指挥官根据落地路径表起草)
+- [ ] Task 2 (T-1002): 待定 —— 视勘察结果决定优先补齐 departments 表 / group_by 端点 / 前端 Tabs 切换器 之中的哪一个。
+- [ ] Task 3+ : 待定。
+
 ## 质量闸门(Codex 提交前必跑)
 
 ```bash
@@ -111,35 +139,36 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-908**(已自动锁定为 `[/]`)—— Phase 9 **修补任务 + PR push 前最后一份契约**:统一前后端 KPI metric 枚举命名,**改后端单边**(ORM + Pydantic schema docstring + 新增 alembic migration `ALTER TYPE kpi_metric RENAME VALUE`),**不动前端、不动历史 migration、不动测试**。
-- **执行入口**: 阅读 `docs/T-908_spec.md`,不要重复 `chore(lock)`,直接动手。先 `cd backend && .venv/bin/alembic heads` 拿当前 head id(应为 `b4f6a8d2c9e1`),抄到新 migration 的 `down_revision`,**不要硬编码**。
-- **核心动作**:
-  1. **新建** `backend/alembic/versions/20260527_<HHMM>_phase9_rename_metric_objective_completion.py` —— `upgrade()` 执行 `ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'`,`downgrade()` 反向 RENAME。docstring 按本仓库模板写实际背景/变更/实现说明,**不要保留模板占位**(pre-commit hook 会拒绝)。
-  2. **改** `backend/app/models/kpi_target.py:35` —— `sprint_completion = "sprint_completion"` → `objective_completion = "objective_completion"`,**Python Enum 顺序保持原位**(改名不重排)。
-  3. **改** `backend/app/schemas/kpi.py:7` 顶部 docstring —— metric 集合改为 `{submit_rate, avg_score, blocker_resolve_days, objective_completion}`。
-  4. **改** `docs/implementation-plan.md §9 实际落地路径(Phase 9)` 段 —— metric 枚举那一行从「漂移待修」改成「T-908 已统一」,数据源段把 `sprint_completion` 改成 `objective_completion`。详见 T-908_spec §3.4。
-  5. **改** `docs/recap.md` —— 在「最新进度摘要」段尾追加 1 条 Task 8 bullet,在「历史移交记录」顶部插入 1 条 [2026-05-27] 时间戳条目。详见 T-908_spec §3.5。
-  6. **改** `docs/dev_tasks.md` —— Task 8 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
+- **当前持牌任务**: **T-1001**(已自动锁定为 `[/]`)—— Phase 10 **勘察先行轮**:对 plan §10「部门与项目分组」做**纯只读盘点 + 文档落盘**。Phase 9 KPI 已 push 完毕,Phase 10 起步不投实施代码 —— 先把 V2.0 已实现 / 未实现的真实状态盘清,把对照表落盘到 `implementation-plan.md §10` 末尾,指挥官再据此发后续 task。
+- **执行入口**: 阅读 `docs/T-1001_spec.md`,不要重复 `chore(lock)`(已由指挥官打过),直接进入勘察阶段。
+- **核心动作**(纯文档,**严禁触碰任何 backend/app/ 或 frontend/src/ 业务代码**):
+  1. **只读勘察 6 个维度**(详见 T-1001_spec §3.1):
+     - `departments` 表是否存在(`grep -rn "class Department" backend/app/models/`)
+     - `User.department` 字段类型 / 是否 FK(`backend/app/models/user.py`)
+     - `ProjectMember` 表语义(`backend/app/models/project_member.py`)
+     - `routers/projects.py` 已对外暴露端点(`grep "@router\." backend/app/routers/projects.py`)
+     - `/api/admin/reports?group_by=` 端点是否存在(`grep "group_by" backend/app/routers/`)
+     - 前端总经理 Tabs 切换器是否存在(`frontend/src/app/admin/` 子目录 + `frontend/src/app/projects/page.tsx`)
+  2. **写**:在 `docs/implementation-plan.md §10` 末尾(原文 L784 `---` 之前)追加 `### 实际落地路径(Phase 10 勘察)` 章节 —— 6 列对照表 + 已实现 API 路径表 + 待补齐清单 3 段,**与 §9 末尾「实际落地路径(Phase 9)」格式严格对齐**。详见 T-1001_spec §3.2。
+  3. **写**:在 `docs/recap.md`「最新进度摘要」段顶部追加 1 条 `[2026-05-27] Phase 10 启动 — T-1001 勘察落盘` 条目;「当前阶段」改为 `Phase 10(勘察轮)`。详见 T-1001_spec §3.3。
+  4. **写**:在 `docs/dev_tasks.md` 现有 Phase 10 章节里把 Task 1 (T-1001) 从 `[/] In Progress` 改为 `[x]`(在最后一个 commit 一起 add)。
 - **重要不要做**:
-  - **不要**改 `frontend/` 任何文件 —— 前端 `api/kpi.ts` / `admin/kpi/page.tsx` / `kpi-achievement-panel.tsx` 已经是目标命名。
-  - **不要**改历史 alembic migration(`20260527_1234_phase9_add_kpi_targets.py` + `_1317_phase9_fix_kpi_targets_unique_nulls.py`),即使其中 docstring/字面量含 `sprint_completion` —— 历史事实保留,alembic 顺序执行最终态正确。
-  - **不要**写 `UPDATE kpi_targets SET metric = ...` —— enum RENAME VALUE 自动同步元数据,自己 UPDATE 会因 enum cast 失败。
-  - **不要**改 `backend/app/services/kpi_service.py` —— `objective_completion` 继续走 no_data 分支,这是预期行为(actual 聚合留待 Phase 11+)。
-  - **不要**改测试代码 —— 现有 12 个测试不引用 `sprint_completion`,T-908 不补新测试,`pytest -v` 应自动仍 12 passed。
+  - **不要**改 `backend/app/` 任何 `.py` 业务文件(model / service / router / schema 全冻结)。
+  - **不要**新建任何 alembic migration —— Phase 10 第一轮不动 DB。
+  - **不要**改 `frontend/src/` 任何文件 —— 包括 api 客户端 / page / component。
+  - **不要**写或改任何测试 —— `tests/` 目录全冻结,完工后 `pytest -v` 仍应 160+2(零变化)。
+  - **不要**自行扩展勘察范围到 §10 之外(OKR / 资源负载 / 复盘等留给后续 Phase)。
+  - **不要**在勘察表里写「我建议下一步做 X」—— 落地路径段只列**事实**(已实现 / 未实现 / API 路径),建议留给指挥官。
   - **不要**碰 `backend/uv.lock`(继续 untracked)。
-  - **不要**自动 `git push`(完工后由指挥官最终 sign-off 后统一推送 51+ commit)。
-  - **不要**自行启动 Phase 10。
-- **闸门**(都必须绿):
+  - **不要**自动 `git push` —— T-1001 完工后立即停手等指挥官二次验收。
+- **闸门**(全文档任务,只跑形式校验):
   ```bash
   cd backend
-  .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head && .venv/bin/alembic check
-  .venv/bin/pytest tests/test_kpi_phase9.py -v                # 必须 12 passed
-  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped
-  .venv/bin/ruff check . && .venv/bin/mypy app/models/kpi_target.py app/services/kpi_service.py app/routers/kpi.py
-  cd ../frontend && npm run lint && npm run typecheck         # 前端无破坏验证
+  .venv/bin/pytest tests/                                      # 必须 160 passed + 2 skipped(零回归,任何变化都说明意外动了代码)
+  .venv/bin/ruff check .                                        # 仍 All checks passed(不应有变化)
+  cd ../frontend && npm run lint && npm run typecheck          # 仍零警告(不应有变化)
   ```
-- **完工提交序列**(原子 3 commit,**顺序不可乱**):
-  1. `fix(kpi): rename metric sprint_completion to objective_completion`(只含 `backend/app/models/kpi_target.py` + `backend/app/schemas/kpi.py` + 新 alembic migration)
-  2. `docs(kpi): mark Phase 9 metric drift resolved by T-908`(只含 `docs/implementation-plan.md` + `docs/recap.md`)
-  3. `chore(progress): close T-908 + Phase 9 PR ready`(只含 `docs/dev_tasks.md`,Task 8 → `[x]`)
-- **完工后**: 立即停手,等指挥官最终二次验收 + Phase 9 PR 整体 sign-off + 统一推送 51+ commit。T-908 是 Phase 9 PR push 前**最后一份**契约。
+- **完工提交序列**(原子 2 commit,**顺序不可乱**):
+  1. `docs(phase10): T-1001 §10 实物盘点 + 实际落地路径段落落盘`(只含 `docs/implementation-plan.md` + `docs/recap.md`)
+  2. `chore(progress): close T-1001 — Phase 10 勘察轮完工`(只含 `docs/dev_tasks.md`,Task 1 → `[x]`)
+- **完工后**: 立即停手汇报「T-1001 勘察落盘完成,落地路径段已写入 plan §10 末尾,等待指挥官审阅 + 起草 T-1002 实施契约」。不要自行启动 Task 2。
