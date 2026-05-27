@@ -65,7 +65,7 @@
   - 用现有 `CompareBarChart`(Phase 7 已封装)展示「目标 vs 实际」,达成的绿色,未达成的红色;`actual=null` 标灰并写「暂无数据」。
 
 ### 文档与收尾
-- [/] **Task 7 (T-907): 文档收尾 + 后端测试补全 (In Progress by Codex)**
+- [x] **Task 7 (T-907): 文档收尾 + 后端测试补全**
   - 更新 `docs/recap.md` 追加 Phase 9 章节(「当前阶段」改为 Phase 9 + 6 条 bullet + 7 条历史移交记录)。
   - 在 `docs/implementation-plan.md §9` 末尾**追加**「实际落地路径(Phase 9)」段:
     - `id` 字段类型偏差(SERIAL → Integer autoincrement,plan 原意保留)。
