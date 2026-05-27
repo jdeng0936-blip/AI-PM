@@ -60,7 +60,7 @@
   - 调用 `/api/v1/admin/kpi` GET/POST,使用现有 `apiFetch` 帮助函数。
   - RBAC:页面入口在 admin / manager 可见;员工身份直接 redirect。
 
-- [/] **Task 6 (T-906): 达成率仪表盘组件**  *(In Progress by Codex)*
+- [x] **Task 6 (T-906): 达成率仪表盘组件**
   - 在 `/dashboard` 加一个「KPI 达成率」面板(admin / manager 可见),调 `/api/v1/admin/kpi/achievement`。
   - 用现有 `CompareBarChart`(Phase 7 已封装)展示「目标 vs 实际」,达成的绿色,未达成的红色;`actual=null` 标灰并写「暂无数据」。
 
