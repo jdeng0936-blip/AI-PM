@@ -107,7 +107,7 @@
   - **CI 注意**:测试跑前需保证 `scripts/fetch_export_font.py` 已执行 —— 在 conftest 加一个 session-scoped autouse fixture,若字体缺失则 `pytest.skip` 整个 PDF 测试模块,而不是让整套测试挂掉。
 
 ### 前端 UI (frontend/src/app/export/)
-- [ ] **Task 7: 扩展 `/export` 页面**
+- [/] **Task 7: 扩展 `/export` 页面**
   - 当前 `frontend/src/app/export/page.tsx` 只支持「日报 Excel/CSV」,新增三个 card:
     1. **日报多维汇总(xlsx)** — 起止日期 + 部门下拉,调 `/api/v1/export/reports`。
     2. **月度评分报告(pdf)** — 月份选择器(`<input type="month">`)+ 部门下拉,调 `/api/v1/export/scores`。
@@ -117,7 +117,7 @@
   - 通过 `npm run lint` 不留 ESLint 警告。
 
 ### 文档与收尾
-- [ ] **Task 8: 文档同步**
+- [/] **Task 8: 文档同步**
   - 更新 `docs/recap.md` 追加 Phase 8 章节,包括:接口列表 / 选型理由 / 已知限制(如「PDF 字体落盘后镜像体积 +3MB」)。
   - 在 `docs/implementation-plan.md §8` 末尾补一段「实际落地路径」对齐 `/api/v1/export/...` 前缀的偏差说明。
   - 检查 `requirements.txt` diff:仅新增 `reportlab` 和(可选)`pypdf`,不要顺手升级其他包。
