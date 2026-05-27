@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, dashboard, erp, export, gates, me_deletions, reports, sprints, users, wechat
+from app.routers import analytics, auth, dashboard, erp, export, gates, me_deletions, reports, sprints, users, wechat
 from app.routers import projects as projects_router_module
 
 # ── Sentry 初始化(必须在 FastAPI app 创建之前 init,才能捕获启动期异常)──
@@ -116,6 +116,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(me_deletions.router)
 app.include_router(export.router)
+app.include_router(analytics.router)
 # ── 基础功能 ─────────────────────────────────────
 app.include_router(wechat.router)
 app.include_router(dashboard.router)

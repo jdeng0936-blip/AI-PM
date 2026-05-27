@@ -3,7 +3,7 @@
 ## 当前状态与上下文
 - V2.6 删除治理已完成代码加固和原子 Commit (提交哈希: `f7987dd`)。
 - 业务流转入 **Phase 7**。目标是基于已有的日报和项目数据，建立数据汇聚视图（PostgreSQL Materialized Views），并通过图表（Recharts）向管理层直观展示。
-- 当前正在执行：**Task 2 FastAPI 接口开发**，由 Codex 认领。
+- 当前正在执行：**Task 3 待认领**。Task 2 已由 Codex 完成。
 
 ## 任务看板
 
@@ -14,7 +14,7 @@
   - 在 scheduler 中配置定时刷新（`REFRESH MATERIALIZED VIEW CONCURRENTLY`），暂定每日凌晨触发。
 
 ### 后端接口 (FastAPI)
-- [/] **Task 2: 实现 Analytics API 端点**
+- [x] **Task 2: 实现 Analytics API 端点**
   - `GET /api/analytics/user-trend`: 查询个人30天评分趋势
   - `GET /api/analytics/department-compare`: 按部门对比 (提交率，平均分)
   - `GET /api/analytics/project-health`: 查询项目健康度趋势
