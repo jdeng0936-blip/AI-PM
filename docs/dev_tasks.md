@@ -46,7 +46,7 @@
   - `GET /achievement?period=monthly` — 计算达成率快照,`period` 默认 `monthly`,支持 `weekly|monthly|quarterly`。
 
 ### 测试 (tests/)
-- [/] **Task 4 (T-904): 后端测试**  *(In Progress by Codex)*
+- [x] **Task 4 (T-904): 后端测试**
   - 新增 `backend/tests/test_kpi_phase9.py`(沿用 `test_deletion_cleanup.py` 的本地 `db_session` fixture 模式)。
   - 必须覆盖:
     - Model 层:UNIQUE `(scope, scope_value, metric, period)` 冲突抛 `IntegrityError`;Enum 值非法插入失败。
