@@ -31,7 +31,7 @@
   - 验收通过条件:负向测试「重复 `(global, NULL, submit_rate, monthly)` 必须抛 `IntegrityError`」。
 
 ### 服务层 (services/)
-- [ ] **Task 2 (T-902): Pydantic Schemas + KPI 服务层**
+- [/] **Task 2 (T-902): Pydantic Schemas + KPI 服务层**  *(In Progress by Codex)*
   - 新建 `backend/app/schemas/kpi.py`:`KpiTargetIn` / `KpiTargetOut` / `KpiAchievementRow` / `KpiAchievementResponse`。
   - 新建 `backend/app/services/kpi_service.py`:
     - `list_kpi_targets(db) -> list[KpiTargetOut]`
@@ -100,13 +100,14 @@ cd frontend && npm run lint && npm run typecheck
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
 
-- **当前持牌任务**: **T-901-FIX**(已自动锁定为 `[/]`)
-- **执行入口**: 阅读 `docs/T-901-FIX_spec.md`,不要重复 `chore(lock)`,直接编码。
+- **当前持牌任务**: **T-902**(已自动锁定为 `[/]`)—— Pydantic Schemas + KPI 服务层
+- **执行入口**: 阅读 `docs/T-902_spec.md`,不要重复 `chore(lock)`,直接编码。
 - **核心动作**:
-  1. 新建 `backend/alembic/versions/20260527_<HHMM>_phase9_fix_kpi_targets_unique_nulls.py`,drop + recreate `uq_kpi_targets_scope_metric_period`,加 `postgresql_nulls_not_distinct=True`。
-  2. 同步修改 `backend/app/models/kpi_target.py` 的 `__table_args__`,让 `UniqueConstraint(..., postgresql_nulls_not_distinct=True)`。
-- **闸门**: `ruff` + `mypy` + `alembic upgrade head/downgrade -1/check` + 负向 INSERT 必须抛 `IntegrityError`。
+  1. 新建 `backend/app/schemas/kpi.py`:`KpiTargetIn` / `KpiTargetOut` / `KpiAchievementRow` / `KpiAchievementResponse` 四个 Pydantic v2 模型。
+  2. 新建 `backend/app/services/kpi_service.py`:`list_kpi_targets` / `upsert_kpi_target`(走 PG `ON CONFLICT DO UPDATE`,依赖 T-901-FIX 的 `NULLS NOT DISTINCT` UNIQUE)/ `calculate_kpi_achievement`(复用 Phase 7 MV,缺数据时 `actual=None / gap=None`)。
+  3. **不写 router、不写测试、不动前端** —— 那是 T-903 / T-904 / T-905 的事。
+- **闸门**: `ruff check` + `mypy app/schemas/kpi.py app/services/kpi_service.py` + 一个最小 smoke `python -c "from app.services.kpi_service import list_kpi_targets, upsert_kpi_target, calculate_kpi_achievement"` 必须无异常。
 - **完工提交序列**:
-  1. `feat(kpi): tighten UNIQUE on kpi_targets to NULLS NOT DISTINCT`
-  2. 改 `dev_tasks.md` Task 1.5 → `[x]`,再提 `chore(progress): close T-901-FIX`
-- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-902。
+  1. `feat(kpi): add pydantic schemas and service layer for kpi targets`(含 2 个文件)
+  2. 改 `docs/dev_tasks.md` Task 2 → `[x]`,再提 `chore(progress): close T-902`
+- **完工后**: 立即停手,等指挥官二次验收。**不要**自行进入 T-903(routers)。
