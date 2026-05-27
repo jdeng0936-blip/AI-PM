@@ -45,6 +45,7 @@ import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
 import ListActionBar from '@/components/list-action-bar'
 import { CompareBarChart, TrendLineChart } from '@/components/charts'
+import { KpiAchievementPanel } from '@/components/dashboard/kpi-achievement-panel'
 import { toast } from 'sonner'
 import {
   LayoutDashboard,
@@ -585,6 +586,8 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {canManageAlerts && <KpiAchievementPanel />}
 
       {/* AI 日报明细 */}
       {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
