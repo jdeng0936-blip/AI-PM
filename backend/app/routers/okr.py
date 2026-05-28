@@ -20,7 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -33,6 +33,8 @@ from app.models.okr import (
     OKRCycle,
     OKRStatus,
 )
+from app.models.project import Project
+from app.models.sprint import Sprint
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/api/v1/okr", tags=["OKR"])
@@ -183,15 +185,20 @@ async def _log_kr_progress(
         confidence=confidence,
         note=note,
         created_by=actor_id,
+        tenant_id=kr.tenant_id,
     )
     db.add(log)
     return log
 
 
-async def _recalc_objective_progress(db: AsyncSession, objective_id: uuid.UUID) -> float:
+async def _recalc_objective_progress(db: AsyncSession, objective_id: uuid.UUID, tenant_id: str) -> float:
     """根据 KR 进度的加权平均(暂等权)重算 Objective.progress"""
-    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id))).scalars().all()
-    obj = await db.get(Objective, objective_id)
+    krs = (
+        await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id, KeyResult.tenant_id == tenant_id))
+    ).scalars().all()
+    obj = (
+        await db.execute(select(Objective).where(Objective.id == objective_id, Objective.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if not obj:
         return 0.0
     if not krs:
@@ -211,7 +218,7 @@ async def list_cycles(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    result = await db.execute(select(OKRCycle).order_by(desc(OKRCycle.start_date)))
+    result = await db.execute(select(OKRCycle).where(OKRCycle.tenant_id == _user.tenant_id).order_by(desc(OKRCycle.start_date)))
     cycles = result.scalars().all()
     return [
         CycleOut(
@@ -239,6 +246,7 @@ async def create_cycle(
         end_date=date_type.fromisoformat(req.end_date),
         status=OKRStatus.active,
         created_by=user.id,
+        tenant_id=user.tenant_id,
     )
     db.add(cycle)
     await db.commit()
@@ -258,9 +266,11 @@ async def update_cycle(
     cycle_id: str,
     req: CycleUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(UserRole.admin)),
+    _user: User = Depends(require_role(UserRole.admin)),
 ):
-    cycle = await db.get(OKRCycle, uuid.UUID(cycle_id))
+    cycle = (
+        await db.execute(select(OKRCycle).where(OKRCycle.id == uuid.UUID(cycle_id), OKRCycle.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not cycle:
         raise HTTPException(404, "Cycle 不存在")
     if req.name:
@@ -287,9 +297,11 @@ async def update_cycle(
 async def delete_cycle(
     cycle_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(UserRole.admin)),
+    _user: User = Depends(require_role(UserRole.admin)),
 ):
-    cycle = await db.get(OKRCycle, uuid.UUID(cycle_id))
+    cycle = (
+        await db.execute(select(OKRCycle).where(OKRCycle.id == uuid.UUID(cycle_id), OKRCycle.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not cycle:
         raise HTTPException(404, "Cycle 不存在")
     await db.delete(cycle)
@@ -305,9 +317,13 @@ async def delete_cycle(
 async def list_objectives(
     cycle_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
-    stmt = select(Objective, User.name).join(User, Objective.owner_id == User.id, isouter=True)
+    stmt = (
+        select(Objective, User.name)
+        .join(User, and_(Objective.owner_id == User.id, User.tenant_id == _user.tenant_id), isouter=True)
+        .where(Objective.tenant_id == _user.tenant_id)
+    )
     if cycle_id:
         stmt = stmt.where(Objective.cycle_id == uuid.UUID(cycle_id))
     stmt = stmt.order_by(desc(Objective.weight))
@@ -335,14 +351,35 @@ async def create_objective(
     user: User = Depends(_writers),
 ):
     owner_id = uuid.UUID(req.owner_id) if req.owner_id else user.id
+    cycle = (
+        await db.execute(select(OKRCycle.id).where(OKRCycle.id == uuid.UUID(req.cycle_id), OKRCycle.tenant_id == user.tenant_id))
+    ).scalar_one_or_none()
+    if not cycle:
+        raise HTTPException(404, "Cycle 不存在")
+    owner = (
+        await db.execute(select(User.id).where(User.id == owner_id, User.tenant_id == user.tenant_id, User.is_active.is_(True)))
+    ).scalar_one_or_none()
+    if not owner:
+        raise HTTPException(404, "负责人不存在")
+    project_uuid = uuid.UUID(req.project_id) if req.project_id else None
+    if project_uuid:
+        project = (
+            await db.execute(
+                select(Project.id).where(Project.id == project_uuid, Project.tenant_id == user.tenant_id, Project.deleted_at.is_(None))
+            )
+        ).scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
     obj = Objective(
         cycle_id=uuid.UUID(req.cycle_id),
         owner_id=owner_id,
         title=req.title,
         description=req.description,
-        project_id=uuid.UUID(req.project_id) if req.project_id else None,
+        project_id=project_uuid,
         weight=req.weight,
         created_by=user.id,
+        tenant_id=user.tenant_id,
     )
     db.add(obj)
     await db.commit()
@@ -364,9 +401,11 @@ async def update_objective(
     objective_id: str,
     req: ObjectiveUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_writers),
+    _user: User = Depends(_writers),
 ):
-    obj = await db.get(Objective, uuid.UUID(objective_id))
+    obj = (
+        await db.execute(select(Objective).where(Objective.id == uuid.UUID(objective_id), Objective.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not obj:
         raise HTTPException(404, "Objective 不存在")
     if req.title:
@@ -395,9 +434,11 @@ async def update_objective(
 async def delete_objective(
     objective_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_writers),
+    _user: User = Depends(_writers),
 ):
-    obj = await db.get(Objective, uuid.UUID(objective_id))
+    obj = (
+        await db.execute(select(Objective).where(Objective.id == uuid.UUID(objective_id), Objective.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not obj:
         raise HTTPException(404, "Objective 不存在")
     await db.delete(obj)
@@ -428,9 +469,9 @@ def _kr_out(kr: KeyResult) -> KROut:
 async def list_key_results(
     objective_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
-    stmt = select(KeyResult)
+    stmt = select(KeyResult).where(KeyResult.tenant_id == _user.tenant_id)
     if objective_id:
         stmt = stmt.where(KeyResult.objective_id == uuid.UUID(objective_id))
     krs = (await db.execute(stmt)).scalars().all()
@@ -443,16 +484,32 @@ async def create_key_result(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(_writers),
 ):
+    objective = (
+        await db.execute(
+            select(Objective.id).where(Objective.id == uuid.UUID(req.objective_id), Objective.tenant_id == user.tenant_id)
+        )
+    ).scalar_one_or_none()
+    if not objective:
+        raise HTTPException(404, "Objective 不存在")
+    sprint_uuid = uuid.UUID(req.sprint_id) if req.sprint_id else None
+    if sprint_uuid:
+        sprint = (
+            await db.execute(select(Sprint.id).where(Sprint.id == sprint_uuid, Sprint.tenant_id == user.tenant_id))
+        ).scalar_one_or_none()
+        if not sprint:
+            raise HTTPException(404, "Sprint 不存在")
+
     kr = KeyResult(
         objective_id=uuid.UUID(req.objective_id),
         owner_id=user.id,
         title=req.title,
         description=req.description,
-        sprint_id=uuid.UUID(req.sprint_id) if req.sprint_id else None,
+        sprint_id=sprint_uuid,
         metric_type=req.metric_type,
         target_value=req.target_value,
         unit=req.unit,
         created_by=user.id,
+        tenant_id=user.tenant_id,
     )
     db.add(kr)
     await db.commit()
@@ -467,7 +524,9 @@ async def update_key_result(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(_writers),
 ):
-    kr = await db.get(KeyResult, uuid.UUID(kr_id))
+    kr = (
+        await db.execute(select(KeyResult).where(KeyResult.id == uuid.UUID(kr_id), KeyResult.tenant_id == user.tenant_id))
+    ).scalar_one_or_none()
     if not kr:
         raise HTTPException(404, "KR 不存在")
 
@@ -495,7 +554,7 @@ async def update_key_result(
             note=req.note or "手工更新",
             actor_id=user.id,
         )
-        await _recalc_objective_progress(db, kr.objective_id)
+        await _recalc_objective_progress(db, kr.objective_id, user.tenant_id)
 
     await db.commit()
     await db.refresh(kr)
@@ -506,15 +565,17 @@ async def update_key_result(
 async def delete_key_result(
     kr_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(_writers),
+    _user: User = Depends(_writers),
 ):
-    kr = await db.get(KeyResult, uuid.UUID(kr_id))
+    kr = (
+        await db.execute(select(KeyResult).where(KeyResult.id == uuid.UUID(kr_id), KeyResult.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not kr:
         raise HTTPException(404, "KR 不存在")
     objective_id = kr.objective_id
     await db.delete(kr)
     await db.flush()
-    await _recalc_objective_progress(db, objective_id)
+    await _recalc_objective_progress(db, objective_id, _user.tenant_id)
     await db.commit()
 
 
@@ -528,13 +589,13 @@ async def list_kr_progress_logs(
     kr_id: str,
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
     rows = (
         (
             await db.execute(
                 select(KRProgressLog)
-                .where(KRProgressLog.kr_id == uuid.UUID(kr_id))
+                .where(KRProgressLog.kr_id == uuid.UUID(kr_id), KRProgressLog.tenant_id == _user.tenant_id)
                 .order_by(desc(KRProgressLog.created_at))
                 .limit(limit)
             )
@@ -567,16 +628,21 @@ async def list_kr_progress_logs(
 async def okr_tree(
     cycle_id: Optional[str] = Query(None, description="不传则取最新 active 周期"),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
     """返回某个周期的完整 O/KR 树 + 汇总指标"""
     # 选周期
     if cycle_id:
-        cycle = await db.get(OKRCycle, uuid.UUID(cycle_id))
+        cycle = (
+            await db.execute(select(OKRCycle).where(OKRCycle.id == uuid.UUID(cycle_id), OKRCycle.tenant_id == _user.tenant_id))
+        ).scalar_one_or_none()
     else:
         cycle = (
             await db.execute(
-                select(OKRCycle).where(OKRCycle.status == OKRStatus.active).order_by(desc(OKRCycle.start_date)).limit(1)
+                select(OKRCycle)
+                .where(OKRCycle.status == OKRStatus.active, OKRCycle.tenant_id == _user.tenant_id)
+                .order_by(desc(OKRCycle.start_date))
+                .limit(1)
             )
         ).scalar_one_or_none()
     if not cycle:
@@ -595,8 +661,8 @@ async def okr_tree(
     obj_rows = (
         await db.execute(
             select(Objective, User.name)
-            .join(User, Objective.owner_id == User.id, isouter=True)
-            .where(Objective.cycle_id == cycle.id)
+            .join(User, and_(Objective.owner_id == User.id, User.tenant_id == _user.tenant_id), isouter=True)
+            .where(Objective.cycle_id == cycle.id, Objective.tenant_id == _user.tenant_id)
             .order_by(desc(Objective.weight))
         )
     ).all()
@@ -609,7 +675,9 @@ async def okr_tree(
         )
 
     obj_ids = [o.id for o, _ in obj_rows]
-    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all()
+    krs = (
+        await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids), KeyResult.tenant_id == _user.tenant_id))
+    ).scalars().all()
 
     kr_by_obj: dict[uuid.UUID, list[KeyResult]] = {}
     for kr in krs:

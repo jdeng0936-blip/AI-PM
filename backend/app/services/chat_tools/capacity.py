@@ -11,7 +11,7 @@ chat_tools/capacity.py — 资源水位 Chat Tools
 
 from __future__ import annotations
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
@@ -26,14 +26,20 @@ from app.services.capacity_engine import (
 from app.services.chat_tools import tool
 
 
-async def _find_active_sprint(db: AsyncSession, project_query: str) -> tuple:
+async def _find_active_sprint(db: AsyncSession, project_query: str, tenant_id: str) -> tuple:
     """返回 (project, sprint) 或 (None, None)"""
     q = project_query.strip()
     if not q:
         return None, None
     proj = (
         await db.execute(
-            select(Project).where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%"))).limit(1)
+            select(Project)
+            .where(
+                Project.tenant_id == tenant_id,
+                Project.deleted_at.is_(None),
+                or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%")),
+            )
+            .limit(1)
         )
     ).scalar_one_or_none()
     if not proj:
@@ -41,7 +47,7 @@ async def _find_active_sprint(db: AsyncSession, project_query: str) -> tuple:
     sprint = (
         await db.execute(
             select(Sprint)
-            .where(Sprint.project_id == proj.id, Sprint.status == SprintStatus.active)
+            .where(Sprint.project_id == proj.id, Sprint.tenant_id == tenant_id, Sprint.status == SprintStatus.active)
             .order_by(desc(Sprint.start_date))
             .limit(1)
         )
@@ -53,18 +59,17 @@ async def _find_active_sprint(db: AsyncSession, project_query: str) -> tuple:
 async def workload_status(
     db: AsyncSession,
     project_query: str,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号
     """
-    proj, sprint = await _find_active_sprint(db, project_query)
+    proj, sprint = await _find_active_sprint(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到项目 『{project_query}』"}
     if not sprint:
         return {"project": proj.name, "message": "当前无 active Sprint"}
-
-    from sqlalchemy import and_
 
     from app.models.sprint_task import SprintTask
     from app.models.user import User
@@ -77,6 +82,7 @@ async def workload_status(
                 .where(
                     and_(
                         SprintTask.sprint_id == sprint.id,
+                        SprintTask.tenant_id == tenant_id,
                         SprintTask.assignee_id.is_not(None),
                         SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
@@ -88,7 +94,7 @@ async def workload_status(
     if not user_ids:
         return {"project": proj.name, "message": "Sprint 内无任务分配"}
 
-    users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    users = (await db.execute(select(User).where(User.id.in_(user_ids), User.tenant_id == tenant_id))).scalars().all()
     members = [await compute_user_capacity(db, u, sprint) for u in users]
     members.sort(key=lambda m: m["utilization"], reverse=True)
 
@@ -134,12 +140,13 @@ async def workload_status(
 async def list_overloaded_members(
     db: AsyncSession,
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         limit: 返回前 N 人
     """
-    items = await find_overloaded(db, limit=limit)
+    items = await find_overloaded(db, limit=limit, tenant_id=tenant_id)
     return {
         "count": len(items),
         "items": [
@@ -161,12 +168,13 @@ async def list_overloaded_members(
 async def list_underutilized_members(
     db: AsyncSession,
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         limit: 返回前 N 人
     """
-    items = await find_underutilized(db, limit=limit)
+    items = await find_underutilized(db, limit=limit, tenant_id=tenant_id)
     return {
         "count": len(items),
         "items": [
@@ -186,18 +194,19 @@ async def list_underutilized_members(
 async def rebalance_suggestion(
     db: AsyncSession,
     project_query: str,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号
     """
-    proj, sprint = await _find_active_sprint(db, project_query)
+    proj, sprint = await _find_active_sprint(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到项目 『{project_query}』"}
     if not sprint:
         return {"project": proj.name, "message": "当前无 active Sprint"}
 
-    result = await suggest_rebalance(db, sprint.id)
+    result = await suggest_rebalance(db, sprint.id, tenant_id=tenant_id)
     # 精简:只回传 moves
     return {
         "project": {"code": proj.code, "name": proj.name},
@@ -212,9 +221,10 @@ async def rebalance_suggestion(
 @tool(description="部门级资源水位聚合(每个部门一行 + 整体占用率)")
 async def department_workload(
     db: AsyncSession,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         (no args)
     """
-    return await department_capacity_summary(db)
+    return await department_capacity_summary(db, tenant_id=tenant_id)

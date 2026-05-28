@@ -24,7 +24,6 @@ from app.models.kpi_target import KpiMetric, KpiPeriod, KpiScope, KpiTarget
 from app.models.user import User
 from app.schemas.kpi import KpiAchievementResponse, KpiAchievementRow, KpiTargetIn, KpiTargetOut
 
-TENANT_ID = "default"
 AchievementStatus = Literal["on_track", "below_target", "no_data"]
 
 
@@ -52,10 +51,10 @@ def _status_of(target: float, actual: float | None) -> AchievementStatus:
     return "below_target"
 
 
-async def _fetch_targets(db: AsyncSession, period: KpiPeriod | None = None) -> list[KpiTarget]:
+async def _fetch_targets(db: AsyncSession, tenant_id: str, period: KpiPeriod | None = None) -> list[KpiTarget]:
     stmt = (
         select(KpiTarget)
-        .where(KpiTarget.tenant_id == TENANT_ID)
+        .where(KpiTarget.tenant_id == tenant_id)
         .order_by(KpiTarget.scope, KpiTarget.metric, KpiTarget.scope_value.nulls_first())
     )
     if period is not None:
@@ -64,8 +63,8 @@ async def _fetch_targets(db: AsyncSession, period: KpiPeriod | None = None) -> l
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def list_kpi_targets(db: AsyncSession) -> list[KpiTargetOut]:
-    targets = await _fetch_targets(db)
+async def list_kpi_targets(db: AsyncSession, *, tenant_id: str) -> list[KpiTargetOut]:
+    targets = await _fetch_targets(db, tenant_id)
     return [KpiTargetOut.model_validate(target) for target in targets]
 
 
@@ -81,7 +80,7 @@ async def upsert_kpi_target(
         target_value=payload.target_value,
         period=payload.period,
         created_by=actor.id,
-        tenant_id=TENANT_ID,
+        tenant_id=actor.tenant_id,
     )
     upsert_stmt = stmt.on_conflict_do_update(
         constraint="uq_kpi_targets_scope_metric_period",
@@ -95,7 +94,7 @@ async def upsert_kpi_target(
     return KpiTargetOut.model_validate(target)
 
 
-async def _global_actuals(db: AsyncSession) -> dict[KpiMetric, float | None]:
+async def _global_actuals(db: AsyncSession, *, tenant_id: str) -> dict[KpiMetric, float | None]:
     four_weeks_ago = date.today() - timedelta(weeks=4)
     thirty_days_ago = date.today() - timedelta(days=30)
 
@@ -109,7 +108,7 @@ async def _global_actuals(db: AsyncSession) -> dict[KpiMetric, float | None]:
                   AND week_start >= :since
                 """
             ),
-            {"tenant_id": TENANT_ID, "since": four_weeks_ago},
+            {"tenant_id": tenant_id, "since": four_weeks_ago},
         )
     ).scalar_one_or_none()
     avg_score = (
@@ -122,7 +121,7 @@ async def _global_actuals(db: AsyncSession) -> dict[KpiMetric, float | None]:
                   AND report_date >= :since
                 """
             ),
-            {"tenant_id": TENANT_ID, "since": thirty_days_ago},
+            {"tenant_id": tenant_id, "since": thirty_days_ago},
         )
     ).scalar_one_or_none()
 
@@ -132,7 +131,7 @@ async def _global_actuals(db: AsyncSession) -> dict[KpiMetric, float | None]:
     }
 
 
-async def _department_actuals(db: AsyncSession) -> dict[str, dict[KpiMetric, float | None]]:
+async def _department_actuals(db: AsyncSession, *, tenant_id: str) -> dict[str, dict[KpiMetric, float | None]]:
     four_weeks_ago = date.today() - timedelta(weeks=4)
     rows = (
         (
@@ -149,7 +148,7 @@ async def _department_actuals(db: AsyncSession) -> dict[str, dict[KpiMetric, flo
                     GROUP BY department
                     """
                 ),
-                {"tenant_id": TENANT_ID, "since": four_weeks_ago},
+                {"tenant_id": tenant_id, "since": four_weeks_ago},
             )
         )
         .mappings()
@@ -186,10 +185,12 @@ def _actual_for_target(
 async def calculate_kpi_achievement(
     db: AsyncSession,
     period: KpiPeriod = KpiPeriod.monthly,
+    *,
+    tenant_id: str,
 ) -> KpiAchievementResponse:
-    targets = [KpiTargetOut.model_validate(target) for target in await _fetch_targets(db, period)]
-    global_actuals = await _global_actuals(db)
-    department_actuals = await _department_actuals(db)
+    targets = [KpiTargetOut.model_validate(target) for target in await _fetch_targets(db, tenant_id, period)]
+    global_actuals = await _global_actuals(db, tenant_id=tenant_id)
+    department_actuals = await _department_actuals(db, tenant_id=tenant_id)
 
     rows: list[KpiAchievementRow] = []
     for target in targets:

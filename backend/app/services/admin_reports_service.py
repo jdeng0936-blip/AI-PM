@@ -13,7 +13,7 @@ app/services/admin_reports_service.py — Phase 10 对外分组聚合服务层
 
 约束:
   - 全异步 AsyncSession
-  - TENANT_ID = "default"(对齐 kpi_service / department_service 体例)
+  - tenant_id 由 router 从当前用户注入,服务层不依赖全局租户常量。
   - 返回 Schema GroupedReportsResponse 实例(不暴露 ORM)
   - SQL 体例对齐 trends.py L77-122 的 4 项聚合 + dashboard.py L300-323 的 join 链
 """
@@ -31,9 +31,6 @@ from app.models.daily_report import DailyReport
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.admin_reports import GroupedReportsResponse, ReportGroupRow
-
-TENANT_ID = "default"
-
 
 def _validate_date_range(start_date: date, end_date: date) -> None:
     if start_date > end_date:
@@ -56,6 +53,7 @@ async def group_reports_by_department(
     start_date: date,
     end_date: date,
     project_id: Optional[uuid.UUID],
+    tenant_id: str,
 ) -> GroupedReportsResponse:
     _validate_date_range(start_date, end_date)
 
@@ -63,7 +61,8 @@ async def group_reports_by_department(
         DailyReport.report_date >= start_date,
         DailyReport.report_date <= end_date,
         DailyReport.deleted_at.is_(None),
-        DailyReport.tenant_id == TENANT_ID,
+        DailyReport.tenant_id == tenant_id,
+        User.tenant_id == tenant_id,
     ]
     if project_id is not None:
         conditions.append(DailyReport.project_id == project_id)
@@ -97,6 +96,7 @@ async def group_reports_by_project(
     start_date: date,
     end_date: date,
     project_id: Optional[uuid.UUID],
+    tenant_id: str,
 ) -> GroupedReportsResponse:
     _validate_date_range(start_date, end_date)
 
@@ -104,7 +104,8 @@ async def group_reports_by_project(
         DailyReport.report_date >= start_date,
         DailyReport.report_date <= end_date,
         DailyReport.deleted_at.is_(None),
-        DailyReport.tenant_id == TENANT_ID,
+        DailyReport.tenant_id == tenant_id,
+        Project.tenant_id == tenant_id,
         Project.deleted_at.is_(None),
     ]
     if project_id is not None:

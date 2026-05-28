@@ -53,6 +53,7 @@ async def generate_retrospective(
     incident_id: Optional[str] = None,
     persist: bool = True,
     actor_id: Optional[UUID] = None,
+    tenant_id: str = "default",
 ) -> RetroGenerationResult:
     """
     生成复盘报告。根据 scope 分派:
@@ -72,6 +73,7 @@ async def generate_retrospective(
         month=month,
         project_id=project_id,
         incident_id=incident_id,
+        tenant_id=tenant_id,
     )
     if "error" in data:
         raise ValueError(data["error"])
@@ -94,6 +96,7 @@ async def generate_retrospective(
             source_id=source_id,
             project_id=UUID(related_project_id) if related_project_id else None,
             created_by=actor_id,
+            tenant_id=tenant_id,
         )
         db.add(item)
         await db.flush()
@@ -135,12 +138,13 @@ async def _collect(
     month: Optional[int],
     project_id: Optional[str],
     incident_id: Optional[str],
+    tenant_id: str,
 ) -> tuple[dict, str, Optional[str], Optional[str]]:
     """返回 (data, default_title, source_id, related_project_id)"""
     if scope == RetroScope.OKR_CYCLE:
         if not target_id:
             return {"error": "scope=okr_cycle 需要 target_id(cycle uuid)"}, "", None, None
-        data = await collectors.collect_okr_cycle(db, UUID(target_id))
+        data = await collectors.collect_okr_cycle(db, UUID(target_id), tenant_id=tenant_id)
         if "error" in data:
             return data, "", None, None
         title = f"OKR 周期复盘 · {data['cycle']['name']}"
@@ -150,7 +154,7 @@ async def _collect(
         pid = project_id or target_id
         if not pid:
             return {"error": "scope=project 需要 project_id"}, "", None, None
-        data = await collectors.collect_project(db, UUID(pid))
+        data = await collectors.collect_project(db, UUID(pid), tenant_id=tenant_id)
         if "error" in data:
             return data, "", None, None
         title = f"项目复盘 · {data['project']['name']}"
@@ -161,7 +165,7 @@ async def _collect(
             today = _date.today()
             year = year or today.year
             month = month or today.month
-        data = await collectors.collect_monthly(db, year, month)
+        data = await collectors.collect_monthly(db, year, month, tenant_id=tenant_id)
         title = f"月度复盘 · {year}-{month:02d}"
         return data, title, f"{year}-{month:02d}", None
 
@@ -169,7 +173,7 @@ async def _collect(
         rid = incident_id or target_id
         if not rid:
             return {"error": "scope=incident 需要 incident_id(risk_alert uuid)"}, "", None, None
-        data = await collectors.collect_incident(db, UUID(rid))
+        data = await collectors.collect_incident(db, UUID(rid), tenant_id=tenant_id)
         if "error" in data:
             return data, "", None, None
         owner_name = (data.get("incident", {}).get("owner") or {}).get("name") or "未知"

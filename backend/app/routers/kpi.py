@@ -30,7 +30,7 @@ async def list_targets(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_mgr_or_admin),
 ) -> list[KpiTargetOut]:
-    return await list_kpi_targets(db)
+    return await list_kpi_targets(db, tenant_id=_user.tenant_id)
 
 
 @router.post("/", response_model=KpiTargetOut, status_code=status.HTTP_200_OK)
@@ -48,4 +48,4 @@ async def get_achievement(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_mgr_or_admin),
 ) -> KpiAchievementResponse:
-    return await calculate_kpi_achievement(db, period)
+    return await calculate_kpi_achievement(db, period, tenant_id=_user.tenant_id)

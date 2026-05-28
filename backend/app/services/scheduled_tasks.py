@@ -172,36 +172,46 @@ async def remind_unreported_deadline() -> None:
         logger.info("   所有人已提交 ✅")
         return
 
-    names = [u.name for u in unreported]
-    logger.warning("   未提交日报: %s", ", ".join(names))
+    logger.warning("   未提交日报: %s", ", ".join(u.name for u in unreported))
 
     try:
         from app.models.notification import NotificationChannel, NotificationTemplate
         from app.services.notification_service import notify_safe
 
-        absent_list = "\n".join(f"- {n}" for n in names)
-
         async with AsyncSessionLocal() as db:
-            admins_result = await db.execute(
-                select(User).where(and_(User.role.in_(["admin", "manager"]), User.is_active == True))
-            )
-            admins = admins_result.scalars().all()
+            tenants = sorted({u.tenant_id for u in unreported})
+            notify_count = 0
 
-            for admin in admins:
-                await notify_safe(
-                    db,
-                    template=NotificationTemplate.reminder_missed,
-                    context={"date": date.today().isoformat(), "missing_list": absent_list},
-                    user=admin,
-                    channels=[
-                        NotificationChannel.wechat_bot,
-                        NotificationChannel.dingtalk_bot,
-                        NotificationChannel.in_app,
-                    ],
+            for tenant_id in tenants:
+                tenant_missing = [u for u in unreported if u.tenant_id == tenant_id]
+                absent_list = "\n".join(f"- {u.name}" for u in tenant_missing)
+                admins_result = await db.execute(
+                    select(User).where(
+                        and_(
+                            User.tenant_id == tenant_id,
+                            User.role.in_(["admin", "manager"]),
+                            User.is_active == True,
+                        )
+                    )
                 )
+                admins = admins_result.scalars().all()
+
+                for admin in admins:
+                    await notify_safe(
+                        db,
+                        template=NotificationTemplate.reminder_missed,
+                        context={"date": date.today().isoformat(), "missing_list": absent_list},
+                        user=admin,
+                        channels=[
+                            NotificationChannel.wechat_bot,
+                            NotificationChannel.dingtalk_bot,
+                            NotificationChannel.in_app,
+                        ],
+                    )
+                notify_count += len(admins)
             await db.commit()
 
-        logger.info("   已通知 %d 位管理员", len(admins))
+        logger.info("   已通知 %d 位管理员", notify_count)
     except Exception as e:
         logger.error("   截止通知失败: %s", e)
 
@@ -247,7 +257,7 @@ async def run_morning_briefing() -> None:
             stmt = (
                 select(DailyReport, User.name, User.department)
                 .join(User, DailyReport.user_id == User.id)
-                .where(DailyReport.report_date == yesterday)
+                .where(DailyReport.report_date == yesterday, DailyReport.tenant_id == User.tenant_id)
                 .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
                 .order_by(DailyReport.ai_score.desc())
             )
@@ -257,40 +267,42 @@ async def run_morning_briefing() -> None:
             logger.info("   昨日无日报，跳过晨报生成")
             return
 
-        # 汇总文本
-        lines = []
-        for r in rows:
-            pc = r.DailyReport.parsed_content or {}
-            lines.append(
-                f"【{r.name}·{r.department}】评分{r.DailyReport.ai_score} | "
-                f"进度{pc.get('progress', '?')}% | "
-                f"任务: {pc.get('tasks', '无')} | "
-                f"卡点: {pc.get('blocker', '无')}"
-            )
-        summary_text = "\n".join(lines)
-
-        # 调 AI 生成晨报
         from app.services.ai_engine import generate_morning_briefing
-
-        briefing = await generate_morning_briefing(summary_text)
 
         # 推送给管理层
         from app.services.wechat_api import send_markdown_message
 
-        async with AsyncSessionLocal() as db:
-            admins_result = await db.execute(
-                select(User).where(
-                    User.role.in_(["admin", "manager"]),
-                    User.is_active == True,
+        notify_count = 0
+        tenants = sorted({r.DailyReport.tenant_id for r in rows})
+        for tenant_id in tenants:
+            tenant_rows = [r for r in rows if r.DailyReport.tenant_id == tenant_id]
+            lines = []
+            for r in tenant_rows:
+                pc = r.DailyReport.parsed_content or {}
+                lines.append(
+                    f"【{r.name}·{r.department}】评分{r.DailyReport.ai_score} | "
+                    f"进度{pc.get('progress', '?')}% | "
+                    f"任务: {pc.get('tasks', '无')} | "
+                    f"卡点: {pc.get('blocker', '无')}"
                 )
-            )
-            admins = admins_result.scalars().all()
+            briefing = await generate_morning_briefing("\n".join(lines))
 
-        for admin in admins:
-            if admin.wechat_userid:
-                await send_markdown_message(admin.wechat_userid, briefing)
+            async with AsyncSessionLocal() as db:
+                admins_result = await db.execute(
+                    select(User).where(
+                        User.tenant_id == tenant_id,
+                        User.role.in_(["admin", "manager"]),
+                        User.is_active == True,
+                    )
+                )
+                admins = admins_result.scalars().all()
 
-        logger.info("   晨报已推送给 %d 位管理层", len(admins))
+            for admin in admins:
+                if admin.wechat_userid:
+                    await send_markdown_message(admin.wechat_userid, briefing)
+                    notify_count += 1
+
+        logger.info("   晨报已推送给 %d 位管理层", notify_count)
 
     except Exception as e:
         logger.error("   晨报生成失败: %s", e)
@@ -311,13 +323,6 @@ async def run_weekly_report() -> None:
         from app.services.notification_service import notify_safe
 
         async with AsyncSessionLocal() as db:
-            result = await generate_weekly_report(db, scope="last_week")
-
-            md = result.get("markdown") or "(本周无数据,跳过周报)"
-            week = result.get("week_range", {})
-            week_label = f"{week.get('start', '?')} → {week.get('end', '?')}"
-
-            # 拉管理层(admin + manager)
             admins_result = await db.execute(
                 select(User).where(
                     User.role.in_(["admin", "manager"]),
@@ -325,27 +330,45 @@ async def run_weekly_report() -> None:
                 )
             )
             admins = admins_result.scalars().all()
-
+            admins_by_tenant: dict[str, list[User]] = {}
             for admin in admins:
-                await notify_safe(
-                    db,
-                    template=NotificationTemplate.weekly_report,
-                    context={"weekly_summary": f"**周期: {week_label}**\n\n{md}"},
-                    user=admin,
-                    channels=[
-                        NotificationChannel.wechat,
-                        NotificationChannel.dingtalk,
-                        NotificationChannel.in_app,
-                    ],
-                )
+                admins_by_tenant.setdefault(admin.tenant_id, []).append(admin)
+
+            notify_count = 0
+            week_label = "?"
+            total_reports = 0
+            total_risks = 0
+
+            for tenant_id, tenant_admins in admins_by_tenant.items():
+                result = await generate_weekly_report(db, scope="last_week", tenant_id=tenant_id)
+
+                md = result.get("markdown") or "(本周无数据,跳过周报)"
+                week = result.get("week_range", {})
+                week_label = f"{week.get('start', '?')} → {week.get('end', '?')}"
+                total_reports += result.get("stats", {}).get("report_count", 0)
+                total_risks += result.get("stats", {}).get("risk_count", 0)
+
+                for admin in tenant_admins:
+                    await notify_safe(
+                        db,
+                        template=NotificationTemplate.weekly_report,
+                        context={"weekly_summary": f"**周期: {week_label}**\n\n{md}"},
+                        user=admin,
+                        channels=[
+                            NotificationChannel.wechat,
+                            NotificationChannel.dingtalk,
+                            NotificationChannel.in_app,
+                        ],
+                    )
+                notify_count += len(tenant_admins)
             await db.commit()
 
         logger.info(
             "   周报已生成并推送 %d 位管理层 (range=%s, reports=%d, risks=%d)",
-            len(admins),
+            notify_count,
             week_label,
-            result.get("stats", {}).get("report_count", 0),
-            result.get("stats", {}).get("risk_count", 0),
+            total_reports,
+            total_risks,
         )
 
     except Exception as e:
@@ -394,8 +417,8 @@ async def run_quarterly_okr_summary() -> None:
 
     try:
         async with AsyncSessionLocal() as db:
-            # 找上一个季度的 active cycle
-            cycle = (
+            # 找上一个季度的 active cycle;按租户分别归档和通知
+            cycles = (
                 await db.execute(
                     _select(_Cycle)
                     .where(
@@ -404,94 +427,121 @@ async def run_quarterly_okr_summary() -> None:
                         _Cycle.end_date <= yesterday,
                     )
                     .order_by(_Cycle.end_date.desc())
-                    .limit(1)
                 )
-            ).scalar_one_or_none()
-            if not cycle:
+            ).scalars().all()
+            if not cycles:
                 logger.info("   未找到需要归档的季度 cycle")
                 return
 
-            # 聚合该 cycle 的统计
-            objs = (await db.execute(_select(_Obj).where(_Obj.cycle_id == cycle.id))).scalars().all()
-            obj_ids = [o.id for o in objs]
-            krs: list[Any] = []
-            if obj_ids:
-                krs = list((await db.execute(_select(_KR).where(_KR.objective_id.in_(obj_ids)))).scalars().all())
+            archived_count = 0
+            notify_count = 0
+            last_name = ""
+            total_objs = 0
+            total_krs = 0
+            retro_success = False
 
-            avg_obj_progress = round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
-            kr_progresses = [k.progress for k in krs]
-            achieved = sum(1 for p in kr_progresses if p >= 70)
-            on_track = sum(1 for p in kr_progresses if 40 <= p < 70)
-            behind = sum(1 for p in kr_progresses if p < 40)
+            for cycle in cycles:
+                # 聚合该 cycle 的统计
+                objs = (
+                    await db.execute(_select(_Obj).where(_Obj.cycle_id == cycle.id, _Obj.tenant_id == cycle.tenant_id))
+                ).scalars().all()
+                obj_ids = [o.id for o in objs]
+                krs: list[Any] = []
+                if obj_ids:
+                    krs = list(
+                        (
+                            await db.execute(
+                                _select(_KR).where(_KR.objective_id.in_(obj_ids), _KR.tenant_id == cycle.tenant_id)
+                            )
+                        )
+                        .scalars()
+                        .all()
+                    )
 
-            summary_md = (
-                f"### 📊 {cycle.name} OKR 达成总结\n\n"
-                f"**周期**: {cycle.start_date} → {cycle.end_date}\n\n"
-                f"- 目标数: **{len(objs)}**\n"
-                f"- 关键结果数: **{len(krs)}**\n"
-                f"- 平均 O 进度: **{avg_obj_progress}%**\n\n"
-                f"**KR 达成分布**:\n"
-                f"- ✅ 已达成(≥70%): {achieved}\n"
-                f"- 🟡 进行中(40-70%): {on_track}\n"
-                f"- 🔴 滞后(<40%): {behind}\n"
-            )
+                avg_obj_progress = round(sum(o.progress for o in objs) / len(objs), 1) if objs else 0
+                kr_progresses = [k.progress for k in krs]
+                achieved = sum(1 for p in kr_progresses if p >= 70)
+                on_track = sum(1 for p in kr_progresses if 40 <= p < 70)
+                behind = sum(1 for p in kr_progresses if p < 40)
 
-            # 归档 cycle
-            cycle.status = _Status.completed
+                summary_md = (
+                    f"### 📊 {cycle.name} OKR 达成总结\n\n"
+                    f"**周期**: {cycle.start_date} → {cycle.end_date}\n\n"
+                    f"- 目标数: **{len(objs)}**\n"
+                    f"- 关键结果数: **{len(krs)}**\n"
+                    f"- 平均 O 进度: **{avg_obj_progress}%**\n\n"
+                    f"**KR 达成分布**:\n"
+                    f"- ✅ 已达成(≥70%): {achieved}\n"
+                    f"- 🟡 进行中(40-70%): {on_track}\n"
+                    f"- 🔴 滞后(<40%): {behind}\n"
+                )
 
-            # 触发 AI 复盘生成(沉淀到知识库)— 失败不影响归档
-            from app.services.retro import generate_retrospective_safe
+                # 归档 cycle
+                cycle.status = _Status.completed
 
-            retro_result = await generate_retrospective_safe(
-                db,
-                scope="okr_cycle",
-                target_id=str(cycle.id),
-                persist=True,
-            )
+                # 触发 AI 复盘生成(沉淀到知识库)— 失败不影响归档
+                from app.services.retro import generate_retrospective_safe
 
-            # 推送给管理层
-            admins = (
-                (
-                    await db.execute(
-                        _select(User).where(
-                            User.role.in_(["admin", "manager"]),
-                            User.is_active == True,
+                retro_result = await generate_retrospective_safe(
+                    db,
+                    scope="okr_cycle",
+                    target_id=str(cycle.id),
+                    persist=True,
+                    tenant_id=cycle.tenant_id,
+                )
+
+                # 推送给管理层
+                admins = (
+                    (
+                        await db.execute(
+                            _select(User).where(
+                                User.tenant_id == cycle.tenant_id,
+                                User.role.in_(["admin", "manager"]),
+                                User.is_active == True,
+                            )
                         )
                     )
-                )
-                .scalars()
-                .all()
-            )
-
-            # 推送内容:简短的达成总结 + 复盘报告链接提示
-            push_content = summary_md
-            if retro_result and retro_result.knowledge_item_id:
-                push_content += (
-                    f"\n\n📖 **AI 复盘报告已沉淀到知识库**\n标题:{retro_result.title}\n前往「AI 复盘库」查看完整复盘"
+                    .scalars()
+                    .all()
                 )
 
-            for admin in admins:
-                await notify_safe(
-                    db,
-                    template=NotificationTemplate.weekly_report,  # 复用周报模板槽位
-                    context={"weekly_summary": push_content},
-                    user=admin,
-                    channels=[
-                        NotificationChannel.wechat,
-                        NotificationChannel.dingtalk,
-                        NotificationChannel.in_app,
-                    ],
-                )
+                # 推送内容:简短的达成总结 + 复盘报告链接提示
+                push_content = summary_md
+                if retro_result and retro_result.knowledge_item_id:
+                    push_content += (
+                        f"\n\n📖 **AI 复盘报告已沉淀到知识库**\n标题:{retro_result.title}\n前往「AI 复盘库」查看完整复盘"
+                    )
+                    retro_success = True
+
+                for admin in admins:
+                    await notify_safe(
+                        db,
+                        template=NotificationTemplate.weekly_report,  # 复用周报模板槽位
+                        context={"weekly_summary": push_content},
+                        user=admin,
+                        channels=[
+                            NotificationChannel.wechat,
+                            NotificationChannel.dingtalk,
+                            NotificationChannel.in_app,
+                        ],
+                    )
+
+                archived_count += 1
+                notify_count += len(admins)
+                last_name = cycle.name
+                total_objs += len(objs)
+                total_krs += len(krs)
 
             await db.commit()
 
         logger.info(
-            "   %s 已归档,推送 %d 位管理层 (objs=%d, krs=%d, retro=%s)",
-            cycle.name,
-            len(admins),
-            len(objs),
-            len(krs),
-            "yes" if retro_result and retro_result.knowledge_item_id else "no",
+            "   已归档 %d 个季度 cycle(最后:%s),推送 %d 位管理层 (objs=%d, krs=%d, retro=%s)",
+            archived_count,
+            last_name,
+            notify_count,
+            total_objs,
+            total_krs,
+            "yes" if retro_success else "no",
         )
 
     except Exception as e:
@@ -605,43 +655,54 @@ async def run_deletion_cleanup_dry_run(retention_days: int = DELETION_CLEANUP_RE
     from app.services.notification_service import notify_safe
 
     async with AsyncSessionLocal() as db:
-        stats = await build_deletion_cleanup_dry_run(db, retention_days=retention_days)
-        markdown = render_deletion_cleanup_dry_run_markdown(stats)
-
         admins_result = await db.execute(select(User).where(and_(User.role == UserRole.admin, User.is_active == True)))
         admins = admins_result.scalars().all()
+        admins_by_tenant: dict[str, list[User]] = {}
+        for admin in admins:
+            admins_by_tenant.setdefault(admin.tenant_id, []).append(admin)
 
-        if admins:
+        if not admins_by_tenant:
+            logger.warning("   未找到启用中的 admin,跳过 audit_log 写入")
+
+        total_candidates = 0
+        open_history_batches = 0
+        notify_count = 0
+        for tenant_id, tenant_admins in admins_by_tenant.items():
+            stats = await build_deletion_cleanup_dry_run(db, retention_days=retention_days, tenant_id=tenant_id)
+            markdown = render_deletion_cleanup_dry_run_markdown(stats)
+            total_candidates += stats["total_candidates"]
+            open_history_batches += stats["open_history_batches"]
+
             db.add(
                 AuditLog(
-                    user_id=admins[0].id,
+                    user_id=tenant_admins[0].id,
                     action="deletion_cleanup_dry_run",
                     detail=stats,
-                    created_by=admins[0].id,
+                    created_by=tenant_admins[0].id,
+                    tenant_id=tenant_id,
                     created_at=datetime.now(timezone.utc),
                 )
             )
-        else:
-            logger.warning("   未找到启用中的 admin,跳过 audit_log 写入")
 
-        for admin in admins:
-            await notify_safe(
-                db,
-                template=NotificationTemplate.weekly_report,
-                context={"weekly_summary": markdown},
-                user=admin,
-                channels=[
-                    NotificationChannel.wechat,
-                    NotificationChannel.dingtalk,
-                    NotificationChannel.in_app,
-                ],
-                related_type="deletion_cleanup",
-            )
+            for admin in tenant_admins:
+                await notify_safe(
+                    db,
+                    template=NotificationTemplate.weekly_report,
+                    context={"weekly_summary": markdown},
+                    user=admin,
+                    channels=[
+                        NotificationChannel.wechat,
+                        NotificationChannel.dingtalk,
+                        NotificationChannel.in_app,
+                    ],
+                    related_type="deletion_cleanup",
+                )
+            notify_count += len(tenant_admins)
 
         await db.commit()
         logger.info(
             "   dry-run 完成:候选 %d 条,history 批次 %d,已通知 admin %d 人",
-            stats["total_candidates"],
-            stats["open_history_batches"],
-            len(admins),
+            total_candidates,
+            open_history_batches,
+            notify_count,
         )

@@ -23,13 +23,19 @@ from app.services.sprint_aggregator import (
 )
 
 
-async def _find_project(db: AsyncSession, query: str):
+async def _find_project(db: AsyncSession, query: str, tenant_id: str):
     if not query:
         return None
     q = query.strip()
     return (
         await db.execute(
-            select(Project).where(or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%"))).limit(1)
+            select(Project)
+            .where(
+                Project.tenant_id == tenant_id,
+                Project.deleted_at.is_(None),
+                or_(Project.name.ilike(f"%{q}%"), Project.code.ilike(f"%{q}%")),
+            )
+            .limit(1)
         )
     ).scalar_one_or_none()
 
@@ -38,19 +44,20 @@ async def _find_project(db: AsyncSession, query: str):
 async def sprint_status(
     db: AsyncSession,
     project_query: str,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号(如「206」「P2026-001」)
     """
-    proj = await _find_project(db, project_query)
+    proj = await _find_project(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到匹配 『{project_query}』 的项目"}
 
     sprint = (
         await db.execute(
             select(Sprint)
-            .where(Sprint.project_id == proj.id, Sprint.status == SprintStatus.active)
+            .where(Sprint.project_id == proj.id, Sprint.tenant_id == tenant_id, Sprint.status == SprintStatus.active)
             .order_by(desc(Sprint.start_date))
             .limit(1)
         )
@@ -65,7 +72,9 @@ async def sprint_status(
     tasks = (
         (
             await db.execute(
-                select(SprintTask).where(and_(SprintTask.sprint_id == sprint.id, SprintTask.deleted_at.is_(None)))
+                select(SprintTask).where(
+                    and_(SprintTask.sprint_id == sprint.id, SprintTask.tenant_id == tenant_id, SprintTask.deleted_at.is_(None))
+                )
             )
         )
         .scalars()
@@ -100,17 +109,18 @@ async def sprint_burndown(
     db: AsyncSession,
     project_query: str,
     sprint_number: int = 0,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号
         sprint_number: Sprint 编号,0=取当前活跃 Sprint
     """
-    proj = await _find_project(db, project_query)
+    proj = await _find_project(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到项目 『{project_query}』"}
 
-    stmt = select(Sprint).where(Sprint.project_id == proj.id)
+    stmt = select(Sprint).where(Sprint.project_id == proj.id, Sprint.tenant_id == tenant_id)
     if sprint_number > 0:
         stmt = stmt.where(Sprint.sprint_number == sprint_number)
     else:
@@ -124,7 +134,7 @@ async def sprint_burndown(
             "message": "未找到匹配的 Sprint",
         }
 
-    data = await compute_burndown_series(db, sprint.id)
+    data = await compute_burndown_series(db, sprint.id, tenant_id=tenant_id)
     if "error" in data:
         return data
 
@@ -145,17 +155,18 @@ async def critical_path(
     db: AsyncSession,
     project_query: str,
     sprint_number: int = 0,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号
         sprint_number: Sprint 编号,0=取当前活跃 Sprint
     """
-    proj = await _find_project(db, project_query)
+    proj = await _find_project(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到项目 『{project_query}』"}
 
-    stmt = select(Sprint).where(Sprint.project_id == proj.id)
+    stmt = select(Sprint).where(Sprint.project_id == proj.id, Sprint.tenant_id == tenant_id)
     if sprint_number > 0:
         stmt = stmt.where(Sprint.sprint_number == sprint_number)
     else:
@@ -198,14 +209,15 @@ async def project_velocity(
     db: AsyncSession,
     project_query: str,
     last_n: int = 6,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         project_query: 项目名称或编号
         last_n: 取最近 N 个已完成 Sprint(默认 6)
     """
-    proj = await _find_project(db, project_query)
+    proj = await _find_project(db, project_query, tenant_id)
     if not proj:
         return {"error": f"未找到项目 『{project_query}』"}
 
-    return await compute_velocity_history(db, proj.id, last_n=last_n)
+    return await compute_velocity_history(db, proj.id, last_n=last_n, tenant_id=tenant_id)

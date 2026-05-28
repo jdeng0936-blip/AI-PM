@@ -59,13 +59,13 @@ REPORT_HEADERS = [
 REPORT_WIDTHS = [12, 10, 14, 8, 8, 36, 10, 22, 26, 26, 34]
 
 
-async def build_project_summary_workbook(db: AsyncSession, *, project_id: UUID) -> BytesIO:
-    project = await _fetch_project(db, project_id)
+async def build_project_summary_workbook(db: AsyncSession, *, project_id: UUID, tenant_id: str = "default") -> BytesIO:
+    project = await _fetch_project(db, project_id, tenant_id=tenant_id)
     owner_name = await _fetch_owner_name(db, project)
-    stages = await _fetch_stages(db, project.id)
-    sprints = await _fetch_sprints(db, project.id)
-    report_rows = await _fetch_report_rows(db, project.id)
-    risk_rows = await _fetch_risk_rows(db, project.id)
+    stages = await _fetch_stages(db, project.id, tenant_id=tenant_id)
+    sprints = await _fetch_sprints(db, project.id, tenant_id=tenant_id)
+    report_rows = await _fetch_report_rows(db, project.id, tenant_id=tenant_id)
+    risk_rows = await _fetch_risk_rows(db, project.id, tenant_id=tenant_id)
 
     wb = Workbook()
     overview_ws = wb.active
@@ -87,8 +87,10 @@ async def build_project_summary_workbook(db: AsyncSession, *, project_id: UUID) 
     return output
 
 
-async def _fetch_project(db: AsyncSession, project_id: UUID) -> Project:
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
+async def _fetch_project(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> Project:
+    result = await db.execute(
+        select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id, Project.deleted_at.is_(None))
+    )
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在或已删除")
@@ -98,33 +100,37 @@ async def _fetch_project(db: AsyncSession, project_id: UUID) -> Project:
 async def _fetch_owner_name(db: AsyncSession, project: Project) -> str:
     if project.created_by is None:
         return ""
-    result = await db.execute(select(User.name).where(User.id == project.created_by))
+    result = await db.execute(select(User.name).where(User.id == project.created_by, User.tenant_id == project.tenant_id))
     return result.scalar_one_or_none() or ""
 
 
-async def _fetch_stages(db: AsyncSession, project_id: UUID) -> list[ProjectStage]:
+async def _fetch_stages(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> list[ProjectStage]:
     result = await db.execute(
-        select(ProjectStage).where(ProjectStage.project_id == project_id).order_by(ProjectStage.stage_number.asc())
+        select(ProjectStage)
+        .where(ProjectStage.project_id == project_id, ProjectStage.tenant_id == tenant_id)
+        .order_by(ProjectStage.stage_number.asc())
     )
     return list(result.scalars().all())
 
 
-async def _fetch_sprints(db: AsyncSession, project_id: UUID) -> list[Sprint]:
+async def _fetch_sprints(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> list[Sprint]:
     result = await db.execute(
         select(Sprint)
-        .where(Sprint.project_id == project_id)
+        .where(Sprint.project_id == project_id, Sprint.tenant_id == tenant_id)
         .order_by(Sprint.sprint_number.asc(), Sprint.start_date.asc())
     )
     return list(result.scalars().all())
 
 
-async def _fetch_report_rows(db: AsyncSession, project_id: UUID) -> list[ProjectReportRow]:
+async def _fetch_report_rows(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> list[ProjectReportRow]:
     result = await db.execute(
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
         .where(
             and_(
                 DailyReport.project_id == project_id,
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
                 DailyReport.deleted_at.is_(None),
             )
         )
@@ -136,7 +142,7 @@ async def _fetch_report_rows(db: AsyncSession, project_id: UUID) -> list[Project
     ]
 
 
-async def _fetch_risk_rows(db: AsyncSession, project_id: UUID) -> list[ProjectRiskRow]:
+async def _fetch_risk_rows(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> list[ProjectRiskRow]:
     result = await db.execute(
         select(RiskAlert, DailyReport.report_date, User.name, User.department)
         .join(DailyReport, RiskAlert.report_id == DailyReport.id)
@@ -144,6 +150,9 @@ async def _fetch_risk_rows(db: AsyncSession, project_id: UUID) -> list[ProjectRi
         .where(
             and_(
                 DailyReport.project_id == project_id,
+                DailyReport.tenant_id == tenant_id,
+                RiskAlert.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
                 DailyReport.deleted_at.is_(None),
                 RiskAlert.deleted_at.is_(None),
             )

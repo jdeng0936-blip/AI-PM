@@ -35,6 +35,7 @@ async def collect_period_basics(
     end: date,
     *,
     dept: Optional[str] = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """收集时间段内的通用业务素材(供 monthly/incident/项目复盘 复用)"""
     # 日报汇总
@@ -48,7 +49,15 @@ async def collect_period_basics(
             DailyReport.parsed_content,
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
         .order_by(desc(DailyReport.report_date))
     )
     if dept:
@@ -77,6 +86,8 @@ async def collect_period_basics(
         )
         .join(User, RiskAlert.user_id == User.id)
         .where(
+            RiskAlert.tenant_id == tenant_id,
+            User.tenant_id == tenant_id,
             RiskAlert.created_at >= start,
             RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删的预警不进复盘上下文
         )
@@ -95,7 +106,15 @@ async def collect_period_basics(
             func.count(DailyReport.id).label("submitted"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
         .group_by(User.department)
         .order_by(desc("avg_score"))
     )
@@ -121,6 +140,8 @@ async def collect_period_basics(
             and_(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
@@ -163,23 +184,33 @@ async def collect_period_basics(
 # ────────────────────────────────────────────────────────────────
 
 
-async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
-    cycle = await db.get(OKRCycle, cycle_id)
+async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID, *, tenant_id: str = "default") -> dict[str, Any]:
+    cycle = (
+        await db.execute(select(OKRCycle).where(OKRCycle.id == cycle_id, OKRCycle.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if not cycle:
         return {"error": f"cycle {cycle_id} not found"}
 
     obj_rows = (
         await db.execute(
             select(Objective, User.name)
-            .join(User, Objective.owner_id == User.id, isouter=True)
-            .where(Objective.cycle_id == cycle.id)
+            .join(User, and_(Objective.owner_id == User.id, User.tenant_id == tenant_id), isouter=True)
+            .where(Objective.cycle_id == cycle.id, Objective.tenant_id == tenant_id)
             .order_by(desc(Objective.weight))
         )
     ).all()
     obj_ids = [o.id for o, _ in obj_rows]
     krs: list[KeyResult] = []
     if obj_ids:
-        krs = list((await db.execute(select(KeyResult).where(KeyResult.objective_id.in_(obj_ids)))).scalars().all())
+        krs = list(
+            (
+                await db.execute(
+                    select(KeyResult).where(KeyResult.objective_id.in_(obj_ids), KeyResult.tenant_id == tenant_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     # 进度日志聚合(AI 提取 vs 手工 vs 系统)
     logs_summary = {"manual": 0, "ai_extracted": 0, "sprint_close": 0, "system": 0}
@@ -187,7 +218,7 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
         log_rows = (
             await db.execute(
                 select(KRProgressLog.source, func.count(KRProgressLog.id))
-                .where(KRProgressLog.kr_id.in_([k.id for k in krs]))
+                .where(KRProgressLog.kr_id.in_([k.id for k in krs]), KRProgressLog.tenant_id == tenant_id)
                 .group_by(KRProgressLog.source)
             )
         ).all()
@@ -222,7 +253,7 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
         )
 
     # 周期窗口内的业务数据
-    period = await collect_period_basics(db, cycle.start_date, cycle.end_date)
+    period = await collect_period_basics(db, cycle.start_date, cycle.end_date, tenant_id=tenant_id)
 
     return {
         "cycle": {
@@ -245,15 +276,17 @@ async def collect_okr_cycle(db: AsyncSession, cycle_id: UUID) -> dict[str, Any]:
 # ────────────────────────────────────────────────────────────────
 
 
-async def collect_project(db: AsyncSession, project_id: UUID) -> dict[str, Any]:
-    proj = await db.get(Project, project_id)
+async def collect_project(db: AsyncSession, project_id: UUID, *, tenant_id: str = "default") -> dict[str, Any]:
+    proj = (
+        await db.execute(select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if not proj:
         return {"error": f"project {project_id} not found"}
 
     start = proj.planned_launch_date or (proj.created_at.date() if proj.created_at else date.today())
     end = proj.actual_launch_date or date.today()
 
-    period = await collect_period_basics(db, start, end)
+    period = await collect_period_basics(db, start, end, tenant_id=tenant_id)
     return {
         "project": {
             "code": proj.code,
@@ -277,15 +310,17 @@ async def collect_project(db: AsyncSession, project_id: UUID) -> dict[str, Any]:
 # ────────────────────────────────────────────────────────────────
 
 
-async def collect_monthly(db: AsyncSession, year: int, month: int) -> dict[str, Any]:
+async def collect_monthly(db: AsyncSession, year: int, month: int, *, tenant_id: str = "default") -> dict[str, Any]:
     start = date(year, month, 1)
     next_month = date(year + (month // 12), (month % 12) + 1, 1)
     end = next_month - timedelta(days=1)
 
-    period = await collect_period_basics(db, start, end)
+    period = await collect_period_basics(db, start, end, tenant_id=tenant_id)
 
     # 月度新增 / 关闭项目
-    proj_stmt = select(Project).where(and_(Project.created_at >= start, Project.created_at <= end))
+    proj_stmt = select(Project).where(
+        and_(Project.created_at >= start, Project.created_at <= end, Project.tenant_id == tenant_id)
+    )
     new_projects = (await db.execute(proj_stmt)).scalars().all()
 
     return {
@@ -302,12 +337,20 @@ async def collect_monthly(db: AsyncSession, year: int, month: int) -> dict[str, 
 # ────────────────────────────────────────────────────────────────
 
 
-async def collect_incident(db: AsyncSession, risk_id: UUID) -> dict[str, Any]:
-    alert = await db.get(RiskAlert, risk_id)
+async def collect_incident(db: AsyncSession, risk_id: UUID, *, tenant_id: str = "default") -> dict[str, Any]:
+    alert = (
+        await db.execute(select(RiskAlert).where(RiskAlert.id == risk_id, RiskAlert.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if not alert or alert.deleted_at is not None:  # V2.5 Stage 3:软删的事故无法再触发复盘
         return {"error": f"risk_alert {risk_id} not found"}
 
-    user = await db.get(User, alert.user_id) if alert.user_id else None
+    user = (
+        (
+            await db.execute(select(User).where(User.id == alert.user_id, User.tenant_id == tenant_id))
+        ).scalar_one_or_none()
+        if alert.user_id
+        else None
+    )
     end = alert.resolved_at.date() if alert.resolved_at else date.today()
     start = alert.created_at.date() if alert.created_at else (end - timedelta(days=alert.days_unresolved or 1))
 
@@ -317,6 +360,7 @@ async def collect_incident(db: AsyncSession, risk_id: UUID) -> dict[str, Any]:
         .where(
             and_(
                 DailyReport.user_id == alert.user_id,
+                DailyReport.tenant_id == tenant_id,
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1

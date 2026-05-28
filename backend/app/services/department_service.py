@@ -15,7 +15,7 @@ app/services/department_service.py — Phase 10 部门服务层
 
 约束:
   - 全异步 AsyncSession
-  - TENANT_ID = "default"(对齐 kpi_service)
+  - tenant_id 由 router 从当前用户注入。
   - 返回 Schema Out 实例(不暴露 ORM)
 """
 
@@ -37,13 +37,10 @@ from app.schemas.department import (
     DepartmentWithMembers,
 )
 
-TENANT_ID = "default"
-
-
-async def _get_department_or_raise(db: AsyncSession, dept_id: uuid.UUID) -> Department:
+async def _get_department_or_raise(db: AsyncSession, dept_id: uuid.UUID, tenant_id: str) -> Department:
     stmt = select(Department).where(
         Department.id == dept_id,
-        Department.tenant_id == TENANT_ID,
+        Department.tenant_id == tenant_id,
     )
     result = (await db.execute(stmt)).scalar_one_or_none()
     if result is None:
@@ -51,21 +48,22 @@ async def _get_department_or_raise(db: AsyncSession, dept_id: uuid.UUID) -> Depa
     return result
 
 
-async def _verify_manager_exists(db: AsyncSession, manager_id: uuid.UUID) -> None:
+async def _verify_manager_exists(db: AsyncSession, manager_id: uuid.UUID, tenant_id: str) -> None:
     """校验 manager_id 对应 user 存在且活跃(is_active=True)。
 
     本仓库 User 的软删除信号 = is_active=False(见 backend/app/routers/users.py:223)。
     """
     stmt = select(User.id).where(
         User.id == manager_id,
+        User.tenant_id == tenant_id,
         User.is_active.is_(True),
     )
     if (await db.execute(stmt)).scalar_one_or_none() is None:
         raise ValueError("manager_not_found")
 
 
-async def list_departments(db: AsyncSession) -> list[DepartmentOut]:
-    stmt = select(Department).where(Department.tenant_id == TENANT_ID).order_by(Department.name.asc())
+async def list_departments(db: AsyncSession, *, tenant_id: str) -> list[DepartmentOut]:
+    stmt = select(Department).where(Department.tenant_id == tenant_id).order_by(Department.name.asc())
     rows = (await db.execute(stmt)).scalars().all()
     return [DepartmentOut.model_validate(row) for row in rows]
 
@@ -76,13 +74,13 @@ async def create_department(
     actor: User,
 ) -> DepartmentOut:
     if payload.manager_id is not None:
-        await _verify_manager_exists(db, payload.manager_id)
+        await _verify_manager_exists(db, payload.manager_id, actor.tenant_id)
 
     dept = Department(
         name=payload.name.strip(),
         manager_id=payload.manager_id,
         created_by=actor.id,
-        tenant_id=TENANT_ID,
+        tenant_id=actor.tenant_id,
     )
     db.add(dept)
     try:
@@ -101,12 +99,11 @@ async def update_department(
     payload: DepartmentUpdate,
     actor: User,
 ) -> DepartmentOut:
-    _ = actor
-    dept = await _get_department_or_raise(db, dept_id)
+    dept = await _get_department_or_raise(db, dept_id, actor.tenant_id)
 
     update_data = payload.model_dump(exclude_unset=True)
     if "manager_id" in update_data and update_data["manager_id"] is not None:
-        await _verify_manager_exists(db, update_data["manager_id"])
+        await _verify_manager_exists(db, update_data["manager_id"], actor.tenant_id)
 
     if "name" in update_data and update_data["name"] is not None:
         dept.name = update_data["name"].strip()
@@ -123,21 +120,21 @@ async def update_department(
     return DepartmentOut.model_validate(dept)
 
 
-async def delete_department(db: AsyncSession, dept_id: uuid.UUID) -> None:
-    dept = await _get_department_or_raise(db, dept_id)
+async def delete_department(db: AsyncSession, dept_id: uuid.UUID, *, tenant_id: str) -> None:
+    dept = await _get_department_or_raise(db, dept_id, tenant_id)
     await db.delete(dept)
     await db.commit()
 
 
-async def get_department_with_members(db: AsyncSession, dept_id: uuid.UUID) -> DepartmentWithMembers:
-    dept = await _get_department_or_raise(db, dept_id)
+async def get_department_with_members(db: AsyncSession, dept_id: uuid.UUID, *, tenant_id: str) -> DepartmentWithMembers:
+    dept = await _get_department_or_raise(db, dept_id, tenant_id)
 
     member_stmt = (
         select(User)
         .where(
             User.department == dept.name,
             User.is_active.is_(True),
-            User.tenant_id == TENANT_ID,
+            User.tenant_id == tenant_id,
         )
         .order_by(User.name.asc())
     )

@@ -108,13 +108,22 @@ async def _check_attachment_access(
     current_user: User,
 ) -> None:
     """校验当前用户是否有权读取该附件;无权限抛 403。"""
+    if record.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该附件")
     if current_user.role in (UserRole.admin, UserRole.manager):
         return
     if record.uploaded_by == current_user.id:
         return
     # 通过 related_report_id 反向校验日报归属
     if record.related_report_id is not None:
-        report = await db.get(DailyReport, record.related_report_id)
+        report = (
+            await db.execute(
+                select(DailyReport).where(
+                    DailyReport.id == record.related_report_id,
+                    DailyReport.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
         if report is not None and report.user_id == current_user.id:
             return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该附件")
@@ -184,7 +193,11 @@ async def _check_report_link_access(
     """上传时校验附件关联的日报存在且当前用户有权挂载。"""
     if related_report_id is None:
         return
-    report = await db.get(DailyReport, related_report_id)
+    report = (
+        await db.execute(
+            select(DailyReport).where(DailyReport.id == related_report_id, DailyReport.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if report is None or report.deleted_at is not None:
         raise HTTPException(404, "日报不存在")
     if current_user.role not in (UserRole.admin, UserRole.manager) and report.user_id != current_user.id:
@@ -232,6 +245,8 @@ async def upload_attachment(
         size_bytes=len(raw),
         storage_key=storage_key,
         file_url=file_url,
+        created_by=current_user.id,
+        tenant_id=current_user.tenant_id,
     )
     db.add(record)
     await db.commit()
@@ -266,7 +281,7 @@ async def list_my_attachments(
     kind: Optional[AttachmentKind] = None,
 ):
     """列出当前用户的附件。管理层可看全部(?owner_id=...)留待后续扩展。"""
-    q = select(Attachment)
+    q = select(Attachment).where(Attachment.tenant_id == current_user.tenant_id)
     if current_user.role == UserRole.employee:
         q = q.where(Attachment.uploaded_by == current_user.id)
     if kind:
@@ -304,13 +319,24 @@ async def list_attachments_by_report(
     current_user: User = Depends(get_current_user),
 ):
     # V2.5 Stage 1 Fix #1:校验报告归属 — 避免知道 report_id 就能列出附件
-    report = await db.get(DailyReport, report_id)
+    report = (
+        await db.execute(
+            select(DailyReport).where(DailyReport.id == report_id, DailyReport.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if report is None:
         raise HTTPException(404, "日报不存在")
     if current_user.role not in (UserRole.admin, UserRole.manager) and report.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看他人日报附件")
 
-    rows = (await db.execute(select(Attachment).where(Attachment.related_report_id == report_id))).scalars().all()
+    rows = (
+        await db.execute(
+            select(Attachment).where(
+                Attachment.related_report_id == report_id,
+                Attachment.tenant_id == current_user.tenant_id,
+            )
+        )
+    ).scalars().all()
     return [
         AttachmentOut(
             id=r.id,
@@ -336,7 +362,11 @@ async def presigned_url(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    record = await db.get(Attachment, attachment_id)
+    record = (
+        await db.execute(
+            select(Attachment).where(Attachment.id == attachment_id, Attachment.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if not record:
         raise HTTPException(404, "附件不存在")
 
@@ -368,7 +398,11 @@ async def serve_local_file(
     返回 404(而非 403)给"无对应附件 / 无权访问"两种情况,避免泄露路径存在性。
     """
     # 通过 storage_key 反查附件归属
-    record = (await db.execute(select(Attachment).where(Attachment.storage_key == path))).scalar_one_or_none()
+    record = (
+        await db.execute(
+            select(Attachment).where(Attachment.storage_key == path, Attachment.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if record is None:
         raise HTTPException(404, "文件不存在")
     try:
@@ -399,7 +433,11 @@ async def delete_attachment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    record = await db.get(Attachment, attachment_id)
+    record = (
+        await db.execute(
+            select(Attachment).where(Attachment.id == attachment_id, Attachment.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if not record:
         raise HTTPException(404, "附件不存在")
     if record.uploaded_by != current_user.id and current_user.role != UserRole.admin:

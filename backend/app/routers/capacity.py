@@ -17,13 +17,15 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
 from app.models.capacity import CapacitySnapshot
+from app.models.project import Project
 from app.models.sprint import Sprint
+from app.models.sprint_task import SprintTask
 from app.models.user import User, UserRole
 from app.services.capacity_engine import (
     compute_project_capacity,
@@ -52,13 +54,11 @@ async def sprint_capacity(
     _user: User = Depends(_writers),
 ):
     """单 Sprint 全员水位(实时计算,不依赖快照)"""
-    sprint = await db.get(Sprint, sprint_id)
+    sprint = (
+        await db.execute(select(Sprint).where(Sprint.id == sprint_id, Sprint.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
     if not sprint:
         raise HTTPException(404, "Sprint 不存在")
-
-    from sqlalchemy import and_
-
-    from app.models.sprint_task import SprintTask
 
     user_ids = [
         r[0]
@@ -68,6 +68,7 @@ async def sprint_capacity(
                 .where(
                     and_(
                         SprintTask.sprint_id == sprint_id,
+                        SprintTask.tenant_id == _user.tenant_id,
                         SprintTask.assignee_id.is_not(None),
                         SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
@@ -79,7 +80,7 @@ async def sprint_capacity(
     if not user_ids:
         return {"sprint_id": str(sprint_id), "count": 0, "members": []}
 
-    users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    users = (await db.execute(select(User).where(User.id.in_(user_ids), User.tenant_id == _user.tenant_id))).scalars().all()
     members = []
     for u in users:
         m = await compute_user_capacity(db, u, sprint)
@@ -108,7 +109,13 @@ async def manual_snapshot(
     _user: User = Depends(_writers),
 ):
     """手工刷新该 Sprint 全员水位快照(写入 capacity_snapshots)"""
-    rows = await snapshot_sprint_capacity(db, sprint_id)
+    rows = await snapshot_sprint_capacity(db, sprint_id, tenant_id=_user.tenant_id)
+    if not rows:
+        sprint = (
+            await db.execute(select(Sprint.id).where(Sprint.id == sprint_id, Sprint.tenant_id == _user.tenant_id))
+        ).scalar_one_or_none()
+        if not sprint:
+            raise HTTPException(404, "Sprint 不存在")
     await db.commit()
     return {"snapshot_count": len(rows)}
 
@@ -120,7 +127,12 @@ async def rebalance(
     _user: User = Depends(_writers),
 ):
     """AI 任务调配建议(从过载 → 闲置)"""
-    return await suggest_rebalance(db, sprint_id)
+    sprint = (
+        await db.execute(select(Sprint.id).where(Sprint.id == sprint_id, Sprint.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
+    if not sprint:
+        raise HTTPException(404, "Sprint 不存在")
+    return await suggest_rebalance(db, sprint_id, tenant_id=_user.tenant_id)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -135,7 +147,7 @@ async def list_overloaded(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_writers),
 ):
-    return {"items": await find_overloaded(db, sprint_id=sprint_id, limit=limit)}
+    return {"items": await find_overloaded(db, sprint_id=sprint_id, limit=limit, tenant_id=_user.tenant_id)}
 
 
 @router.get("/underutilized")
@@ -145,7 +157,7 @@ async def list_underutilized(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_writers),
 ):
-    return {"items": await find_underutilized(db, sprint_id=sprint_id, limit=limit)}
+    return {"items": await find_underutilized(db, sprint_id=sprint_id, limit=limit, tenant_id=_user.tenant_id)}
 
 
 @router.get("/department-summary")
@@ -154,7 +166,7 @@ async def department_summary(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_writers),
 ):
-    return await department_capacity_summary(db, sprint_id=sprint_id)
+    return await department_capacity_summary(db, sprint_id=sprint_id, tenant_id=_user.tenant_id)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -177,7 +189,24 @@ async def project_capacity_summary(
     - 主干 / 临时项目共用同一口径,临时工单看板可直接调用
     - 工时按"每条日报 0.5 工日 = 4 小时"估算(mode=report_count)
     """
-    return await compute_project_capacity(db, project_id, month_start=month_start, month_end=month_end)
+    project = (
+        await db.execute(
+            select(Project.id).where(
+                Project.id == project_id,
+                Project.tenant_id == _user.tenant_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    return await compute_project_capacity(
+        db,
+        project_id,
+        month_start=month_start,
+        month_end=month_end,
+        tenant_id=_user.tenant_id,
+    )
 
 
 @router.get("/users/{user_id}/timeline")
@@ -188,11 +217,21 @@ async def user_capacity_timeline(
     _user: User = Depends(_writers),
 ):
     """某用户跨 Sprint 的水位时间线(用于看个人负载演变)"""
+    user = (
+        await db.execute(select(User).where(User.id == user_id, User.tenant_id == _user.tenant_id))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "用户不存在")
+
     rows = (
         await db.execute(
             select(CapacitySnapshot, Sprint)
             .join(Sprint, CapacitySnapshot.sprint_id == Sprint.id)
-            .where(CapacitySnapshot.user_id == user_id)
+            .where(
+                CapacitySnapshot.user_id == user_id,
+                CapacitySnapshot.tenant_id == _user.tenant_id,
+                Sprint.tenant_id == _user.tenant_id,
+            )
             .order_by(desc(Sprint.start_date))
             .limit(limit)
         )
@@ -214,12 +253,11 @@ async def user_capacity_timeline(
             }
         )
 
-    user = await db.get(User, user_id)
     return {
         "user": {
             "id": str(user_id),
-            "name": user.name if user else "?",
-            "department": user.department if user else None,
+            "name": user.name,
+            "department": user.department,
         },
         "count": len(items),
         "timeline": items,

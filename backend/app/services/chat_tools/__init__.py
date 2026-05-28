@@ -163,7 +163,13 @@ class ToolRegistry:
         items = self.all() if not only else [self._tools[n] for n in only if n in self._tools]
         return [t.to_openai_schema() for t in items]
 
-    async def dispatch(self, name: str, db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    async def dispatch(
+        self,
+        name: str,
+        db: AsyncSession,
+        args: dict[str, Any],
+        context: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         """
         执行一个 Tool。失败时返回 {"error": "..."},而不是抛异常 —
         这样 LLM 可以在下一轮看到错误并自主决策(重试/换工具/告知用户)。
@@ -175,7 +181,9 @@ class ToolRegistry:
         # 过滤掉不在 signature 里的多余参数,避免 TypeError
         sig = inspect.signature(spec.func)
         accepted = {p for p in sig.parameters.keys() if p != "db"}
-        clean_args = {k: v for k, v in (args or {}).items() if k in accepted}
+        clean_args = {k: v for k, v in (args or {}).items() if k in accepted and k != "tenant_id"}
+        if "tenant_id" in accepted:
+            clean_args["tenant_id"] = (context or {}).get("tenant_id", "default")
 
         try:
             result = await spec.func(db, **clean_args)
@@ -232,7 +240,7 @@ def tool(
         required: list[str] = []
 
         for pname, param in sig.parameters.items():
-            if pname == "db":
+            if pname in {"db", "tenant_id"}:
                 continue
             annotation = resolved_hints.get(pname, param.annotation)
             prop = _py_type_to_json(annotation)

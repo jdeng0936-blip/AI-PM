@@ -95,6 +95,7 @@ async def compute_stage_health(
     member_conditions = [
         ProjectMember.project_id == stage.project_id,
         ProjectMember.left_at.is_(None),
+        ProjectMember.tenant_id == stage.tenant_id,
     ]
     if track_filter:
         member_conditions.append(ProjectMember.track.in_(track_filter))
@@ -123,6 +124,7 @@ async def compute_stage_health(
             and_(
                 DailyReport.user_id.in_(member_ids),
                 DailyReport.project_id == stage.project_id,
+                DailyReport.tenant_id == stage.tenant_id,
                 DailyReport.report_date >= since,
                 DailyReport.pass_check.is_not(None),
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
@@ -146,8 +148,10 @@ async def compute_stage_health(
             and_(
                 RiskAlert.user_id.in_(member_ids),
                 RiskAlert.status == "unresolved",
+                RiskAlert.tenant_id == stage.tenant_id,
                 RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不计入健康度
                 DailyReport.project_id == stage.project_id,
+                DailyReport.tenant_id == stage.tenant_id,
                 DailyReport.deleted_at.is_(None),
             )
         )
@@ -188,6 +192,7 @@ async def refresh_project_health(
             and_(
                 ProjectStage.project_id == project_id,
                 ProjectStage.stage_number == project.current_stage,
+                ProjectStage.tenant_id == project.tenant_id,
             )
         )
     )
@@ -235,6 +240,7 @@ async def refresh_sprint_health(
                 ProjectMember.project_id == sprint.project_id,
                 ProjectMember.track.in_(["software", "both"]),
                 ProjectMember.left_at.is_(None),
+                ProjectMember.tenant_id == sprint.tenant_id,
             )
         )
     )
@@ -247,6 +253,7 @@ async def refresh_sprint_health(
             and_(
                 DailyReport.user_id.in_(member_ids),
                 DailyReport.project_id == sprint.project_id,
+                DailyReport.tenant_id == sprint.tenant_id,
                 DailyReport.report_date >= sprint.start_date,
                 DailyReport.report_date <= sprint.end_date,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2

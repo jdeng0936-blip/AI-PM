@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.okr import (
@@ -26,10 +26,13 @@ from app.models.user import User
 from app.services.chat_tools import tool
 
 
-async def _active_cycle(db: AsyncSession) -> Optional[OKRCycle]:
+async def _active_cycle(db: AsyncSession, tenant_id: str) -> Optional[OKRCycle]:
     return (
         await db.execute(
-            select(OKRCycle).where(OKRCycle.status == OKRStatus.active).order_by(desc(OKRCycle.start_date)).limit(1)
+            select(OKRCycle)
+            .where(OKRCycle.status == OKRStatus.active, OKRCycle.tenant_id == tenant_id)
+            .order_by(desc(OKRCycle.start_date))
+            .limit(1)
         )
     ).scalar_one_or_none()
 
@@ -38,15 +41,18 @@ async def _active_cycle(db: AsyncSession) -> Optional[OKRCycle]:
 async def list_active_objectives(
     db: AsyncSession,
     cycle_name: str = "",
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
         cycle_name: 限定周期名称(如「2026Q2」),空=自动取最新 active 周期
     """
     if cycle_name:
-        cycle = (await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1))).scalar_one_or_none()
+        cycle = (
+            await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name, OKRCycle.tenant_id == tenant_id).limit(1))
+        ).scalar_one_or_none()
     else:
-        cycle = await _active_cycle(db)
+        cycle = await _active_cycle(db, tenant_id)
 
     if not cycle:
         return {"error": "未找到 active 周期"}
@@ -54,8 +60,8 @@ async def list_active_objectives(
     rows = (
         await db.execute(
             select(Objective, User.name)
-            .join(User, Objective.owner_id == User.id, isouter=True)
-            .where(Objective.cycle_id == cycle.id)
+            .join(User, and_(Objective.owner_id == User.id, User.tenant_id == tenant_id), isouter=True)
+            .where(Objective.cycle_id == cycle.id, Objective.tenant_id == tenant_id)
             .order_by(desc(Objective.weight))
         )
     ).all()
@@ -86,6 +92,7 @@ async def kr_status(
     db: AsyncSession,
     objective_title: str = "",
     objective_id: str = "",
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -93,11 +100,23 @@ async def kr_status(
         objective_id: 目标 UUID(精确匹配),与 objective_title 二选一
     """
     if objective_id:
-        obj = await db.get(Objective, objective_id)
+        import uuid as _uuid
+
+        obj = (
+            await db.execute(
+                select(Objective).where(Objective.id == _uuid.UUID(objective_id), Objective.tenant_id == tenant_id)
+            )
+        ).scalar_one_or_none()
         matched_objs = [obj] if obj else []
     elif objective_title:
         matched_objs = list(
-            (await db.execute(select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(3)))
+            (
+                await db.execute(
+                    select(Objective)
+                    .where(Objective.title.ilike(f"%{objective_title}%"), Objective.tenant_id == tenant_id)
+                    .limit(3)
+                )
+            )
             .scalars()
             .all()
         )
@@ -109,7 +128,9 @@ async def kr_status(
 
     items = []
     for obj in matched_objs:
-        krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id))).scalars().all()
+        krs = (
+            await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id, KeyResult.tenant_id == tenant_id))
+        ).scalars().all()
         items.append(
             {
                 "objective_id": str(obj.id),
@@ -140,6 +161,7 @@ async def kr_at_risk(
     progress_threshold: float = 40.0,
     cycle_name: str = "",
     limit: int = 20,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -148,9 +170,11 @@ async def kr_at_risk(
         limit: 返回前 N 条
     """
     if cycle_name:
-        cycle = (await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name).limit(1))).scalar_one_or_none()
+        cycle = (
+            await db.execute(select(OKRCycle).where(OKRCycle.name == cycle_name, OKRCycle.tenant_id == tenant_id).limit(1))
+        ).scalar_one_or_none()
     else:
-        cycle = await _active_cycle(db)
+        cycle = await _active_cycle(db, tenant_id)
     if not cycle:
         return {"error": "未找到 active 周期"}
 
@@ -158,8 +182,8 @@ async def kr_at_risk(
         await db.execute(
             select(KeyResult, Objective.title, User.name)
             .join(Objective, KeyResult.objective_id == Objective.id)
-            .join(User, KeyResult.owner_id == User.id, isouter=True)
-            .where(Objective.cycle_id == cycle.id)
+            .join(User, and_(KeyResult.owner_id == User.id, User.tenant_id == tenant_id), isouter=True)
+            .where(Objective.cycle_id == cycle.id, Objective.tenant_id == tenant_id, KeyResult.tenant_id == tenant_id)
         )
     ).all()
 
@@ -193,6 +217,7 @@ async def objective_snapshot(
     db: AsyncSession,
     objective_title: str,
     recent_logs_limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -200,13 +225,23 @@ async def objective_snapshot(
         recent_logs_limit: 取最近 N 条进度变更日志,默认 10
     """
     obj = (
-        await db.execute(select(Objective).where(Objective.title.ilike(f"%{objective_title}%")).limit(1))
+        await db.execute(
+            select(Objective)
+            .where(Objective.title.ilike(f"%{objective_title}%"), Objective.tenant_id == tenant_id)
+            .limit(1)
+        )
     ).scalar_one_or_none()
     if not obj:
         return {"error": f"未找到目标『{objective_title}』"}
 
-    owner = await db.get(User, obj.owner_id) if obj.owner_id else None
-    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id))).scalars().all()
+    owner = (
+        (await db.execute(select(User).where(User.id == obj.owner_id, User.tenant_id == tenant_id))).scalar_one_or_none()
+        if obj.owner_id
+        else None
+    )
+    krs = (
+        await db.execute(select(KeyResult).where(KeyResult.objective_id == obj.id, KeyResult.tenant_id == tenant_id))
+    ).scalars().all()
     kr_ids = [kr.id for kr in krs]
 
     logs = []
@@ -215,7 +250,7 @@ async def objective_snapshot(
             (
                 await db.execute(
                     select(KRProgressLog)
-                    .where(KRProgressLog.kr_id.in_(kr_ids))
+                    .where(KRProgressLog.kr_id.in_(kr_ids), KRProgressLog.tenant_id == tenant_id)
                     .order_by(desc(KRProgressLog.created_at))
                     .limit(recent_logs_limit)
                 )

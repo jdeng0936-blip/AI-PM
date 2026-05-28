@@ -103,6 +103,7 @@ async def trigger_generate(
             month=req.month,
             persist=req.persist,
             actor_id=user.id,
+            tenant_id=user.tenant_id,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -142,6 +143,7 @@ async def list_items(
     # V2.5 Stage 3:列表默认过滤 deleted_at IS NULL
     stmt = select(KnowledgeItem).where(
         KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+        KnowledgeItem.tenant_id == _user.tenant_id,
         KnowledgeItem.deleted_at.is_(None),
     )
     if scope:
@@ -182,7 +184,11 @@ async def get_item(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    item = await db.get(KnowledgeItem, uuid.UUID(item_id))
+    item = (
+        await db.execute(
+            select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id), KnowledgeItem.tenant_id == _user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         raise HTTPException(404, "复盘报告不存在")
     # 浏览量 +1
@@ -214,7 +220,11 @@ async def delete_item(
     历史 view_count / source_id(锚定 sprint/project/incident)保留,
     通过 /knowledge/items/deleted 回收站可恢复(复盘和普通知识共用同一回收站)。
     """
-    item = await db.get(KnowledgeItem, uuid.UUID(item_id))
+    item = (
+        await db.execute(
+            select(KnowledgeItem).where(KnowledgeItem.id == uuid.UUID(item_id), KnowledgeItem.tenant_id == user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:
         raise HTTPException(404, "复盘报告不存在")
     deleted_at = datetime.now(timezone.utc)
@@ -225,5 +235,6 @@ async def delete_item(
         table_name="knowledge_items",
         record_ids=[item.id],
         deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
     )
     await db.commit()

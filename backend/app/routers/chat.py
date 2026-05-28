@@ -159,7 +159,7 @@ async def trigger_weekly_report(
     """手工触发周报生成(管理员从前端按钮调用,不走 LLM tool calling)"""
     from app.services.chat_tools.weekly_report import generate_weekly_report
 
-    result = await generate_weekly_report(db, scope=req.scope)
+    result = await generate_weekly_report(db, scope=req.scope, tenant_id=_user.tenant_id)
     return result
 
 
@@ -222,7 +222,7 @@ async def admin_ai_chat(
             except json.JSONDecodeError:
                 args = {}
 
-            result = await registry.dispatch(tool_name, db, args)
+            result = await registry.dispatch(tool_name, db, args, context={"tenant_id": _user.tenant_id})
             traces.append(
                 ToolCallTrace(
                     tool=tool_name,

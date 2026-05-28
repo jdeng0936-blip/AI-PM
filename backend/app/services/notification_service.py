@@ -214,6 +214,7 @@ async def notify(
     user: Optional[User] = None,
     related_type: Optional[str] = None,
     related_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> list[Notification]:
     """
     分发一条通知到多个渠道,每个渠道一条 notifications 记录。
@@ -222,6 +223,7 @@ async def notify(
     """
     title, body = render_template(template, context)
     results: list[Notification] = []
+    effective_tenant_id = tenant_id or (user.tenant_id if user else "default")
 
     for channel in channels:
         record = Notification(
@@ -234,6 +236,8 @@ async def notify(
             related_type=related_type,
             related_id=related_id,
             status=NotificationStatus.pending,
+            tenant_id=effective_tenant_id,
+            created_by=user.id if user else None,
         )
         db.add(record)
         # flush 拿到 id,但不 commit(由上层事务控制)

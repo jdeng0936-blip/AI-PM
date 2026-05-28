@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.knowledge import KnowledgeCategory, KnowledgeItem
+from app.models.project import Project
 from app.models.user import User, UserRole
 from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 
@@ -61,7 +62,7 @@ async def list_knowledge(
 
     V2.5 Stage 3:默认过滤 deleted_at IS NULL,软删条目仅回收站可见。
     """
-    stmt = select(KnowledgeItem).where(KnowledgeItem.deleted_at.is_(None))
+    stmt = select(KnowledgeItem).where(KnowledgeItem.deleted_at.is_(None), KnowledgeItem.tenant_id == _user.tenant_id)
 
     if category:
         stmt = stmt.where(KnowledgeItem.category == category)
@@ -112,7 +113,11 @@ async def list_deleted_knowledge(
     _user: User = Depends(require_role(UserRole.admin)),
 ):
     """V2.5 Stage 3:回收站 — 已软删的知识条目(含 retrospective)。"""
-    stmt = select(KnowledgeItem).where(KnowledgeItem.deleted_at.is_not(None)).order_by(KnowledgeItem.deleted_at.desc())
+    stmt = (
+        select(KnowledgeItem)
+        .where(KnowledgeItem.deleted_at.is_not(None), KnowledgeItem.tenant_id == _user.tenant_id)
+        .order_by(KnowledgeItem.deleted_at.desc())
+    )
     rows = (await db.execute(stmt)).scalars().all()
     items = [
         {
@@ -148,7 +153,13 @@ async def batch_soft_delete_knowledge(
     deleted_at = datetime.now(timezone.utc)
     result = await db.execute(
         update(KnowledgeItem)
-        .where(and_(KnowledgeItem.id.in_(body.ids), KnowledgeItem.deleted_at.is_(None)))
+        .where(
+            and_(
+                KnowledgeItem.id.in_(body.ids),
+                KnowledgeItem.deleted_at.is_(None),
+                KnowledgeItem.tenant_id == user.tenant_id,
+            )
+        )
         .values(deleted_at=deleted_at)
         .returning(KnowledgeItem.id)
     )
@@ -159,6 +170,7 @@ async def batch_soft_delete_knowledge(
         table_name="knowledge_items",
         record_ids=deleted_ids,
         deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     return {
@@ -177,7 +189,13 @@ async def batch_restore_knowledge(
     """V2.5 Stage 3:从回收站批量恢复知识条目(SET deleted_at = NULL)。"""
     result = await db.execute(
         update(KnowledgeItem)
-        .where(and_(KnowledgeItem.id.in_(body.ids), KnowledgeItem.deleted_at.is_not(None)))
+        .where(
+            and_(
+                KnowledgeItem.id.in_(body.ids),
+                KnowledgeItem.deleted_at.is_not(None),
+                KnowledgeItem.tenant_id == user.tenant_id,
+            )
+        )
         .values(deleted_at=None)
         .returning(KnowledgeItem.id)
     )
@@ -187,6 +205,7 @@ async def batch_restore_knowledge(
         table_name="knowledge_items",
         record_ids=restored_ids,
         restored_by=user.id,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     return {
@@ -211,6 +230,7 @@ async def get_knowledge_detail(
     result = await db.execute(
         select(KnowledgeItem).where(
             KnowledgeItem.id == uuid.UUID(item_id),
+            KnowledgeItem.tenant_id == _user.tenant_id,
             KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删条目对普通用户隐藏
         )
     )
@@ -243,14 +263,29 @@ async def create_knowledge(
     user: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """创建知识条目"""
+    project_uuid = uuid.UUID(req.project_id) if req.project_id else None
+    if project_uuid:
+        project = (
+            await db.execute(
+                select(Project.id).where(
+                    Project.id == project_uuid,
+                    Project.tenant_id == user.tenant_id,
+                    Project.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
     item = KnowledgeItem(
         title=req.title,
         content=req.content,
         category=req.category,
         tags=req.tags,
         source_type=req.source_type,
-        project_id=uuid.UUID(req.project_id) if req.project_id else None,
+        project_id=project_uuid,
         created_by=user.id,
+        tenant_id=user.tenant_id,
     )
     db.add(item)
     await db.commit()
@@ -268,6 +303,7 @@ async def update_knowledge(
     result = await db.execute(
         select(KnowledgeItem).where(
             KnowledgeItem.id == uuid.UUID(item_id),
+            KnowledgeItem.tenant_id == _user.tenant_id,
             KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:已软删条目不允许就地编辑
         )
     )
@@ -294,6 +330,7 @@ async def mark_helpful(
     result = await db.execute(
         select(KnowledgeItem).where(
             KnowledgeItem.id == uuid.UUID(item_id),
+            KnowledgeItem.tenant_id == _user.tenant_id,
             KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删条目不计有用数
         )
     )
@@ -320,6 +357,7 @@ async def delete_knowledge(
     result = await db.execute(
         select(KnowledgeItem).where(
             KnowledgeItem.id == uuid.UUID(item_id),
+            KnowledgeItem.tenant_id == user.tenant_id,
             KnowledgeItem.deleted_at.is_(None),
         )
     )
@@ -335,6 +373,7 @@ async def delete_knowledge(
         table_name="knowledge_items",
         record_ids=[item.id],
         deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     return {"message": "知识已软删"}

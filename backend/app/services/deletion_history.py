@@ -51,6 +51,7 @@ def build_deletion_history(
     deleted_at: Optional[datetime] = None,
     expires_at: Optional[datetime] = None,
     retention_days: int = SOFT_DELETE_RETENTION_DAYS,
+    tenant_id: Optional[str] = None,
 ) -> Optional[DeletionHistory]:
     """构造 DeletionHistory ORM 对象;空命中返回 None。"""
     if table_name not in TRACKED_SOFT_DELETE_TABLES:
@@ -70,6 +71,7 @@ def build_deletion_history(
         deleted_at=effective_deleted_at,
         expires_at=effective_expires_at,
         created_by=actor_id,
+        tenant_id=tenant_id or "default",
     )
 
 
@@ -82,6 +84,7 @@ async def record_soft_delete(
     deleted_at: Optional[datetime] = None,
     expires_at: Optional[datetime] = None,
     retention_days: int = SOFT_DELETE_RETENTION_DAYS,
+    tenant_id: Optional[str] = None,
 ) -> Optional[DeletionHistory]:
     """把一次软删命中记录写入当前事务,由调用方统一 commit。"""
     history = build_deletion_history(
@@ -91,6 +94,7 @@ async def record_soft_delete(
         deleted_at=deleted_at,
         expires_at=expires_at,
         retention_days=retention_days,
+        tenant_id=tenant_id,
     )
     if history is None:
         return None
@@ -105,6 +109,7 @@ async def mark_soft_delete_restored(
     record_ids: Iterable[uuid.UUID | str],
     restored_by: Optional[uuid.UUID],
     restored_at: Optional[datetime] = None,
+    tenant_id: Optional[str] = None,
 ) -> int:
     """标记已完整恢复的删除批次。
 
@@ -119,12 +124,16 @@ async def mark_soft_delete_restored(
         return 0
 
     effective_restored_at = restored_at or datetime.now(timezone.utc)
+    conditions = [
+        DeletionHistory.table_name == table_name,
+        DeletionHistory.restored_at.is_(None),
+        DeletionHistory.hard_deleted_at.is_(None),
+    ]
+    if tenant_id:
+        conditions.append(DeletionHistory.tenant_id == tenant_id)
+
     rows = await db.execute(
-        select(DeletionHistory).where(
-            DeletionHistory.table_name == table_name,
-            DeletionHistory.restored_at.is_(None),
-            DeletionHistory.hard_deleted_at.is_(None),
-        )
+        select(DeletionHistory).where(*conditions)
     )
 
     marked = 0

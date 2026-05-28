@@ -41,6 +41,7 @@ async def my_score_trend(
         .where(
             and_(
                 DailyReport.user_id == current_user.id,
+                DailyReport.tenant_id == current_user.tenant_id,
                 DailyReport.report_date >= since,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
@@ -94,7 +95,11 @@ async def department_stats(
             func.count().filter(DailyReport.pass_check == True).label("pass_count"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(DailyReport.report_date >= since)
+        .where(
+            DailyReport.report_date >= since,
+            DailyReport.tenant_id == _user.tenant_id,
+            User.tenant_id == _user.tenant_id,
+        )
         .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
         .group_by(User.department)
         .order_by(func.avg(DailyReport.ai_score).desc())
@@ -103,7 +108,9 @@ async def department_stats(
 
     # 每个部门的活跃人数
     dept_users = await db.execute(
-        select(User.department, func.count(User.id)).where(User.is_active == True).group_by(User.department)
+        select(User.department, func.count(User.id))
+        .where(User.is_active == True, User.tenant_id == _user.tenant_id)
+        .group_by(User.department)
     )
     dept_user_count = {r[0]: r[1] for r in dept_users.all()}
 
@@ -142,6 +149,8 @@ async def generate_weekly_report(
             and_(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.tenant_id == _user.tenant_id,
+                User.tenant_id == _user.tenant_id,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
             )
         )

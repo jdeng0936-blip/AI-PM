@@ -33,7 +33,7 @@ _mgr_or_admin = require_role(UserRole.manager, UserRole.admin)
 async def get_morning_briefing(
     report_date: date = Query(default=None, description="查询日期，不传则为今日"),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr_or_admin),
+    current_user: User = Depends(_mgr_or_admin),
 ):
     """
     晨报总览：
@@ -46,14 +46,20 @@ async def get_morning_briefing(
     stmt = (
         select(DailyReport, User.name, User.department)
         .join(User, DailyReport.user_id == User.id)
-        .where(DailyReport.report_date == report_date)
-        .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
+        .where(
+            DailyReport.report_date == report_date,
+            DailyReport.tenant_id == current_user.tenant_id,
+            User.tenant_id == current_user.tenant_id,
+            DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
+        )
         .order_by(DailyReport.ai_score.desc().nulls_last())
     )
     rows = (await db.execute(stmt)).all()
 
     # 所有员工（用于识别未汇报人员）
-    all_users_result = await db.execute(select(User))
+    all_users_result = await db.execute(
+        select(User).where(User.tenant_id == current_user.tenant_id, User.is_active.is_(True))
+    )
     all_users = all_users_result.scalars().all()
     reported_user_ids = {str(r.DailyReport.user_id) for r in rows}
     missing_members = [
@@ -111,7 +117,7 @@ async def get_morning_briefing(
 async def get_risk_alerts(
     status: Optional[str] = Query(default="unresolved"),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_mgr_or_admin),
+    current_user: User = Depends(_mgr_or_admin),
 ):
     """
     卡点预警墙（按未解决天数降序排列，最严重的排最前）
@@ -123,6 +129,9 @@ async def get_risk_alerts(
         .join(DailyReport, RiskAlert.report_id == DailyReport.id)
         .where(
             RiskAlert.status == status,
+            RiskAlert.tenant_id == current_user.tenant_id,
+            User.tenant_id == current_user.tenant_id,
+            DailyReport.tenant_id == current_user.tenant_id,
             RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删过滤
             DailyReport.deleted_at.is_(None),
         )
@@ -169,7 +178,7 @@ async def batch_soft_delete_risk_alerts(
     deleted_at = datetime.now(timezone.utc)
     result = await db.execute(
         update(RiskAlert)
-        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_(None)))
+        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_(None), RiskAlert.tenant_id == user.tenant_id))
         .values(deleted_at=deleted_at)
         .returning(RiskAlert.id)
     )
@@ -180,6 +189,7 @@ async def batch_soft_delete_risk_alerts(
         table_name="risk_alerts",
         record_ids=deleted_ids,
         deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     return {
@@ -198,7 +208,7 @@ async def batch_restore_risk_alerts(
     """V2.5 Stage 3:管理员从回收站批量恢复软删的预警(SET deleted_at = NULL)。"""
     result = await db.execute(
         update(RiskAlert)
-        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_not(None)))
+        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_not(None), RiskAlert.tenant_id == user.tenant_id))
         .values(deleted_at=None)
         .returning(RiskAlert.id)
     )
@@ -208,6 +218,7 @@ async def batch_restore_risk_alerts(
         table_name="risk_alerts",
         record_ids=restored_ids,
         restored_by=user.id,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     return {

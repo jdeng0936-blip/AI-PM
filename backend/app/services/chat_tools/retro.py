@@ -23,6 +23,7 @@ async def search_retros(
     db: AsyncSession,
     keyword: str,
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -37,6 +38,7 @@ async def search_retros(
         select(KnowledgeItem)
         .where(
             KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+            KnowledgeItem.tenant_id == tenant_id,
             KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删的复盘不进 AI 引用
             or_(
                 KnowledgeItem.title.ilike(pattern),
@@ -67,6 +69,7 @@ async def list_recent_retros(
     db: AsyncSession,
     scope: str = "",
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -75,6 +78,7 @@ async def list_recent_retros(
     """
     stmt = select(KnowledgeItem).where(
         KnowledgeItem.category == KnowledgeCategory.RETROSPECTIVE,
+        KnowledgeItem.tenant_id == tenant_id,
         KnowledgeItem.deleted_at.is_(None),  # V2.5 Stage 3:软删的复盘不进 AI 引用
     )
     if scope:
@@ -104,6 +108,7 @@ async def list_recent_retros(
 async def get_retro(
     db: AsyncSession,
     retro_id: str,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -112,7 +117,11 @@ async def get_retro(
     import uuid as _uuid
 
     try:
-        item = await db.get(KnowledgeItem, _uuid.UUID(retro_id))
+        item = (
+            await db.execute(
+                select(KnowledgeItem).where(KnowledgeItem.id == _uuid.UUID(retro_id), KnowledgeItem.tenant_id == tenant_id)
+            )
+        ).scalar_one_or_none()
     except (ValueError, TypeError):
         return {"error": "retro_id 不是有效 UUID"}
     if not item or item.category != KnowledgeCategory.RETROSPECTIVE or item.deleted_at is not None:

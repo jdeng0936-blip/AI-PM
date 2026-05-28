@@ -43,7 +43,7 @@ async def export_daily_reports(
     start_date: Optional[date] = Query(None, description="起始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """
     导出日报为 Excel (.xlsx)，列对齐原始 Excel 日报表。
@@ -61,6 +61,8 @@ async def export_daily_reports(
             and_(
                 DailyReport.report_date >= start_date,
                 DailyReport.report_date <= end_date,
+                DailyReport.tenant_id == _admin.tenant_id,
+                User.tenant_id == _admin.tenant_id,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
@@ -176,7 +178,7 @@ async def export_daily_reports_csv(
     start_date: Optional[date] = Query(None, description="起始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """
     导出日报为 CSV 格式。
@@ -195,6 +197,8 @@ async def export_daily_reports_csv(
             and_(
                 DailyReport.report_date >= start_date,
                 DailyReport.report_date <= end_date,
+                DailyReport.tenant_id == _admin.tenant_id,
+                User.tenant_id == _admin.tenant_id,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
             )
         )
@@ -260,7 +264,7 @@ async def export_reports_phase8(
     end_date: Optional[date] = Query(None, description="结束日期"),
     department: Optional[str] = Query(None, description="部门筛选"),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """导出日报多维汇总 Excel。"""
     if format != "xlsx":
@@ -278,6 +282,7 @@ async def export_reports_phase8(
             start_date=start_date,
             end_date=end_date,
             department=department,
+            tenant_id=_admin.tenant_id,
         )
     except HTTPException:
         raise
@@ -295,14 +300,14 @@ async def export_scores_phase8(
     month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="月份,格式 YYYY-MM"),
     department: Optional[str] = Query(None, description="部门筛选"),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """导出月度评分 PDF。"""
     if format != "pdf":
         raise HTTPException(status_code=400, detail="scores 仅支持 pdf 格式")
 
     try:
-        output = await build_scores_pdf(db, month=month, department=department)
+        output = await build_scores_pdf(db, month=month, department=department, tenant_id=_admin.tenant_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -318,15 +323,15 @@ async def export_project_summary_phase8(
     format: str = Query("xlsx", description="导出格式,仅支持 xlsx"),
     project_id: UUID = Query(..., description="项目 UUID"),
     db: AsyncSession = Depends(get_db),
-    _admin=Depends(require_role(UserRole.admin, UserRole.manager)),
+    _admin: User = Depends(require_role(UserRole.admin, UserRole.manager)),
 ):
     """导出单项目多 Sheet 摘要。"""
     if format != "xlsx":
         raise HTTPException(status_code=400, detail="project-summary 仅支持 xlsx 格式")
 
     try:
-        output = await build_project_summary_workbook(db, project_id=project_id)
-        project = await _get_project_for_filename(db, project_id)
+        output = await build_project_summary_workbook(db, project_id=project_id, tenant_id=_admin.tenant_id)
+        project = await _get_project_for_filename(db, project_id, tenant_id=_admin.tenant_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -337,8 +342,10 @@ async def export_project_summary_phase8(
     return StreamingResponse(output, media_type=EXCEL_MEDIA_TYPE, headers=_attachment_headers(filename))
 
 
-async def _get_project_for_filename(db: AsyncSession, project_id: UUID) -> Project:
-    result = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at.is_(None)))
+async def _get_project_for_filename(db: AsyncSession, project_id: UUID, *, tenant_id: str) -> Project:
+    result = await db.execute(
+        select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id, Project.deleted_at.is_(None))
+    )
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在或已删除")

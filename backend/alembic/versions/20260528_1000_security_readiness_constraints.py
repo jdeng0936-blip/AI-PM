@@ -20,6 +20,13 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.execute(
         """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_reports_active_idempotency
+        ON daily_reports (tenant_id, user_id, report_date, md5(raw_input_text))
+        WHERE deleted_at IS NULL;
+        """
+    )
+    op.execute(
+        """
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -42,3 +49,4 @@ def downgrade() -> None:
         DROP CONSTRAINT IF EXISTS uq_sprints_project_sprint_number;
         """
     )
+    op.execute("DROP INDEX IF EXISTS uq_daily_reports_active_idempotency")

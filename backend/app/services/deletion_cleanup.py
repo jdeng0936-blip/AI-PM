@@ -64,80 +64,107 @@ async def build_deletion_cleanup_dry_run(
     *,
     retention_days: int = DELETION_CLEANUP_RETENTION_DAYS,
     now: Optional[datetime] = None,
+    tenant_id: Optional[str] = None,
 ) -> DeletionCleanupStats:
     """返回 dry-run 统计结果;不修改任何业务表。"""
     effective_now = now or datetime.now(timezone.utc)
     cutoff = effective_now - timedelta(days=retention_days)
 
-    report_candidates = select(DailyReport.id).where(
-        DailyReport.deleted_at.is_not(None), DailyReport.deleted_at < cutoff
-    )
-    project_candidates = select(Project.id).where(
+    report_scope = [DailyReport.deleted_at.is_not(None), DailyReport.deleted_at < cutoff]
+    project_scope = [
         Project.deleted_at.is_not(None),
         Project.deleted_at < cutoff,
         Project.is_temporary.is_(True),
-    )
-    task_candidates = select(SprintTask.id).where(SprintTask.deleted_at.is_not(None), SprintTask.deleted_at < cutoff)
+    ]
+    task_scope = [SprintTask.deleted_at.is_not(None), SprintTask.deleted_at < cutoff]
+    risk_scope = [RiskAlert.deleted_at.is_not(None), RiskAlert.deleted_at < cutoff]
+    knowledge_scope = [KnowledgeItem.deleted_at.is_not(None), KnowledgeItem.deleted_at < cutoff]
+    history_scope = [
+        DeletionHistory.expires_at < effective_now,
+        DeletionHistory.restored_at.is_(None),
+        DeletionHistory.hard_deleted_at.is_(None),
+    ]
+    if tenant_id:
+        report_scope.append(DailyReport.tenant_id == tenant_id)
+        project_scope.append(Project.tenant_id == tenant_id)
+        task_scope.append(SprintTask.tenant_id == tenant_id)
+        risk_scope.append(RiskAlert.tenant_id == tenant_id)
+        knowledge_scope.append(KnowledgeItem.tenant_id == tenant_id)
+        history_scope.append(DeletionHistory.tenant_id == tenant_id)
+
+    report_candidates = select(DailyReport.id).where(*report_scope)
+    project_candidates = select(Project.id).where(*project_scope)
+    task_candidates = select(SprintTask.id).where(*task_scope)
 
     tables: TableCounts = {
         "daily_reports": await _count(
             db,
-            _count_stmt(DailyReport, DailyReport.deleted_at.is_not(None), DailyReport.deleted_at < cutoff),
+            _count_stmt(DailyReport, *report_scope),
         ),
         "projects": await _count(
             db,
-            _count_stmt(
-                Project,
-                Project.deleted_at.is_not(None),
-                Project.deleted_at < cutoff,
-                Project.is_temporary.is_(True),
-            ),
+            _count_stmt(Project, *project_scope),
         ),
         "sprint_tasks": await _count(
             db,
-            _count_stmt(SprintTask, SprintTask.deleted_at.is_not(None), SprintTask.deleted_at < cutoff),
+            _count_stmt(SprintTask, *task_scope),
         ),
         "risk_alerts": await _count(
             db,
-            _count_stmt(RiskAlert, RiskAlert.deleted_at.is_not(None), RiskAlert.deleted_at < cutoff),
+            _count_stmt(RiskAlert, *risk_scope),
         ),
         "knowledge_items": await _count(
             db,
-            _count_stmt(KnowledgeItem, KnowledgeItem.deleted_at.is_not(None), KnowledgeItem.deleted_at < cutoff),
+            _count_stmt(KnowledgeItem, *knowledge_scope),
         ),
     }
 
     impacts: CascadeImpacts = {
         "risk_alerts_cascade_from_daily_reports": await _count(
             db,
-            _count_stmt(RiskAlert, RiskAlert.report_id.in_(report_candidates)),
+            _count_stmt(
+                RiskAlert,
+                RiskAlert.report_id.in_(report_candidates),
+                *([RiskAlert.tenant_id == tenant_id] if tenant_id else []),
+            ),
         ),
         "daily_reports_detach_from_projects": await _count(
             db,
-            _count_stmt(DailyReport, DailyReport.project_id.in_(project_candidates)),
+            _count_stmt(
+                DailyReport,
+                DailyReport.project_id.in_(project_candidates),
+                *([DailyReport.tenant_id == tenant_id] if tenant_id else []),
+            ),
         ),
         "knowledge_items_detach_from_projects": await _count(
             db,
-            _count_stmt(KnowledgeItem, KnowledgeItem.project_id.in_(project_candidates)),
+            _count_stmt(
+                KnowledgeItem,
+                KnowledgeItem.project_id.in_(project_candidates),
+                *([KnowledgeItem.tenant_id == tenant_id] if tenant_id else []),
+            ),
         ),
         "project_members_cascade_from_projects": await _count(
             db,
-            _count_stmt(ProjectMember, ProjectMember.project_id.in_(project_candidates)),
+            _count_stmt(
+                ProjectMember,
+                ProjectMember.project_id.in_(project_candidates),
+                *([ProjectMember.tenant_id == tenant_id] if tenant_id else []),
+            ),
         ),
         "daily_reports_detach_from_sprint_tasks": await _count(
             db,
-            _count_stmt(DailyReport, DailyReport.sprint_task_id.in_(task_candidates)),
+            _count_stmt(
+                DailyReport,
+                DailyReport.sprint_task_id.in_(task_candidates),
+                *([DailyReport.tenant_id == tenant_id] if tenant_id else []),
+            ),
         ),
     }
 
     open_history_batches = await _count(
         db,
-        _count_stmt(
-            DeletionHistory,
-            DeletionHistory.expires_at < effective_now,
-            DeletionHistory.restored_at.is_(None),
-            DeletionHistory.hard_deleted_at.is_(None),
-        ),
+        _count_stmt(DeletionHistory, *history_scope),
     )
 
     return {

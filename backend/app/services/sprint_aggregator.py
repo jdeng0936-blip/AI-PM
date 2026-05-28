@@ -43,12 +43,22 @@ async def snapshot_burndown(
     """计算 sprint_id 当前任务状态,落一条 BurndownSnapshot 记录"""
     if snap_date is None:
         snap_date = date.today()
+    sprint = await db.get(Sprint, sprint_id)
+    if not sprint:
+        raise ValueError("sprint not found")
+    tenant_id = sprint.tenant_id
 
     # V2.5 Stage 2:软删任务不计入燃尽
     tasks = (
         (
             await db.execute(
-                select(SprintTask).where(and_(SprintTask.sprint_id == sprint_id, SprintTask.deleted_at.is_(None)))
+                select(SprintTask).where(
+                    and_(
+                        SprintTask.sprint_id == sprint_id,
+                        SprintTask.tenant_id == tenant_id,
+                        SprintTask.deleted_at.is_(None),
+                    )
+                )
             )
         )
         .scalars()
@@ -72,6 +82,7 @@ async def snapshot_burndown(
             select(BurndownSnapshot).where(
                 and_(
                     BurndownSnapshot.sprint_id == sprint_id,
+                    BurndownSnapshot.tenant_id == tenant_id,
                     BurndownSnapshot.snapshot_date == snap_date,
                 )
             )
@@ -98,6 +109,7 @@ async def snapshot_burndown(
         in_progress_count=in_progress,
         blocked_count=blocked,
         todo_count=todo,
+        tenant_id=tenant_id,
     )
     db.add(snap)
     return snap
@@ -130,6 +142,8 @@ async def run_daily_burndown_snapshots() -> None:
 async def compute_burndown_series(
     db: AsyncSession,
     sprint_id: UUID,
+    *,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     返回前端 Recharts 用的燃尽序列:
@@ -144,6 +158,9 @@ async def compute_burndown_series(
     sprint = await db.get(Sprint, sprint_id)
     if not sprint:
         return {"error": "sprint not found"}
+    if tenant_id and sprint.tenant_id != tenant_id:
+        return {"error": "sprint not found"}
+    tenant = sprint.tenant_id
 
     start = sprint.start_date
     end = sprint.end_date
@@ -154,7 +171,13 @@ async def compute_burndown_series(
     tasks = (
         (
             await db.execute(
-                select(SprintTask).where(and_(SprintTask.sprint_id == sprint.id, SprintTask.deleted_at.is_(None)))
+                select(SprintTask).where(
+                    and_(
+                        SprintTask.sprint_id == sprint.id,
+                        SprintTask.tenant_id == tenant,
+                        SprintTask.deleted_at.is_(None),
+                    )
+                )
             )
         )
         .scalars()
@@ -177,7 +200,7 @@ async def compute_burndown_series(
         (
             await db.execute(
                 select(BurndownSnapshot)
-                .where(BurndownSnapshot.sprint_id == sprint.id)
+                .where(BurndownSnapshot.sprint_id == sprint.id, BurndownSnapshot.tenant_id == tenant)
                 .order_by(BurndownSnapshot.snapshot_date)
             )
         )
@@ -249,6 +272,8 @@ async def compute_velocity_history(
     db: AsyncSession,
     project_id: UUID,
     last_n: int = 6,
+    *,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """近 N 个已完成 Sprint 的速率(完成点数)历史"""
     rows = (
@@ -259,6 +284,7 @@ async def compute_velocity_history(
                     and_(
                         Sprint.project_id == project_id,
                         Sprint.status == SprintStatus.completed,
+                        *([Sprint.tenant_id == tenant_id] if tenant_id else []),
                     )
                 )
                 .order_by(desc(Sprint.end_date))

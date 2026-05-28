@@ -13,6 +13,7 @@ from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -171,6 +172,7 @@ async def _process_report_async(
             select(DailyReport.id)
             .where(
                 DailyReport.user_id == user.id,
+                DailyReport.tenant_id == user.tenant_id,
                 DailyReport.report_date == report_date,
                 DailyReport.raw_input_text == raw_text,
                 DailyReport.deleted_at.is_(None),
@@ -216,9 +218,16 @@ async def _process_report_async(
             ai_score=ai_result.ai_score,
             ai_comment=ai_result.ai_comment,
             management_alert=ai_result.management_alert,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
         )
         db.add(report)
-        await db.flush()  # 获取 report.id
+        try:
+            await db.flush()  # 获取 report.id
+        except IntegrityError:
+            await db.rollback()
+            await send_text_message(user.wechat_userid, "✅ 这条日报今天已经收到，请勿重复提交。")
+            return
 
         # ── 若有预警，同步写入 risk_alerts ────────────────────────
         if ai_result.management_alert and ai_result.parsed_content.blocker:
@@ -227,6 +236,8 @@ async def _process_report_async(
                 user_id=user.id,
                 alert_type="blocker",
                 description=ai_result.management_alert,
+                tenant_id=user.tenant_id,
+                created_by=user.id,
             )
             db.add(alert)
 

@@ -69,6 +69,7 @@ async def query_reports(
     user_name: str = "",
     only_passed: bool = False,
     limit: int = 20,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -97,6 +98,8 @@ async def query_reports(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
     )
@@ -138,6 +141,8 @@ async def query_reports(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
     )
@@ -163,6 +168,7 @@ async def count_delayed(
     date_range: str = "this_week",
     days: int = 0,
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -188,6 +194,8 @@ async def count_delayed(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
                 blocker_text.isnot(None),
                 blocker_text != "",
                 blocker_text != "无",
@@ -221,6 +229,7 @@ async def score_ranking(
     department: str = "",
     direction: str = "top",
     limit: int = 10,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -246,6 +255,8 @@ async def score_ranking(
                 DailyReport.report_date <= end,
                 DailyReport.ai_score.isnot(None),
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
         .group_by(User.id, User.name, User.department)

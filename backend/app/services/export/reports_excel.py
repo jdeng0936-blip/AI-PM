@@ -61,9 +61,12 @@ async def build_reports_workbook(
     start_date: date,
     end_date: date,
     department: str | None = None,
+    tenant_id: str = "default",
 ) -> BytesIO:
-    rows = await _fetch_report_rows(db, start_date=start_date, end_date=end_date, department=department)
-    active_user_count = await _count_active_users(db, department=department)
+    rows = await _fetch_report_rows(
+        db, start_date=start_date, end_date=end_date, department=department, tenant_id=tenant_id
+    )
+    active_user_count = await _count_active_users(db, department=department, tenant_id=tenant_id)
     dept_summary = _build_department_summary(rows)
     summary = _build_summary(rows, active_user_count=active_user_count, start_date=start_date, end_date=end_date)
     top_users = _build_top_users(rows, limit=5)
@@ -91,10 +94,13 @@ async def _fetch_report_rows(
     start_date: date,
     end_date: date,
     department: str | None,
+    tenant_id: str,
 ) -> list[ReportExportRow]:
     conditions: list[ColumnElement[bool]] = [
         DailyReport.report_date >= start_date,
         DailyReport.report_date <= end_date,
+        DailyReport.tenant_id == tenant_id,
+        User.tenant_id == tenant_id,
         DailyReport.deleted_at.is_(None),
     ]
     if department:
@@ -113,8 +119,8 @@ async def _fetch_report_rows(
     ]
 
 
-async def _count_active_users(db: AsyncSession, *, department: str | None) -> int:
-    conditions: list[ColumnElement[bool]] = [User.is_active.is_(True)]
+async def _count_active_users(db: AsyncSession, *, department: str | None, tenant_id: str) -> int:
+    conditions: list[ColumnElement[bool]] = [User.is_active.is_(True), User.tenant_id == tenant_id]
     if department:
         conditions.append(User.department == department)
 

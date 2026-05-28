@@ -41,6 +41,7 @@ async def collect_weekly_data(
     db: AsyncSession,
     *,
     end_date: Optional[date] = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """收集"上一个完整周(周一→周日)"的数据。end_date 默认昨天。"""
     if end_date is None:
@@ -66,6 +67,8 @@ async def collect_weekly_data(
                 DailyReport.report_date >= monday,
                 DailyReport.report_date <= sunday,
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
@@ -85,6 +88,8 @@ async def collect_weekly_data(
                 DailyReport.report_date >= monday,
                 DailyReport.report_date <= sunday,
                 DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
         .group_by(User.department)
@@ -115,7 +120,10 @@ async def collect_weekly_data(
         .where(
             RiskAlert.created_at >= monday,
             RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不进周报 AI 引用
+            RiskAlert.tenant_id == tenant_id,
+            User.tenant_id == tenant_id,
             DailyReport.deleted_at.is_(None),
+            DailyReport.tenant_id == tenant_id,
         )
         .order_by(desc(RiskAlert.days_unresolved))
         .limit(30)
@@ -138,6 +146,7 @@ async def collect_weekly_data(
         .where(
             Project.status == ProjectStatus.active,
             Project.deleted_at.is_(None),
+            Project.tenant_id == tenant_id,
         )
         .order_by(Project.health_score)
     )
@@ -166,6 +175,8 @@ async def collect_weekly_data(
                 DailyReport.report_date >= monday,
                 DailyReport.report_date <= sunday,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
         .group_by(User.id, User.name, User.department)
@@ -266,6 +277,7 @@ async def render_weekly_report_markdown(data: dict[str, Any]) -> str:
 async def generate_weekly_report(
     db: AsyncSession,
     scope: str = "last_week",
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """
     Args:
@@ -278,7 +290,7 @@ async def generate_weekly_report(
         # last_week:取上周日作为 end_date
         end_date = today - timedelta(days=today.weekday() + 1)
 
-    data = await collect_weekly_data(db, end_date=end_date)
+    data = await collect_weekly_data(db, end_date=end_date, tenant_id=tenant_id)
     markdown = await render_weekly_report_markdown(data)
 
     return {

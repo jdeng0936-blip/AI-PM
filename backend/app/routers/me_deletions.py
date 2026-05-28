@@ -86,7 +86,13 @@ async def _restore_records_for_history(db: AsyncSession, history: DeletionHistor
     if history.table_name == "daily_reports":
         result = await db.execute(
             update(DailyReport)
-            .where(and_(DailyReport.id.in_(record_ids), DailyReport.deleted_at.is_not(None)))
+            .where(
+                and_(
+                    DailyReport.id.in_(record_ids),
+                    DailyReport.deleted_at.is_not(None),
+                    DailyReport.tenant_id == history.tenant_id,
+                )
+            )
             .values(deleted_at=None)
             .returning(DailyReport.id)
         )
@@ -95,7 +101,14 @@ async def _restore_records_for_history(db: AsyncSession, history: DeletionHistor
     if history.table_name == "projects":
         result = await db.execute(
             update(Project)
-            .where(and_(Project.id.in_(record_ids), Project.deleted_at.is_not(None), Project.is_temporary.is_(True)))
+            .where(
+                and_(
+                    Project.id.in_(record_ids),
+                    Project.deleted_at.is_not(None),
+                    Project.is_temporary.is_(True),
+                    Project.tenant_id == history.tenant_id,
+                )
+            )
             .values(deleted_at=None)
             .returning(Project.id)
         )
@@ -105,14 +118,24 @@ async def _restore_records_for_history(db: AsyncSession, history: DeletionHistor
         pre_rows = (
             await db.execute(
                 select(SprintTask.id, SprintTask.sprint_id).where(
-                    and_(SprintTask.id.in_(record_ids), SprintTask.deleted_at.is_not(None))
+                    and_(
+                        SprintTask.id.in_(record_ids),
+                        SprintTask.deleted_at.is_not(None),
+                        SprintTask.tenant_id == history.tenant_id,
+                    )
                 )
             )
         ).all()
         sprint_ids = {row.sprint_id for row in pre_rows}
         result = await db.execute(
             update(SprintTask)
-            .where(and_(SprintTask.id.in_(record_ids), SprintTask.deleted_at.is_not(None)))
+            .where(
+                and_(
+                    SprintTask.id.in_(record_ids),
+                    SprintTask.deleted_at.is_not(None),
+                    SprintTask.tenant_id == history.tenant_id,
+                )
+            )
             .values(deleted_at=None)
             .returning(SprintTask.id)
         )
@@ -121,7 +144,13 @@ async def _restore_records_for_history(db: AsyncSession, history: DeletionHistor
     if history.table_name == "risk_alerts":
         result = await db.execute(
             update(RiskAlert)
-            .where(and_(RiskAlert.id.in_(record_ids), RiskAlert.deleted_at.is_not(None)))
+            .where(
+                and_(
+                    RiskAlert.id.in_(record_ids),
+                    RiskAlert.deleted_at.is_not(None),
+                    RiskAlert.tenant_id == history.tenant_id,
+                )
+            )
             .values(deleted_at=None)
             .returning(RiskAlert.id)
         )
@@ -130,7 +159,13 @@ async def _restore_records_for_history(db: AsyncSession, history: DeletionHistor
     if history.table_name == "knowledge_items":
         result = await db.execute(
             update(KnowledgeItem)
-            .where(and_(KnowledgeItem.id.in_(record_ids), KnowledgeItem.deleted_at.is_not(None)))
+            .where(
+                and_(
+                    KnowledgeItem.id.in_(record_ids),
+                    KnowledgeItem.deleted_at.is_not(None),
+                    KnowledgeItem.tenant_id == history.tenant_id,
+                )
+            )
             .values(deleted_at=None)
             .returning(KnowledgeItem.id)
         )
@@ -166,6 +201,7 @@ async def list_my_deletions(
         select(DeletionHistory)
         .where(
             DeletionHistory.actor_id == current_user.id,
+            DeletionHistory.tenant_id == current_user.tenant_id,
             DeletionHistory.hard_deleted_at.is_(None),
             DeletionHistory.deleted_at >= cutoff,
         )
@@ -185,6 +221,8 @@ async def restore_my_deletion_batch(
     history = await db.get(DeletionHistory, batch_id)
     if not history:
         raise HTTPException(404, "删除批次不存在")
+    if history.tenant_id != current_user.tenant_id:
+        raise HTTPException(404, "删除批次不存在")
     if history.actor_id != current_user.id:
         raise HTTPException(403, "不能恢复其他人的删除批次")
     if history.restored_at is not None:
@@ -200,6 +238,7 @@ async def restore_my_deletion_batch(
         table_name=history.table_name,
         record_ids=history.record_ids,
         restored_by=current_user.id,
+        tenant_id=current_user.tenant_id,
     )
     for sprint_id in affected_sprint_ids:
         await snapshot_burndown(db, sprint_id)

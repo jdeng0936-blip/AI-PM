@@ -59,7 +59,7 @@ async def list_all(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(_mgr_or_admin),
 ) -> list[DepartmentOut]:
-    return await list_departments(db)
+    return await list_departments(db, tenant_id=_user.tenant_id)
 
 
 @router.post("/", response_model=DepartmentOut, status_code=status.HTTP_201_CREATED)
@@ -81,7 +81,7 @@ async def get_members(
     _user: User = Depends(_mgr_or_admin),
 ) -> DepartmentWithMembers:
     try:
-        return await get_department_with_members(db, dept_id)
+        return await get_department_with_members(db, dept_id, tenant_id=_user.tenant_id)
     except ValueError as e:
         raise _map_value_error(e) from None
 
@@ -106,7 +106,7 @@ async def delete(
     _user: User = Depends(_mgr_or_admin),
 ) -> Response:
     try:
-        await delete_department(db, dept_id)
+        await delete_department(db, dept_id, tenant_id=_user.tenant_id)
     except ValueError as e:
         raise _map_value_error(e) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

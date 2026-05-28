@@ -40,17 +40,20 @@ class RiskDetailRow:
     description: str
 
 
-async def build_scores_pdf(db: AsyncSession, *, month: str, department: str | None = None) -> BytesIO:
+async def build_scores_pdf(
+    db: AsyncSession, *, month: str, department: str | None = None, tenant_id: str = "default"
+) -> BytesIO:
     font_name = _ensure_font()
     start_date, end_date_exclusive = _month_range(month)
     rows = await _fetch_score_rows(
-        db, start_date=start_date, end_date_exclusive=end_date_exclusive, department=department
+        db, start_date=start_date, end_date_exclusive=end_date_exclusive, department=department, tenant_id=tenant_id
     )
     risk_rows = await _fetch_risk_rows(
         db,
         start_date=start_date,
         end_date_exclusive=end_date_exclusive,
         department=department,
+        tenant_id=tenant_id,
     )
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -111,10 +114,13 @@ async def _fetch_score_rows(
     start_date: date,
     end_date_exclusive: date,
     department: str | None,
+    tenant_id: str,
 ) -> list[ScoreReportRow]:
     conditions = [
         DailyReport.report_date >= start_date,
         DailyReport.report_date < end_date_exclusive,
+        DailyReport.tenant_id == tenant_id,
+        User.tenant_id == tenant_id,
         DailyReport.deleted_at.is_(None),
     ]
     if department:
@@ -139,10 +145,14 @@ async def _fetch_risk_rows(
     start_date: date,
     end_date_exclusive: date,
     department: str | None,
+    tenant_id: str,
 ) -> list[RiskDetailRow]:
     conditions = [
         DailyReport.report_date >= start_date,
         DailyReport.report_date < end_date_exclusive,
+        DailyReport.tenant_id == tenant_id,
+        RiskAlert.tenant_id == tenant_id,
+        User.tenant_id == tenant_id,
         DailyReport.deleted_at.is_(None),
         RiskAlert.deleted_at.is_(None),
         RiskAlert.status.in_(["unresolved", "escalated"]),

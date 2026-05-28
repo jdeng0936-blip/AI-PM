@@ -12,6 +12,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -19,6 +20,7 @@ from app.middleware.rbac import get_current_user
 from app.models.daily_report import DailyReport
 from app.models.notification import NotificationChannel, NotificationTemplate
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.risk_alert import RiskAlert
 from app.models.sprint import Sprint
 from app.models.sprint_task import SprintTask
@@ -53,17 +55,31 @@ class WebReportRequest(BaseModel):
 
 async def _validate_project_task_consistency(
     db: AsyncSession,
+    current_user: User,
     project_id: Optional[uuid.UUID],
     sprint_task_id: Optional[uuid.UUID],
 ) -> Optional[uuid.UUID]:
     """校验项目/任务关系；只传任务时反推并返回任务所属项目。"""
     if project_id is not None:
+        project_conditions = [
+            Project.id == project_id,
+            Project.deleted_at.is_(None),
+            Project.tenant_id == current_user.tenant_id,
+        ]
+        if current_user.role == UserRole.employee:
+            visible_project_ids = (
+                select(ProjectMember.project_id)
+                .where(
+                    ProjectMember.user_id == current_user.id,
+                    ProjectMember.left_at.is_(None),
+                    ProjectMember.tenant_id == current_user.tenant_id,
+                )
+                .scalar_subquery()
+            )
+            project_conditions.append(Project.id.in_(visible_project_ids))
         project_exists = (
             await db.execute(
-                select(Project.id).where(
-                    Project.id == project_id,
-                    Project.deleted_at.is_(None),
-                )
+                select(Project.id).where(and_(*project_conditions))
             )
         ).scalar_one_or_none()
         if project_exists is None:
@@ -75,13 +91,31 @@ async def _validate_project_task_consistency(
     result = await db.execute(
         select(Sprint.project_id)
         .join(SprintTask, SprintTask.sprint_id == Sprint.id)
-        .where(SprintTask.id == sprint_task_id, SprintTask.deleted_at.is_(None))
+        .where(
+            SprintTask.id == sprint_task_id,
+            SprintTask.deleted_at.is_(None),
+            SprintTask.tenant_id == current_user.tenant_id,
+            Sprint.tenant_id == current_user.tenant_id,
+        )
     )
     task_project_id = result.scalar_one_or_none()
     if task_project_id is None:
         raise HTTPException(status_code=404, detail="Sprint 任务不存在")
     if project_id is not None and task_project_id != project_id:
         raise HTTPException(status_code=400, detail="Sprint 任务不属于所选项目，请重新选择")
+    if current_user.role == UserRole.employee:
+        member = (
+            await db.execute(
+                select(ProjectMember.id).where(
+                    ProjectMember.project_id == task_project_id,
+                    ProjectMember.user_id == current_user.id,
+                    ProjectMember.left_at.is_(None),
+                    ProjectMember.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(status_code=403, detail="无权关联未参与的项目任务")
     return task_project_id
 
 
@@ -94,7 +128,7 @@ async def web_submit_daily_report(
     """
     Web 端提交日报（通过 JWT 自动识别用户）。
     """
-    project_id = await _validate_project_task_consistency(db, req.project_id, req.sprint_task_id)
+    project_id = await _validate_project_task_consistency(db, current_user, req.project_id, req.sprint_task_id)
 
     report_date = req.report_date or date.today()
     dup_check = await db.execute(
@@ -102,6 +136,7 @@ async def web_submit_daily_report(
         .where(
             and_(
                 DailyReport.user_id == current_user.id,
+                DailyReport.tenant_id == current_user.tenant_id,
                 DailyReport.report_date == report_date,
                 DailyReport.raw_input_text == req.raw_text,
                 DailyReport.deleted_at.is_(None),
@@ -173,9 +208,18 @@ async def web_submit_daily_report(
         management_alert=ai_result.management_alert,
         project_id=project_id,
         sprint_task_id=req.sprint_task_id,
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
     )
     db.add(report)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="该内容今天已经提交过，请勿重复提交。如需修改，请更新内容后再提交。",
+        )
 
     if ai_result.management_alert and ai_result.parsed_content.blocker:
         alert = RiskAlert(
@@ -183,6 +227,8 @@ async def web_submit_daily_report(
             user_id=current_user.id,
             alert_type="blocker",
             description=ai_result.management_alert,
+            tenant_id=current_user.tenant_id,
+            created_by=current_user.id,
         )
         db.add(alert)
 
@@ -270,6 +316,8 @@ async def list_reports(
     conditions: list[Any] = (
         [DailyReport.deleted_at.is_not(None)] if show_deleted else [DailyReport.deleted_at.is_(None)]
     )  # V2.4 Stage 2:默认过滤软删
+    conditions.append(DailyReport.tenant_id == current_user.tenant_id)
+    conditions.append(User.tenant_id == current_user.tenant_id)
     # 员工只能看自己的
     if current_user.role == UserRole.employee:
         conditions.append(DailyReport.user_id == current_user.id)
@@ -289,8 +337,11 @@ async def list_reports(
             SprintTask.title.label("sprint_task_title"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .outerjoin(Project, DailyReport.project_id == Project.id)
-        .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
+        .outerjoin(Project, and_(DailyReport.project_id == Project.id, Project.tenant_id == current_user.tenant_id))
+        .outerjoin(
+            SprintTask,
+            and_(DailyReport.sprint_task_id == SprintTask.id, SprintTask.tenant_id == current_user.tenant_id),
+        )
     )
     count_stmt = (
         select(func.count(DailyReport.id))
@@ -363,6 +414,7 @@ async def batch_soft_delete_reports(
     cond = and_(
         DailyReport.id.in_(body.ids),
         DailyReport.deleted_at.is_(None),
+        DailyReport.tenant_id == current_user.tenant_id,
     )
     if current_user.role == UserRole.employee:
         # 员工只能删自己的
@@ -377,6 +429,7 @@ async def batch_soft_delete_reports(
             .where(
                 RiskAlert.report_id.in_(deleted_ids),
                 RiskAlert.deleted_at.is_(None),
+                RiskAlert.tenant_id == current_user.tenant_id,
             )
             .values(deleted_at=deleted_at)
         )
@@ -386,6 +439,7 @@ async def batch_soft_delete_reports(
         table_name="daily_reports",
         record_ids=deleted_ids,
         deleted_at=deleted_at,
+        tenant_id=current_user.tenant_id,
     )
     await db.commit()
 
@@ -415,6 +469,7 @@ async def batch_restore_reports(
     cond = and_(
         DailyReport.id.in_(body.ids),
         DailyReport.deleted_at.is_not(None),
+        DailyReport.tenant_id == current_user.tenant_id,
     )
     if current_user.role == UserRole.employee:
         cond = and_(cond, DailyReport.user_id == current_user.id)
@@ -427,6 +482,7 @@ async def batch_restore_reports(
             .where(
                 RiskAlert.report_id.in_(restored_ids),
                 RiskAlert.deleted_at.is_not(None),
+                RiskAlert.tenant_id == current_user.tenant_id,
             )
             .values(deleted_at=None)
         )
@@ -435,6 +491,7 @@ async def batch_restore_reports(
         table_name="daily_reports",
         record_ids=restored_ids,
         restored_by=current_user.id,
+        tenant_id=current_user.tenant_id,
     )
     await db.commit()
 
@@ -461,6 +518,7 @@ async def get_today_plan(
         .where(
             and_(
                 DailyReport.user_id == current_user.id,
+                DailyReport.tenant_id == current_user.tenant_id,
                 DailyReport.report_date == today,
                 DailyReport.raw_input_text.like("[晨规划]%"),
                 DailyReport.pass_check == True,
@@ -510,10 +568,15 @@ async def get_report_detail(
             SprintTask.title.label("sprint_task_title"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .outerjoin(Project, DailyReport.project_id == Project.id)
-        .outerjoin(SprintTask, DailyReport.sprint_task_id == SprintTask.id)
+        .outerjoin(Project, and_(DailyReport.project_id == Project.id, Project.tenant_id == current_user.tenant_id))
+        .outerjoin(
+            SprintTask,
+            and_(DailyReport.sprint_task_id == SprintTask.id, SprintTask.tenant_id == current_user.tenant_id),
+        )
         .where(
             DailyReport.id == report_id,
+            DailyReport.tenant_id == current_user.tenant_id,
+            User.tenant_id == current_user.tenant_id,
             DailyReport.deleted_at.is_(None),  # V2.4 Stage 2:软删的也不能查
         )
     )

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.project_stage import ProjectStage
 from app.models.sprint import Sprint, SprintStatus
 from app.models.sprint_task import (
@@ -46,6 +47,35 @@ router = APIRouter(prefix="/api/v1/sprints", tags=["Sprints (Software Track)"])
 _mgr = require_role(UserRole.manager, UserRole.admin)
 
 
+def _member_visible_project_ids(user: User):
+    return (
+        select(ProjectMember.project_id)
+        .where(
+            ProjectMember.user_id == user.id,
+            ProjectMember.left_at.is_(None),
+            ProjectMember.tenant_id == user.tenant_id,
+        )
+        .scalar_subquery()
+    )
+
+
+async def _get_visible_sprint(db: AsyncSession, sprint_id: uuid.UUID, user: User) -> Sprint:
+    conditions = [
+        Sprint.id == sprint_id,
+        Sprint.tenant_id == user.tenant_id,
+        Project.tenant_id == user.tenant_id,
+        Project.deleted_at.is_(None),
+    ]
+    if user.role == UserRole.employee:
+        conditions.append(Sprint.project_id.in_(_member_visible_project_ids(user)))
+    sprint = (
+        await db.execute(select(Sprint).join(Project, Sprint.project_id == Project.id).where(and_(*conditions)))
+    ).scalar_one_or_none()
+    if sprint is None:
+        raise HTTPException(404, "Sprint 不存在")
+    return sprint
+
+
 @router.post("/")
 async def create_sprint(
     data: SprintCreate,
@@ -61,6 +91,7 @@ async def create_sprint(
             select(Project).where(
                 Project.id == data.project_id,
                 Project.deleted_at.is_(None),
+                Project.tenant_id == _user.tenant_id,
             )
         )
     ).scalar_one_or_none()
@@ -73,6 +104,7 @@ async def create_sprint(
                 select(ProjectStage.id).where(
                     ProjectStage.id == data.stage_id,
                     ProjectStage.project_id == data.project_id,
+                    ProjectStage.tenant_id == _user.tenant_id,
                 )
             )
         ).scalar_one_or_none()
@@ -84,6 +116,7 @@ async def create_sprint(
             select(Sprint.id).where(
                 Sprint.project_id == data.project_id,
                 Sprint.sprint_number == data.sprint_number,
+                Sprint.tenant_id == _user.tenant_id,
             )
         )
     ).scalar_one_or_none()
@@ -98,6 +131,8 @@ async def create_sprint(
         start_date=data.start_date,
         end_date=data.end_date,
         planned_story_points=data.planned_story_points,
+        tenant_id=_user.tenant_id,
+        created_by=_user.id,
     )
     db.add(sprint)
     await db.commit()
@@ -117,7 +152,22 @@ async def list_sprints(
     _user=Depends(_mgr),
 ):
     """查看项目所有 Sprint 列表（速度趋势数据）"""
-    result = await db.execute(select(Sprint).where(Sprint.project_id == project_id).order_by(Sprint.sprint_number))
+    project = (
+        await db.execute(
+            select(Project.id).where(
+                Project.id == project_id,
+                Project.deleted_at.is_(None),
+                Project.tenant_id == _user.tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(404, "项目不存在")
+    result = await db.execute(
+        select(Sprint)
+        .where(Sprint.project_id == project_id, Sprint.tenant_id == _user.tenant_id)
+        .order_by(Sprint.sprint_number)
+    )
     sprints = result.scalars().all()
 
     return [
@@ -147,10 +197,7 @@ async def start_sprint(
     _user=Depends(_mgr),
 ):
     """将 Sprint 状态从 planning → active"""
-    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
-    sprint = result.scalar_one_or_none()
-    if not sprint:
-        raise HTTPException(404, "Sprint 不存在")
+    sprint = await _get_visible_sprint(db, sprint_id, _user)
     if sprint.status != SprintStatus.planning:
         raise HTTPException(400, f"Sprint 当前状态为 {sprint.status}，无法启动")
 
@@ -172,10 +219,7 @@ async def complete_sprint(
     - 填写回顾三问（went_well / improve / action_items）
     - 自动聚合计算该 Sprint 的健康度
     """
-    result = await db.execute(select(Sprint).where(Sprint.id == sprint_id))
-    sprint = result.scalar_one_or_none()
-    if not sprint:
-        raise HTTPException(404, "Sprint 不存在")
+    sprint = await _get_visible_sprint(db, sprint_id, _user)
 
     sprint.completed_story_points = data.completed_story_points
     sprint.retrospective = data.retrospective
@@ -284,8 +328,9 @@ def _parse_date(s: Optional[str]):
 async def list_tasks(
     sprint_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    await _get_visible_sprint(db, sprint_id, current_user)
     # V2.5 Stage 2:默认过滤已软删
     rows = (
         (
@@ -294,6 +339,7 @@ async def list_tasks(
                     and_(
                         SprintTask.sprint_id == sprint_id,
                         SprintTask.deleted_at.is_(None),
+                        SprintTask.tenant_id == current_user.tenant_id,
                     )
                 )
             )
@@ -313,9 +359,7 @@ async def create_task(
 ):
     if str(sprint_id) != payload.sprint_id:
         raise HTTPException(400, "sprint_id 不一致")
-    sprint = await db.get(Sprint, sprint_id)
-    if not sprint:
-        raise HTTPException(404, "Sprint 不存在")
+    await _get_visible_sprint(db, sprint_id, user)
 
     t = SprintTask(
         sprint_id=sprint_id,
@@ -329,11 +373,147 @@ async def create_task(
         planned_start=_parse_date(payload.planned_start),
         planned_end=_parse_date(payload.planned_end),
         created_by=user.id,
+        tenant_id=user.tenant_id,
     )
     db.add(t)
     await db.commit()
     await db.refresh(t)
     return _task_out(t)
+
+
+# ════════════════════════════════════════════════════════════════
+# V2.5 Stage 2:Sprint 任务批量软删 / 恢复 / 已删列表
+# 静态 /tasks/batch 路由必须放在 /tasks/{task_id} 动态路由之前。
+# ════════════════════════════════════════════════════════════════
+
+
+class BatchTaskBody(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="任务 ID 列表")
+
+
+@router.delete("/tasks/batch")
+async def batch_soft_delete_tasks(
+    body: BatchTaskBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(_mgr),
+):
+    """
+    批量软删 Sprint 任务(SET deleted_at = now())。
+    """
+    cond = and_(
+        SprintTask.id.in_(body.ids),
+        SprintTask.deleted_at.is_(None),
+        SprintTask.tenant_id == user.tenant_id,
+    )
+
+    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
+    sprint_ids = {r.sprint_id for r in pre_rows}
+
+    deleted_at = datetime.now(timezone.utc)
+    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=deleted_at).returning(SprintTask.id))
+    deleted_ids = [r[0] for r in result.all()]
+    await record_soft_delete(
+        db,
+        actor_id=user.id,
+        table_name="sprint_tasks",
+        record_ids=deleted_ids,
+        deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
+    )
+    await db.commit()
+
+    for sid in sprint_ids:
+        await snapshot_burndown(db, sid)
+    if sprint_ids:
+        await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": [str(i) for i in deleted_ids],
+    }
+
+
+@router.patch("/tasks/batch-restore")
+async def batch_restore_tasks(
+    body: BatchTaskBody = Body(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(_mgr),
+):
+    """
+    批量恢复已软删任务(SET deleted_at = NULL)。
+    """
+    cond = and_(
+        SprintTask.id.in_(body.ids),
+        SprintTask.deleted_at.is_not(None),
+        SprintTask.tenant_id == user.tenant_id,
+    )
+
+    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
+    sprint_ids = {r.sprint_id for r in pre_rows}
+
+    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=None).returning(SprintTask.id))
+    restored_ids = [r[0] for r in result.all()]
+    await mark_soft_delete_restored(
+        db,
+        table_name="sprint_tasks",
+        record_ids=restored_ids,
+        restored_by=user.id,
+        tenant_id=user.tenant_id,
+    )
+    await db.commit()
+
+    for sid in sprint_ids:
+        await snapshot_burndown(db, sid)
+    if sprint_ids:
+        await db.commit()
+
+    return {
+        "requested": len(body.ids),
+        "restored_count": len(restored_ids),
+        "restored_ids": [str(i) for i in restored_ids],
+    }
+
+
+@router.get("/tasks/deleted")
+async def list_deleted_tasks(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    回收站:已软删的 Sprint 任务列表(admin only)。
+    """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(403, "仅 admin 可访问回收站")
+
+    rows = (
+        await db.execute(
+            select(SprintTask, Sprint.sprint_number, Sprint.project_id)
+            .join(Sprint, SprintTask.sprint_id == Sprint.id)
+            .where(
+                SprintTask.deleted_at.is_not(None),
+                SprintTask.tenant_id == current_user.tenant_id,
+                Sprint.tenant_id == current_user.tenant_id,
+            )
+            .order_by(SprintTask.deleted_at.desc())
+        )
+    ).all()
+
+    items = [
+        {
+            "id": str(t.SprintTask.id),
+            "title": t.SprintTask.title,
+            "story_points": t.SprintTask.story_points,
+            "status": t.SprintTask.status.value,
+            "priority": t.SprintTask.priority.value,
+            "sprint_id": str(t.SprintTask.sprint_id),
+            "sprint_number": t.sprint_number,
+            "project_id": str(t.project_id),
+            "deleted_at": t.SprintTask.deleted_at.isoformat() if t.SprintTask.deleted_at else None,
+        }
+        for t in rows
+    ]
+    return {"items": items, "total": len(items)}
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskOut)
@@ -344,7 +524,7 @@ async def update_task(
     _user: User = Depends(_mgr),
 ):
     t = await db.get(SprintTask, task_id)
-    if not t:
+    if not t or t.tenant_id != _user.tenant_id:
         raise HTTPException(404, "task 不存在")
 
     if payload.title is not None:
@@ -397,7 +577,7 @@ async def delete_task(
 ):
     """V2.5 Stage 2:单条软删(SET deleted_at=now())。已删的再调返回 404 避免覆盖时间戳。"""
     t = await db.get(SprintTask, task_id)
-    if not t or t.deleted_at is not None:
+    if not t or t.tenant_id != user.tenant_id or t.deleted_at is not None:
         raise HTTPException(404, "task 不存在")
     sid = t.sprint_id
     deleted_at = datetime.now(timezone.utc)
@@ -408,6 +588,7 @@ async def delete_task(
         table_name="sprint_tasks",
         record_ids=[t.id],
         deleted_at=deleted_at,
+        tenant_id=user.tenant_id,
     )
     await db.commit()
     # 删除后重算燃尽快照(任务不再计入剩余点数)
@@ -415,145 +596,15 @@ async def delete_task(
     await db.commit()
 
 
-# ════════════════════════════════════════════════════════════════
-# V2.5 Stage 2:Sprint 任务批量软删 / 恢复 / 已删列表
-# ════════════════════════════════════════════════════════════════
-
-
-class BatchTaskBody(BaseModel):
-    ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="任务 ID 列表")
-
-
-@router.delete("/tasks/batch")
-async def batch_soft_delete_tasks(
-    body: BatchTaskBody = Body(...),
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(_mgr),
-):
-    """
-    批量软删 Sprint 任务(SET deleted_at = now())。
-
-    - manager / admin 可调用
-    - 已被软删过的不会重复 deleted_at
-    - 删完后对受影响的 sprint 各重算一次燃尽快照
-    """
-    cond = and_(SprintTask.id.in_(body.ids), SprintTask.deleted_at.is_(None))
-
-    # 先查受影响的 sprint_id 集合(用于回填快照)
-    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
-    sprint_ids = {r.sprint_id for r in pre_rows}
-
-    deleted_at = datetime.now(timezone.utc)
-    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=deleted_at).returning(SprintTask.id))
-    deleted_ids = [r[0] for r in result.all()]
-    await record_soft_delete(
-        db,
-        actor_id=user.id,
-        table_name="sprint_tasks",
-        record_ids=deleted_ids,
-        deleted_at=deleted_at,
-    )
-    await db.commit()
-
-    # 为每个受影响 sprint 重算一次燃尽
-    for sid in sprint_ids:
-        await snapshot_burndown(db, sid)
-    if sprint_ids:
-        await db.commit()
-
-    return {
-        "requested": len(body.ids),
-        "deleted_count": len(deleted_ids),
-        "deleted_ids": [str(i) for i in deleted_ids],
-    }
-
-
-@router.patch("/tasks/batch-restore")
-async def batch_restore_tasks(
-    body: BatchTaskBody = Body(...),
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(_mgr),
-):
-    """
-    批量恢复已软删任务(SET deleted_at = NULL)。
-
-    - 已 deleted_at IS NULL 的不会被重复恢复
-    - 恢复后对受影响 sprint 重算燃尽快照
-    """
-    cond = and_(SprintTask.id.in_(body.ids), SprintTask.deleted_at.is_not(None))
-
-    pre_rows = (await db.execute(select(SprintTask.id, SprintTask.sprint_id).where(cond))).all()
-    sprint_ids = {r.sprint_id for r in pre_rows}
-
-    result = await db.execute(update(SprintTask).where(cond).values(deleted_at=None).returning(SprintTask.id))
-    restored_ids = [r[0] for r in result.all()]
-    await mark_soft_delete_restored(
-        db,
-        table_name="sprint_tasks",
-        record_ids=restored_ids,
-        restored_by=user.id,
-    )
-    await db.commit()
-
-    for sid in sprint_ids:
-        await snapshot_burndown(db, sid)
-    if sprint_ids:
-        await db.commit()
-
-    return {
-        "requested": len(body.ids),
-        "restored_count": len(restored_ids),
-        "restored_ids": [str(i) for i in restored_ids],
-    }
-
-
-@router.get("/tasks/deleted")
-async def list_deleted_tasks(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    回收站:已软删的 Sprint 任务列表(admin only)。
-
-    返回包含 sprint_number 与 project 名,便于回收站展示「哪个 Sprint 的任务」。
-    """
-    if current_user.role != UserRole.admin:
-        raise HTTPException(403, "仅 admin 可访问回收站")
-
-    rows = (
-        await db.execute(
-            select(SprintTask, Sprint.sprint_number, Sprint.project_id)
-            .join(Sprint, SprintTask.sprint_id == Sprint.id)
-            .where(SprintTask.deleted_at.is_not(None))
-            .order_by(SprintTask.deleted_at.desc())
-        )
-    ).all()
-
-    items = [
-        {
-            "id": str(t.SprintTask.id),
-            "title": t.SprintTask.title,
-            "story_points": t.SprintTask.story_points,
-            "status": t.SprintTask.status.value,
-            "priority": t.SprintTask.priority.value,
-            "sprint_id": str(t.SprintTask.sprint_id),
-            "sprint_number": t.sprint_number,
-            "project_id": str(t.project_id),
-            "deleted_at": t.SprintTask.deleted_at.isoformat() if t.SprintTask.deleted_at else None,
-        }
-        for t in rows
-    ]
-    return {"items": items, "total": len(items)}
-
-
 @router.get("/{sprint_id}/burndown")
 async def get_burndown(
     sprint_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """燃尽图序列(理想 + 实际 + 预测)"""
-    data = await compute_burndown_series(db, sprint_id)
+    await _get_visible_sprint(db, sprint_id, current_user)
+    data = await compute_burndown_series(db, sprint_id, tenant_id=current_user.tenant_id)
     if "error" in data:
         raise HTTPException(404, data["error"])
     return data
@@ -566,6 +617,7 @@ async def manual_snapshot(
     _user: User = Depends(_mgr),
 ):
     """手工触发一次燃尽快照(测试 / 异常补点用)"""
+    await _get_visible_sprint(db, sprint_id, _user)
     snap = await snapshot_burndown(db, sprint_id)
     await db.commit()
     return {
@@ -585,6 +637,7 @@ async def get_critical_path(
     current_user: User = Depends(get_current_user),
 ):
     """计算 Sprint 关键路径。persist=true 时把结果回写到 task.is_on_critical_path"""
+    await _get_visible_sprint(db, sprint_id, current_user)
     if persist and current_user.role not in (UserRole.manager, UserRole.admin):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="持久化关键路径需要管理权限")
     result = await compute_critical_path(db, sprint_id, persist=persist)
@@ -598,7 +651,17 @@ async def project_velocity(
     project_id: uuid.UUID,
     last_n: int = 6,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """项目历史 Sprint 速率(用于交付预测)"""
-    return await compute_velocity_history(db, project_id, last_n=last_n)
+    project_conditions = [
+        Project.id == project_id,
+        Project.deleted_at.is_(None),
+        Project.tenant_id == current_user.tenant_id,
+    ]
+    if current_user.role == UserRole.employee:
+        project_conditions.append(Project.id.in_(_member_visible_project_ids(current_user)))
+    project = (await db.execute(select(Project.id).where(and_(*project_conditions)))).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(404, "项目不存在")
+    return await compute_velocity_history(db, project_id, last_n=last_n, tenant_id=current_user.tenant_id)

@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -82,7 +83,7 @@ async def simulate_daily_report(
     4. 返回 AI 结果供核验
     """
     # ── 查找用户 ──
-    result = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid))
+    result = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
     if not user:
         return {"error": f"用户 {req.wechat_userid} 不存在，请先注册"}
@@ -113,9 +114,15 @@ async def simulate_daily_report(
         management_alert=ai_result.management_alert,
         project_id=req.project_id,
         sprint_task_id=req.sprint_task_id,
+        tenant_id=user.tenant_id,
+        created_by=user.id,
     )
     db.add(report)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "该内容今天已经提交过，请勿重复提交。")
 
     # ── 若有预警，写入 risk_alerts ──
     if ai_result.management_alert and ai_result.parsed_content.blocker:
@@ -124,6 +131,8 @@ async def simulate_daily_report(
             user_id=user.id,
             alert_type="blocker",
             description=ai_result.management_alert,
+            tenant_id=user.tenant_id,
+            created_by=user.id,
         )
         db.add(alert)
 
@@ -266,9 +275,15 @@ async def web_submit_daily_report(
         management_alert=ai_result.management_alert,
         project_id=req.project_id,
         sprint_task_id=req.sprint_task_id,
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
     )
     db.add(report)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "该内容今天已经提交过，请勿重复提交。")
 
     # ── 若有预警，写入 risk_alerts + 群推预警 ──
     if ai_result.management_alert and ai_result.parsed_content.blocker:
@@ -277,6 +292,8 @@ async def web_submit_daily_report(
             user_id=current_user.id,
             alert_type="blocker",
             description=ai_result.management_alert,
+            tenant_id=current_user.tenant_id,
+            created_by=current_user.id,
         )
         db.add(alert)
 

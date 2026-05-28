@@ -37,6 +37,7 @@ class ERPStatusPayload(BaseModel):
     # v2 扩展精确字段
     material_code: str = ""  # 物料编码（可选，优先精确匹配）
     po_number: str = ""  # 采购订单号（可选，优先精确匹配）
+    tenant_id: str = "default"  # ERP 侧未传时保持历史默认租户
 
 
 async def verify_erp_hmac(
@@ -106,7 +107,12 @@ async def erp_status_update(
     if exact_filters:
         stmt = (
             update(RiskAlert)
-            .where(RiskAlert.status == "unresolved", RiskAlert.deleted_at.is_(None), or_(*exact_filters))
+            .where(
+                RiskAlert.status == "unresolved",
+                RiskAlert.tenant_id == payload.tenant_id,
+                RiskAlert.deleted_at.is_(None),
+                or_(*exact_filters),
+            )
             .values(
                 status="resolved",
                 resolved_at=datetime.utcnow(),
@@ -126,6 +132,7 @@ async def erp_status_update(
                 update(RiskAlert)
                 .where(
                     RiskAlert.status == "unresolved",
+                    RiskAlert.tenant_id == payload.tenant_id,
                     RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:已软删的预警不参与 ERP 自动解卡
                     RiskAlert.description.ilike(f"%{keyword}%"),
                 )
@@ -154,6 +161,8 @@ async def erp_status_update(
             .join(ProjectMember, Project.id == ProjectMember.project_id)
             .where(
                 ProjectMember.user_id.in_(user_ids),
+                ProjectMember.tenant_id == payload.tenant_id,
+                Project.tenant_id == payload.tenant_id,
                 ProjectMember.left_at.is_(None),
                 Project.status == ProjectStatus.active,
             )
@@ -183,6 +192,7 @@ async def erp_status_update(
             channels=[NotificationChannel.wechat_bot],
             related_type="risk_alert",
             related_id=",".join(resolved_ids[:5]),
+            tenant_id=payload.tenant_id,
         )
         await db.commit()
 

@@ -53,6 +53,7 @@ async def compute_velocity_factor(
     db: AsyncSession,
     user_id: UUID,
     last_n: int = 4,
+    tenant_id: Optional[str] = None,
 ) -> float:
     """
     velocity_factor = 历史平均完成点 / 标称容量
@@ -64,6 +65,9 @@ async def compute_velocity_factor(
     user = await db.get(User, user_id)
     if not user:
         return 1.0
+    if tenant_id and user.tenant_id != tenant_id:
+        return 1.0
+    tenant = tenant_id or user.tenant_id
     base = max(user.story_points_capacity, 1)
 
     # 拉最近 N 个完成的 sprint 中该用户的 done 任务
@@ -71,7 +75,7 @@ async def compute_velocity_factor(
         (
             await db.execute(
                 select(Sprint)
-                .where(Sprint.status == SprintStatus.completed)
+                .where(Sprint.status == SprintStatus.completed, Sprint.tenant_id == tenant)
                 .order_by(desc(Sprint.end_date))
                 .limit(last_n * 3)  # 该用户不一定每个 sprint 都参与,多拉一些
             )
@@ -90,6 +94,7 @@ async def compute_velocity_factor(
                     and_(
                         SprintTask.assignee_id == user_id,
                         SprintTask.sprint_id.in_(sprint_ids),
+                        SprintTask.tenant_id == tenant,
                         SprintTask.status == TaskStatus.done,
                         SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
@@ -129,6 +134,7 @@ async def compute_user_capacity(
     apply_velocity: bool = True,
 ) -> dict[str, Any]:
     """计算单人单 Sprint 水位指标,返回 dict(不落库)"""
+    tenant_id = sprint.tenant_id
     tasks = (
         (
             await db.execute(
@@ -136,6 +142,7 @@ async def compute_user_capacity(
                     and_(
                         SprintTask.sprint_id == sprint.id,
                         SprintTask.assignee_id == user.id,
+                        SprintTask.tenant_id == tenant_id,
                         SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
                     )
                 )
@@ -166,7 +173,7 @@ async def compute_user_capacity(
     elif user.status == UserStatus.sick_leave:
         status_factor = 0.3
 
-    velocity_factor = await compute_velocity_factor(db, user.id) if apply_velocity else 1.0
+    velocity_factor = await compute_velocity_factor(db, user.id, tenant_id=tenant_id) if apply_velocity else 1.0
 
     effective_capacity = max(int(round(base_capacity * status_factor * velocity_factor)), 0)
 
@@ -220,6 +227,7 @@ async def snapshot_sprint_capacity(
     sprint_id: UUID,
     *,
     include_unassigned: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> list[CapacitySnapshot]:
     """
     给某 Sprint 内有任务分配的所有用户写一条 CapacitySnapshot。
@@ -228,6 +236,9 @@ async def snapshot_sprint_capacity(
     sprint = await db.get(Sprint, sprint_id)
     if not sprint:
         return []
+    if tenant_id and sprint.tenant_id != tenant_id:
+        return []
+    tenant = sprint.tenant_id
 
     # 找出有任务分配的所有用户
     user_ids_rows = (
@@ -236,7 +247,9 @@ async def snapshot_sprint_capacity(
             .where(
                 and_(
                     SprintTask.sprint_id == sprint_id,
+                    SprintTask.tenant_id == tenant,
                     SprintTask.assignee_id.is_not(None),
+                    SprintTask.deleted_at.is_(None),
                 )
             )
             .distinct()
@@ -246,7 +259,7 @@ async def snapshot_sprint_capacity(
     if not user_ids:
         return []
 
-    users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    users = (await db.execute(select(User).where(User.id.in_(user_ids), User.tenant_id == tenant))).scalars().all()
 
     results: list[CapacitySnapshot] = []
     for user in users:
@@ -258,6 +271,7 @@ async def snapshot_sprint_capacity(
                     and_(
                         CapacitySnapshot.user_id == user.id,
                         CapacitySnapshot.sprint_id == sprint_id,
+                        CapacitySnapshot.tenant_id == tenant,
                     )
                 )
             )
@@ -289,6 +303,7 @@ async def snapshot_sprint_capacity(
                 critical_path_task_count=metrics["critical_path_task_count"],
                 utilization=metrics["utilization"],
                 level=CapacityLevel(metrics["level"]),
+                tenant_id=tenant,
             )
             db.add(snap)
             results.append(snap)
@@ -330,7 +345,10 @@ async def _push_overload_alerts(db: AsyncSession) -> None:
         await db.execute(
             select(CapacitySnapshot, User)
             .join(User, CapacitySnapshot.user_id == User.id)
-            .where(CapacitySnapshot.level == CapacityLevel.overload)
+            .where(
+                CapacitySnapshot.level == CapacityLevel.overload,
+                CapacitySnapshot.tenant_id == User.tenant_id,
+            )
             .order_by(desc(CapacitySnapshot.utilization))
             .limit(20)
         )
@@ -341,52 +359,55 @@ async def _push_overload_alerts(db: AsyncSession) -> None:
     from app.models.notification import NotificationChannel, NotificationTemplate
     from app.services.notification_service import notify_safe
 
-    lines = []
-    for snap, u in rows:
-        lines.append(
-            f"- **{u.name}**({u.department}): {int(snap.utilization * 100)}% "
-            f"({snap.allocated_points}/{snap.effective_capacity}pt)"
-            f"{', ⚠️' + str(snap.blocked_count) + '阻塞' if snap.blocked_count else ''}"
+    tenants = {u.tenant_id for _, u in rows}
+    for tenant in tenants:
+        tenant_rows = [(snap, u) for snap, u in rows if u.tenant_id == tenant]
+        lines = []
+        for snap, u in tenant_rows:
+            lines.append(
+                f"- **{u.name}**({u.department}): {int(snap.utilization * 100)}% "
+                f"({snap.allocated_points}/{snap.effective_capacity}pt)"
+                f"{', ⚠️' + str(snap.blocked_task_count) + '阻塞' if snap.blocked_task_count else ''}"
+            )
+        md = (
+            f"### 🌡️ 资源水位过载预警\n\n"
+            f"当前有 **{len(tenant_rows)}** 位成员处于过载状态(占用 ≥ 100%):\n\n"
+            + "\n".join(lines)
+            + "\n\n建议管理层及时调配,或前往「资源水位」页面查看 AI 调配建议。"
         )
-    md = (
-        f"### 🌡️ 资源水位过载预警\n\n"
-        f"当前有 **{len(rows)}** 位成员处于过载状态(占用 ≥ 100%):\n\n"
-        + "\n".join(lines)
-        + "\n\n建议管理层及时调配,或前往「资源水位」页面查看 AI 调配建议。"
-    )
-
-    admins = (
-        (
-            await db.execute(
-                select(User).where(
-                    User.role.in_(["admin", "manager"]),
-                    User.is_active == True,
+        admins = (
+            (
+                await db.execute(
+                    select(User).where(
+                        User.tenant_id == tenant,
+                        User.role.in_(["admin", "manager"]),
+                        User.is_active == True,
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
 
-    for admin in admins:
-        await notify_safe(
-            db,
-            template=NotificationTemplate.risk_alert,
-            context={
-                "name": "资源水位",
-                "department": "全公司",
-                "alert_type": "overload",
-                "description": md,
-                "days_unresolved": 0,
-            },
-            user=admin,
-            channels=[
-                NotificationChannel.wechat_bot,
-                NotificationChannel.dingtalk_bot,
-                NotificationChannel.in_app,
-            ],
-            related_type="capacity_overload",
-        )
+        for admin in admins:
+            await notify_safe(
+                db,
+                template=NotificationTemplate.risk_alert,
+                context={
+                    "name": "资源水位",
+                    "department": "全公司",
+                    "alert_type": "overload",
+                    "description": md,
+                    "days_unresolved": 0,
+                },
+                user=admin,
+                channels=[
+                    NotificationChannel.wechat_bot,
+                    NotificationChannel.dingtalk_bot,
+                    NotificationChannel.in_app,
+                ],
+                related_type="capacity_overload",
+            )
 
 
 # ────────────────────────────────────────────────────────────────
@@ -399,6 +420,7 @@ async def find_overloaded(
     *,
     sprint_id: Optional[UUID] = None,
     limit: int = 20,
+    tenant_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """查询当前过载人员(可选限定某 Sprint)"""
     stmt = (
@@ -406,6 +428,8 @@ async def find_overloaded(
         .join(User, CapacitySnapshot.user_id == User.id)
         .where(CapacitySnapshot.level == CapacityLevel.overload)
     )
+    if tenant_id:
+        stmt = stmt.where(CapacitySnapshot.tenant_id == tenant_id, User.tenant_id == tenant_id)
     if sprint_id:
         stmt = stmt.where(CapacitySnapshot.sprint_id == sprint_id)
     stmt = stmt.order_by(desc(CapacitySnapshot.utilization)).limit(limit)
@@ -419,6 +443,7 @@ async def find_underutilized(
     *,
     sprint_id: Optional[UUID] = None,
     limit: int = 20,
+    tenant_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """查询当前闲置人员(level=idle)"""
     stmt = (
@@ -426,6 +451,8 @@ async def find_underutilized(
         .join(User, CapacitySnapshot.user_id == User.id)
         .where(CapacitySnapshot.level == CapacityLevel.idle)
     )
+    if tenant_id:
+        stmt = stmt.where(CapacitySnapshot.tenant_id == tenant_id, User.tenant_id == tenant_id)
     if sprint_id:
         stmt = stmt.where(CapacitySnapshot.sprint_id == sprint_id)
     stmt = stmt.order_by(CapacitySnapshot.utilization).limit(limit)
@@ -462,6 +489,8 @@ def _snapshot_to_dict(snap: CapacitySnapshot, user: User) -> dict[str, Any]:
 async def suggest_rebalance(
     db: AsyncSession,
     sprint_id: UUID,
+    *,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     生成 Sprint 内的任务调配建议:
@@ -475,8 +504,8 @@ async def suggest_rebalance(
         "moves": [{"task_id":"...","title":"...","from_user":"...","to_user":"...","points":3}, ...]
       }
     """
-    overloaded = await find_overloaded(db, sprint_id=sprint_id, limit=50)
-    idle = await find_underutilized(db, sprint_id=sprint_id, limit=50)
+    overloaded = await find_overloaded(db, sprint_id=sprint_id, limit=50, tenant_id=tenant_id)
+    idle = await find_underutilized(db, sprint_id=sprint_id, limit=50, tenant_id=tenant_id)
 
     if not overloaded or not idle:
         return {"overloaded": overloaded, "idle": idle, "moves": []}
@@ -498,6 +527,7 @@ async def suggest_rebalance(
                         and_(
                             SprintTask.sprint_id == sprint_id,
                             SprintTask.assignee_id == UUID(over["user_id"]),
+                            *([SprintTask.tenant_id == tenant_id] if tenant_id else []),
                             SprintTask.status == TaskStatus.todo,
                             SprintTask.is_on_critical_path.is_(False),
                             SprintTask.deleted_at.is_(None),  # V2.5 Stage 2
@@ -579,6 +609,7 @@ async def compute_project_capacity(
     *,
     month_start: Optional[str] = None,
     month_end: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     按项目维度聚合该项目下所有人员的工时投入。
@@ -598,7 +629,10 @@ async def compute_project_capacity(
     from app.models.daily_report import DailyReport
     from app.models.project import Project
 
-    project = await db.get(Project, project_id)
+    project_stmt = select(Project).where(Project.id == project_id, Project.deleted_at.is_(None))
+    if tenant_id:
+        project_stmt = project_stmt.where(Project.tenant_id == tenant_id)
+    project = (await db.execute(project_stmt)).scalar_one_or_none()
     if not project:
         return {
             "project_id": str(project_id),
@@ -625,6 +659,8 @@ async def compute_project_capacity(
             .where(
                 and_(
                     DailyReport.project_id == project_id,
+                    DailyReport.tenant_id == project.tenant_id,
+                    User.tenant_id == project.tenant_id,
                     DailyReport.report_date >= start_d,
                     DailyReport.report_date <= end_d,
                     DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
@@ -668,6 +704,7 @@ async def department_capacity_summary(
     db: AsyncSession,
     *,
     sprint_id: Optional[UUID] = None,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """部门级水位聚合(适合 admin 总览)"""
     stmt = (
@@ -682,6 +719,8 @@ async def department_capacity_summary(
         .join(User, CapacitySnapshot.user_id == User.id)
         .group_by(User.department)
     )
+    if tenant_id:
+        stmt = stmt.where(CapacitySnapshot.tenant_id == tenant_id, User.tenant_id == tenant_id)
     if sprint_id:
         stmt = stmt.where(CapacitySnapshot.sprint_id == sprint_id)
 

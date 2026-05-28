@@ -50,7 +50,7 @@ async def grouped_reports(
 
     try:
         if group_by == "department":
-            return await group_reports_by_department(db, start_d, end_d, project_id)
-        return await group_reports_by_project(db, start_d, end_d, project_id)
+            return await group_reports_by_department(db, start_d, end_d, project_id, tenant_id=_user.tenant_id)
+        return await group_reports_by_project(db, start_d, end_d, project_id, tenant_id=_user.tenant_id)
     except ValueError as e:
         raise _map_value_error(e) from None

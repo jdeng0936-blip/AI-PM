@@ -41,8 +41,10 @@ def _round_float(value: Any, ndigits: int = 1) -> float:
     return round(converted, ndigits) if converted is not None else 0.0
 
 
-async def _get_target_user(db: AsyncSession, user_id: uuid.UUID) -> User:
-    user = await db.get(User, user_id)
+async def _get_target_user(db: AsyncSession, user_id: uuid.UUID, tenant_id: str) -> User:
+    user = (
+        await db.execute(select(User).where(User.id == user_id, User.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "用户不存在")
     return user
@@ -60,7 +62,7 @@ async def user_trend(
     if current_user.role == UserRole.employee and target_user_id != current_user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "员工只能查看自己的趋势数据")
 
-    target_user = await _get_target_user(db, target_user_id)
+    target_user = await _get_target_user(db, target_user_id, current_user.tenant_id)
     since = date.today() - timedelta(days=days - 1)
 
     rows = (
@@ -81,11 +83,12 @@ async def user_trend(
                     submit_delay_minutes
                 FROM mv_daily_user_stats
                 WHERE user_id = :user_id
+                  AND tenant_id = :tenant_id
                   AND report_date >= :since
                 ORDER BY report_date
                 """
                 ),
-                {"user_id": target_user_id, "since": since},
+                {"user_id": target_user_id, "tenant_id": current_user.tenant_id, "since": since},
             )
         )
         .mappings()
@@ -154,11 +157,12 @@ async def department_compare(
                     pass_rate,
                     submitter_rate
                 FROM mv_weekly_dept_stats
-                WHERE week_start >= :since
+                WHERE tenant_id = :tenant_id
+                  AND week_start >= :since
                 ORDER BY week_start, department
                 """
                 ),
-                {"since": since},
+                {"tenant_id": _user.tenant_id, "since": since},
             )
         )
         .mappings()
@@ -212,7 +216,11 @@ async def project_health(
     _user: User = Depends(_mgr_or_admin),
 ):
     """项目健康趋势:基于关联日报按日聚合评分、通过率和进度。"""
-    project = await db.get(Project, project_id)
+    project = (
+        await db.execute(
+            select(Project).where(Project.id == project_id, Project.tenant_id == _user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if project is None or project.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "项目不存在")
 
@@ -232,6 +240,7 @@ async def project_health(
             .where(
                 and_(
                     DailyReport.project_id == project_id,
+                    DailyReport.tenant_id == _user.tenant_id,
                     DailyReport.report_date >= since,
                     DailyReport.deleted_at.is_(None),
                 )
@@ -270,7 +279,11 @@ async def sprint_efficiency(
 ):
     """Sprint 效率指标:计划点、完成点、完成率和平均 velocity。"""
     if project_id is not None:
-        project = await db.get(Project, project_id)
+        project = (
+            await db.execute(
+                select(Project).where(Project.id == project_id, Project.tenant_id == _user.tenant_id)
+            )
+        ).scalar_one_or_none()
         if project is None or project.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "项目不存在")
 
@@ -279,6 +292,8 @@ async def sprint_efficiency(
         .join(Project, Sprint.project_id == Project.id)
         .where(
             Sprint.status == SprintStatus.completed,
+            Sprint.tenant_id == _user.tenant_id,
+            Project.tenant_id == _user.tenant_id,
             Project.deleted_at.is_(None),
         )
         .order_by(desc(Sprint.end_date))

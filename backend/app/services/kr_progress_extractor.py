@@ -68,7 +68,7 @@ async def extract_and_update_kr_progress(
 
     返回:命中的更新列表(供日志/调试),失败/未命中时返回 []。
     """
-    user_krs = await _fetch_active_krs_for_user(db, user_id=report.user_id)
+    user_krs = await _fetch_active_krs_for_user(db, user_id=report.user_id, tenant_id=report.tenant_id)
     if not user_krs:
         return []
 
@@ -103,8 +103,16 @@ async def extract_and_update_kr_progress(
         except (TypeError, ValueError):
             continue
 
-        kr = await db.get(KeyResult, kr_uuid)
-        if not kr or kr.owner_id != report.user_id:
+        kr = (
+            await db.execute(
+                select(KeyResult).where(
+                    KeyResult.id == kr_uuid,
+                    KeyResult.owner_id == report.user_id,
+                    KeyResult.tenant_id == report.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not kr:
             # 安全约束:LLM 不能跨用户改 KR
             continue
         if abs(kr.current_value - new_val_f) < 1e-6:
@@ -123,11 +131,12 @@ async def extract_and_update_kr_progress(
             confidence=confidence,
             note=(evidence or "")[:500],
             created_by=report.user_id,
+            tenant_id=report.tenant_id,
         )
         db.add(log)
 
         # 重算 Objective 进度
-        await _recalc_objective_progress(db, kr.objective_id)
+        await _recalc_objective_progress(db, kr.objective_id, report.tenant_id)
 
         applied.append(
             {
@@ -159,6 +168,7 @@ async def extract_and_update_kr_progress(
 async def _fetch_active_krs_for_user(
     db: AsyncSession,
     user_id: UUID,
+    tenant_id: str,
 ) -> list[KeyResult]:
     """返回该用户作为 owner、且所属周期/目标都 active 的 KR"""
     stmt = (
@@ -167,6 +177,9 @@ async def _fetch_active_krs_for_user(
         .join(OKRCycle, Objective.cycle_id == OKRCycle.id)
         .where(
             KeyResult.owner_id == user_id,
+            KeyResult.tenant_id == tenant_id,
+            Objective.tenant_id == tenant_id,
+            OKRCycle.tenant_id == tenant_id,
             Objective.status == OKRStatus.active,
             OKRCycle.status == OKRStatus.active,
         )
@@ -174,9 +187,13 @@ async def _fetch_active_krs_for_user(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def _recalc_objective_progress(db: AsyncSession, objective_id: UUID) -> None:
-    krs = (await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id))).scalars().all()
-    obj = await db.get(Objective, objective_id)
+async def _recalc_objective_progress(db: AsyncSession, objective_id: UUID, tenant_id: str) -> None:
+    krs = (
+        await db.execute(select(KeyResult).where(KeyResult.objective_id == objective_id, KeyResult.tenant_id == tenant_id))
+    ).scalars().all()
+    obj = (
+        await db.execute(select(Objective).where(Objective.id == objective_id, Objective.tenant_id == tenant_id))
+    ).scalar_one_or_none()
     if obj and krs:
         obj.progress = round(sum(k.progress for k in krs) / len(krs), 1)
 

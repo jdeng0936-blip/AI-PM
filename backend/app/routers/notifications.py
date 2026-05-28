@@ -115,8 +115,8 @@ async def list_notifications(
     status_filter: Optional[NotificationStatus] = Query(None, alias="status"),
 ):
     """通知历史。员工只看自己,manager/admin 看全部。"""
-    query = select(Notification)
-    count_query = select(func.count(Notification.id))
+    query = select(Notification).where(Notification.tenant_id == current_user.tenant_id)
+    count_query = select(func.count(Notification.id)).where(Notification.tenant_id == current_user.tenant_id)
 
     if current_user.role == UserRole.employee:
         query = query.where(Notification.user_id == current_user.id)
@@ -151,6 +151,7 @@ async def unread_count(
     """当前用户站内信未读数。仅统计 channel=in_app AND status=sent AND read_at IS NULL。"""
     query = select(func.count(Notification.id)).where(
         Notification.user_id == current_user.id,
+        Notification.tenant_id == current_user.tenant_id,
         Notification.channel == NotificationChannel.in_app,
         Notification.status == NotificationStatus.sent,
         Notification.read_at.is_(None),
@@ -179,6 +180,7 @@ async def mark_read(
         update(Notification)
         .where(
             Notification.user_id == current_user.id,
+            Notification.tenant_id == current_user.tenant_id,
             Notification.channel == NotificationChannel.in_app,
             Notification.read_at.is_(None),
         )
@@ -233,12 +235,14 @@ async def channel_status(_: User = Depends(get_current_user)):
 async def test_send(
     payload: TestSendRequest,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin)),
+    current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """测试发送一条通知。admin 专属,用于联调企微/钉钉配置。"""
     target_user: Optional[User] = None
     if payload.user_id:
-        target_user = await db.get(User, payload.user_id)
+        target_user = (
+            await db.execute(select(User).where(User.id == payload.user_id, User.tenant_id == current_user.tenant_id))
+        ).scalar_one_or_none()
         if not target_user:
             raise HTTPException(status_code=404, detail="目标用户不存在")
 
@@ -250,6 +254,7 @@ async def test_send(
         user=target_user,
         related_type="test",
         related_id=None,
+        tenant_id=current_user.tenant_id,
     )
     await db.commit()
     return [NotificationOut.model_validate(r) for r in records]
@@ -259,10 +264,14 @@ async def test_send(
 async def retry_notification(
     notification_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(UserRole.admin)),
+    current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """重试单条失败的通知。仅 admin 可用。"""
-    record = await db.get(Notification, notification_id)
+    record = (
+        await db.execute(
+            select(Notification).where(Notification.id == notification_id, Notification.tenant_id == current_user.tenant_id)
+        )
+    ).scalar_one_or_none()
     if not record:
         raise HTTPException(status_code=404, detail="通知记录不存在")
     if record.status == NotificationStatus.sent:
@@ -270,7 +279,9 @@ async def retry_notification(
 
     target_user: Optional[User] = None
     if record.user_id:
-        target_user = await db.get(User, record.user_id)
+        target_user = (
+            await db.execute(select(User).where(User.id == record.user_id, User.tenant_id == current_user.tenant_id))
+        ).scalar_one_or_none()
 
     from app.services.notification_service import _dispatch_one
 
