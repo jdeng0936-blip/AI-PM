@@ -27,8 +27,9 @@ from app.models.kpi_target import KpiMetric, KpiPeriod, KpiScope, KpiTarget
 from app.models.user import User, UserRole
 from app.schemas.kpi import KpiTargetIn
 from app.services.kpi_service import calculate_kpi_achievement, list_kpi_targets, upsert_kpi_target
+from tests._db_url import derive_test_database_url
 
-TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
+TEST_DATABASE_URL = derive_test_database_url(settings.database_url)
 
 
 async def _cleanup_kpi_test_data(db: AsyncSession) -> None:

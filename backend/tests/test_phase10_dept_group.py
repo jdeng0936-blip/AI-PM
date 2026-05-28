@@ -39,9 +39,10 @@ from app.services.admin_reports_service import (
     group_reports_by_project,
 )
 from app.services.department_service import get_department_with_members
+from tests._db_url import derive_test_database_url
 
 TENANT_ID = "default"
-TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
+TEST_DATABASE_URL = derive_test_database_url(settings.database_url)
 pytestmark = pytest.mark.asyncio
 
 

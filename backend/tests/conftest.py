@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.database import Base, get_db
 from tests._db_url import derive_test_database_url
+from tests._isolation import clean_external_settings
 
 app = cast(Any, import_module("app.main").app)
 
@@ -69,6 +70,19 @@ async def setup_test_db():
     except Exception:
         pass  # 清理失败不影响测试结论
     await test_engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _isolation_external_settings(monkeypatch):
+    """
+    T-1103 议题 A:全局测试隔离 — 清空所有外部敏感 settings(wechat / dingtalk /
+    smtp / asr / oss / new_api / sentry / erp_webhook),让任何 test 不依赖
+    跑测试者本机 .env 状态。
+
+    autouse=True 让所有 test case 默认享受 isolation。test 内若需要测「已配置」
+    分支,自行 monkeypatch.setattr 覆盖(later setattr wins)。
+    """
+    clean_external_settings(monkeypatch)
 
 
 @pytest_asyncio.fixture

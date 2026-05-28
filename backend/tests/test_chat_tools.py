@@ -23,8 +23,9 @@ from app.models.daily_report import DailyReport
 from app.models.user import User, UserRole
 from app.services.chat_tools import registry, tool
 from app.services.chat_tools.reports import _resolve_range
+from tests._db_url import derive_test_database_url
 
-TEST_DATABASE_URL = settings.database_url.replace("/aipm_db", "/aipm_db_test")
+TEST_DATABASE_URL = derive_test_database_url(settings.database_url)
 
 
 @pytest_asyncio.fixture

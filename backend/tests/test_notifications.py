@@ -108,32 +108,6 @@ async def isolated_db():
     await engine.dispose()
 
 
-@pytest.fixture(autouse=True)
-def _clean_notification_settings(monkeypatch):
-    """
-    T-1102 议题 A:测试自治 — 主动清空所有通知通道 settings,
-    让 `test_notify_unconfigured_channels_skipped` 等 case 不依赖
-    跑测试者本机 `.env` 状态(否则本地配了真实 Webhook 会导致 notify
-    走真实请求 → 4xx/5xx → assert 失败)。
-
-    autouse=True 让本模块所有 DB 测试统一享受 isolation,纯 render 测试
-    用不上但无副作用(monkeypatch 在 test 结束自动还原)。
-    """
-    monkeypatch.setattr(settings, "wechat_corp_id", "", raising=False)
-    monkeypatch.setattr(settings, "wechat_corp_secret", "", raising=False)
-    monkeypatch.setattr(settings, "wechat_agent_id", "", raising=False)
-    monkeypatch.setattr(settings, "wechat_bot_webhook", "", raising=False)
-    monkeypatch.setattr(settings, "dingtalk_bot_webhook", "", raising=False)
-    monkeypatch.setattr(settings, "dingtalk_bot_secret", "", raising=False)
-    monkeypatch.setattr(settings, "dingtalk_app_key", "", raising=False)
-    monkeypatch.setattr(settings, "dingtalk_app_secret", "", raising=False)
-    monkeypatch.setattr(settings, "dingtalk_agent_id", "", raising=False)
-    monkeypatch.setattr(settings, "smtp_server", "", raising=False)
-    monkeypatch.setattr(settings, "smtp_user", "", raising=False)
-    monkeypatch.setattr(settings, "smtp_password", "", raising=False)
-    monkeypatch.setattr(settings, "smtp_from_email", "", raising=False)
-
-
 @pytest.mark.asyncio
 async def test_notify_in_app_only(isolated_db):
     """站内信渠道:始终标记为 sent + 落库"""
