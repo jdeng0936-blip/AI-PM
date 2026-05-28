@@ -92,7 +92,13 @@ async def query_reports(
             User.department,
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
     )
     if department:
         stmt = stmt.where(User.department == department)
@@ -127,7 +133,13 @@ async def query_reports(
             func.avg(DailyReport.ai_score).label("avg_score"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
     )
     if department:
         agg_stmt = agg_stmt.where(User.department == department)
@@ -175,6 +187,7 @@ async def count_delayed(
             and_(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),
                 blocker_text.isnot(None),
                 blocker_text != "",
                 blocker_text != "无",
@@ -232,6 +245,7 @@ async def score_ranking(
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
                 DailyReport.ai_score.isnot(None),
+                DailyReport.deleted_at.is_(None),
             )
         )
         .group_by(User.id, User.name, User.department)

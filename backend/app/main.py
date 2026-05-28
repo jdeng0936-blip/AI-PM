@@ -28,6 +28,19 @@ from app.routers import (
 )
 from app.routers import projects as projects_router_module
 
+
+def _looks_like_placeholder_secret(value: str) -> bool:
+    lowered = (value or "").strip().lower()
+    return (
+        not lowered
+        or len(lowered) < 32
+        or "change-me" in lowered
+        or "placeholder" in lowered
+        or lowered.startswith("your_")
+        or lowered.startswith("ci-test")
+    )
+
+
 # ── Sentry 初始化(必须在 FastAPI app 创建之前 init,才能捕获启动期异常)──
 if settings.sentry_dsn:
     try:
@@ -69,26 +82,23 @@ async def lifespan(app: FastAPI):
 
     logger = logging.getLogger("aipm")
 
-    import os
+    env = settings.aipm_env
 
-    env = os.getenv("AIPM_ENV", "dev")
+    if env != "dev":
+        insecure_settings = []
+        if _looks_like_placeholder_secret(settings.jwt_secret_key):
+            insecure_settings.append("JWT_SECRET_KEY")
+        if _looks_like_placeholder_secret(settings.erp_webhook_secret):
+            insecure_settings.append("ERP_WEBHOOK_SECRET")
+        if insecure_settings:
+            names = ", ".join(insecure_settings)
+            raise RuntimeError(f"{names} 未配置安全随机值 — 生产环境必须使用至少 32 字符的真实密钥。")
 
     if env == "dev":
         logger.warning("🔧 开发模式：自动创建缺失的数据库表（生产环境请用 alembic）")
         await init_db()
     else:
         logger.info("🏭 生产模式：跳过 init_db()，请确保已执行 alembic upgrade head")
-
-    # V2.5 Stage 1 Fix #4:生产环境必须配置 ERP webhook secret
-    # 否则任何外部请求都能 POST /api/v1/erp/webhook/status_update 触发风险解卡
-    from app.config import settings
-
-    if env != "dev" and not settings.erp_webhook_secret:
-        raise RuntimeError(
-            "ERP_WEBHOOK_SECRET 未配置 — 生产环境(AIPM_ENV != 'dev')必须设置该密钥,"
-            "否则 ERP webhook 鉴权会被跳过,外部请求可触发风险解除逻辑。"
-            "请在 .env 中配置 ERP_WEBHOOK_SECRET,或将 AIPM_ENV 设为 'dev'。"
-        )
 
     logger.info("✅ 徽远成 AI-PM 后端启动成功")
 
@@ -172,7 +182,7 @@ from app.routers import attachments as attachments_router
 app.include_router(attachments_router.router)
 app.include_router(asr_router.router)
 # ── DEV 模拟端点（仅开发环境） ────────────────────
-if settings.aipm_env == "dev":
+if settings.aipm_env == "dev" and settings.enable_dev_simulation:
     from app.routers import simulate
 
     app.include_router(simulate.router)

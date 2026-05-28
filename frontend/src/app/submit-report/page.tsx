@@ -217,7 +217,7 @@ export default function SubmitReportPage() {
       }
       if (selectedProjectId) payload.project_id = selectedProjectId
       if (selectedTaskId) payload.sprint_task_id = selectedTaskId
-      const res = await request.post('/simulate/web-submit', payload)
+      const res = await request.post('/reports/web-submit', payload)
       setResult(res)
     } catch (err: any) {
       const status = err.response?.status

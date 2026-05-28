@@ -28,8 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
 from app.models.project import Project, ProjectHealthStatus
-from app.models.project_member import ProjectMember
-from app.models.project_stage import ProjectStage, StageHealthStatus
+from app.models.project_member import MemberTrack, ProjectMember
+from app.models.project_stage import ProjectStage, StageHealthStatus, StageTrack
 from app.models.risk_alert import RiskAlert
 from app.models.sprint import Sprint
 
@@ -86,13 +86,21 @@ async def compute_stage_health(
     since = date.today() - timedelta(days=window_days)
 
     # 找出该项目此阶段的所有成员 — V2.5 Stage 2:仅在职(left_at IS NULL),离场成员不计入健康度
+    track_filter = []
+    if stage.track == StageTrack.hardware:
+        track_filter = [MemberTrack.hardware, MemberTrack.both]
+    elif stage.track == StageTrack.software:
+        track_filter = [MemberTrack.software, MemberTrack.both]
+
+    member_conditions = [
+        ProjectMember.project_id == stage.project_id,
+        ProjectMember.left_at.is_(None),
+    ]
+    if track_filter:
+        member_conditions.append(ProjectMember.track.in_(track_filter))
+
     members_result = await db.execute(
-        select(ProjectMember.user_id).where(
-            and_(
-                ProjectMember.project_id == stage.project_id,
-                ProjectMember.left_at.is_(None),
-            )
-        )
+        select(ProjectMember.user_id).where(and_(*member_conditions))
     )
     member_ids = [row[0] for row in members_result.all()]
 
@@ -114,6 +122,7 @@ async def compute_stage_health(
         ).where(
             and_(
                 DailyReport.user_id.in_(member_ids),
+                DailyReport.project_id == stage.project_id,
                 DailyReport.report_date >= since,
                 DailyReport.pass_check.is_not(None),
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
@@ -131,11 +140,15 @@ async def compute_stage_health(
 
     # 查询未解决卡点中最长持续天数
     alert_result = await db.execute(
-        select(func.max(RiskAlert.days_unresolved)).where(
+        select(func.max(RiskAlert.days_unresolved))
+        .join(DailyReport, RiskAlert.report_id == DailyReport.id)
+        .where(
             and_(
                 RiskAlert.user_id.in_(member_ids),
                 RiskAlert.status == "unresolved",
                 RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不计入健康度
+                DailyReport.project_id == stage.project_id,
+                DailyReport.deleted_at.is_(None),
             )
         )
     )
@@ -233,6 +246,7 @@ async def refresh_sprint_health(
         select(func.avg(DailyReport.ai_score)).where(
             and_(
                 DailyReport.user_id.in_(member_ids),
+                DailyReport.project_id == sprint.project_id,
                 DailyReport.report_date >= sprint.start_date,
                 DailyReport.report_date <= sprint.end_date,
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 2

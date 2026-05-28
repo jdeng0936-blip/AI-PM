@@ -5,7 +5,7 @@
 # 使用方法：
 #   1. cp backend/.env.example backend/.env  → 填写真实配置
 #   2. bash scripts/deploy.sh                → 一键构建 & 启动
-#   或: docker compose -f docker-compose.prod.yml up -d --build
+#   注意:不要直接整栈 up 后再迁移;backend readiness 依赖 Alembic 已到 head。
 # ════════════════════════════════════════════════════════════════
 
 services:

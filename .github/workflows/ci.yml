@@ -17,7 +17,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: aipm
           POSTGRES_PASSWORD: aipm
@@ -100,7 +100,18 @@ jobs:
               )
               if not exists:
                   await conn.execute("CREATE DATABASE aipm_db_test OWNER aipm")
+              await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
               await conn.close()
+
+              test_conn = await asyncpg.connect(
+                  user="aipm",
+                  password="aipm",
+                  database="aipm_db_test",
+                  host="localhost",
+                  port=5432,
+              )
+              await test_conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+              await test_conn.close()
 
           asyncio.run(main())
           PY

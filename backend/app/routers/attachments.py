@@ -47,6 +47,26 @@ from app.services import oss_service
 router = APIRouter(prefix="/api/v1/attachments", tags=["附件"])
 
 MAX_UPLOAD_SIZE = 25 * 1024 * 1024  # 25 MB
+OFFICE_MIME_BY_EXT = {
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+SAFE_TEXT_EXTENSIONS = {".txt", ".csv", ".md", ".log"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".amr", ".ogg", ".webm"}
+DANGEROUS_MIME_TYPES = {
+    "image/svg+xml",
+    "text/html",
+    "application/xhtml+xml",
+    "application/xml",
+    "text/xml",
+    "application/javascript",
+    "text/javascript",
+}
+DANGEROUS_TEXT_MARKERS = (b"<script", b"<html", b"<!doctype", b"<?xml", b"<svg")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -119,6 +139,58 @@ def _classify(mime_type: str, file_name: str) -> AttachmentKind:
     return AttachmentKind.other
 
 
+def _detect_safe_mime_type(raw: bytes, file_name: str, declared_type: str | None) -> str:
+    """用文件头和扩展名做最小 MIME 嗅探，拒绝同源脚本类附件。"""
+    ext = Path(file_name).suffix.lower()
+    declared = (declared_type or "").split(";", 1)[0].strip().lower()
+    if declared in DANGEROUS_MIME_TYPES:
+        raise HTTPException(415, "不支持上传 HTML/SVG/XML/JavaScript 等可执行内容")
+
+    lowered_head = raw[:512].lstrip().lower()
+    if any(marker in lowered_head for marker in DANGEROUS_TEXT_MARKERS):
+        raise HTTPException(415, "不支持上传可能执行脚本的文本内容")
+
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw.startswith(b"%PDF-"):
+        return "application/pdf"
+    if raw.startswith(b"PK\x03\x04") and ext in OFFICE_MIME_BY_EXT:
+        return OFFICE_MIME_BY_EXT[ext]
+    if raw.startswith(b"\xd0\xcf\x11\xe0") and ext in OFFICE_MIME_BY_EXT:
+        return OFFICE_MIME_BY_EXT[ext]
+    if ext in AUDIO_EXTENSIONS and (declared.startswith("audio/") or declared == "application/ogg"):
+        return declared
+    if ext in SAFE_TEXT_EXTENSIONS:
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(415, "文本附件必须使用 UTF-8 编码")
+        return mimetypes.guess_type(file_name)[0] or "text/plain"
+
+    raise HTTPException(415, "不支持的附件类型")
+
+
+async def _check_report_link_access(
+    db: AsyncSession,
+    related_report_id: Optional[UUID],
+    current_user: User,
+) -> None:
+    """上传时校验附件关联的日报存在且当前用户有权挂载。"""
+    if related_report_id is None:
+        return
+    report = await db.get(DailyReport, related_report_id)
+    if report is None or report.deleted_at is not None:
+        raise HTTPException(404, "日报不存在")
+    if current_user.role not in (UserRole.admin, UserRole.manager) and report.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权关联他人日报")
+
+
 # ────────────────────────────────────────────────────────────────
 # 上传
 # ────────────────────────────────────────────────────────────────
@@ -139,7 +211,9 @@ async def upload_attachment(
         raise HTTPException(413, f"文件超过 {MAX_UPLOAD_SIZE // (1024 * 1024)}MB 上限")
 
     file_name = file.filename or "unnamed"
-    mime_type = file.content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+    await _check_report_link_access(db, related_report_id, current_user)
+
+    mime_type = _detect_safe_mime_type(raw, file_name, file.content_type)
     kind = _classify(mime_type, file_name)
 
     storage_key = oss_service.make_storage_key(
@@ -306,8 +380,12 @@ async def serve_local_file(
     data = oss_service.read_local_file(path)
     if data is None:
         raise HTTPException(404, "文件不存在")
-    mime, _enc = mimetypes.guess_type(path)
-    return Response(content=data, media_type=mime or "application/octet-stream")
+    safe_download_name = Path(record.file_name).name.replace('"', "_")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_download_name}"',
+        "X-Content-Type-Options": "nosniff",
+    }
+    return Response(content=data, media_type=record.mime_type or "application/octet-stream", headers=headers)
 
 
 # ────────────────────────────────────────────────────────────────

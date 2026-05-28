@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import os
 import random
+import secrets
 import sys
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -186,6 +187,7 @@ async def seed_extra_users(db, admin_id):
         existing = await db.execute(select(User).where(User.wechat_userid == u["wechat_userid"]))
         if existing.scalar_one_or_none():
             continue
+        temporary_password = secrets.token_urlsafe(12)
         user = User(
             name=u["name"],
             wechat_userid=u["wechat_userid"],
@@ -194,7 +196,7 @@ async def seed_extra_users(db, admin_id):
             department=u["department"],
             job_title=u["job_title"],
             role=u["role"],
-            hashed_password=pwd_context.hash("aipm2026"),
+            hashed_password=pwd_context.hash(temporary_password),
             must_change_password=True,
             is_active=True,
             status=UserStatus.active,
@@ -203,7 +205,7 @@ async def seed_extra_users(db, admin_id):
         db.add(user)
         added += 1
     await db.commit()
-    print(f"  ✅ 新增 {added} 个员工(已存在则跳过)")
+    print(f"  ✅ 新增 {added} 个员工(已存在则跳过,新用户已生成随机临时密码)")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1975,7 +1977,7 @@ async def main(only: Optional[set], do_reset: bool):
     print("快速验证:")
     print("  uvicorn app.main:app --reload  # 启动后端")
     print("  cd frontend && npm run dev     # 启动前端")
-    print("  访问 http://localhost:3000,用 admin/admin2026 登录")
+    print("  访问 http://localhost:3000,使用 seed_admin.py 输出的临时密码登录")
     print("  Dashboard / 项目 / OKR / 资源水位 / 趋势 / AI 复盘 全部应有数据")
 
 

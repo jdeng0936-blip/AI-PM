@@ -21,7 +21,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import get_current_user, require_role
+from app.middleware.rbac import require_role
 from app.models.capacity import CapacitySnapshot
 from app.models.sprint import Sprint
 from app.models.user import User, UserRole
@@ -49,7 +49,7 @@ _writers = require_role(UserRole.admin, UserRole.manager)
 async def sprint_capacity(
     sprint_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     """单 Sprint 全员水位(实时计算,不依赖快照)"""
     sprint = await db.get(Sprint, sprint_id)
@@ -117,7 +117,7 @@ async def manual_snapshot(
 async def rebalance(
     sprint_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     """AI 任务调配建议(从过载 → 闲置)"""
     return await suggest_rebalance(db, sprint_id)
@@ -133,7 +133,7 @@ async def list_overloaded(
     sprint_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     return {"items": await find_overloaded(db, sprint_id=sprint_id, limit=limit)}
 
@@ -143,7 +143,7 @@ async def list_underutilized(
     sprint_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     return {"items": await find_underutilized(db, sprint_id=sprint_id, limit=limit)}
 
@@ -152,7 +152,7 @@ async def list_underutilized(
 async def department_summary(
     sprint_id: Optional[uuid.UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     return await department_capacity_summary(db, sprint_id=sprint_id)
 
@@ -168,7 +168,7 @@ async def project_capacity_summary(
     month_start: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认 30 天前"),
     month_end: Optional[str] = Query(None, description="ISO 日期 YYYY-MM-DD,默认今天"),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     """
     按项目维度聚合该项目下所有人员的工时投入(月度)。
@@ -185,7 +185,7 @@ async def user_capacity_timeline(
     user_id: uuid.UUID,
     limit: int = Query(12, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(_writers),
 ):
     """某用户跨 Sprint 的水位时间线(用于看个人负载演变)"""
     rows = (

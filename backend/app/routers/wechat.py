@@ -29,6 +29,7 @@ from app.services.wechat_api import (
 )
 
 router = APIRouter(prefix="/api/v1/wechat", tags=["WeChat Gateway"])
+MAX_WECHAT_CALLBACK_BYTES = 512 * 1024
 
 
 @router.get("/callback")
@@ -72,23 +73,45 @@ async def receive_wechat_message(
     Step 2+: 接收员工日报消息主入口
     注意：企微要求 5 秒内返回 "success"，因此 AI 处理走后台任务。
     """
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            body_size = int(content_length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid content-length")
+        if body_size > MAX_WECHAT_CALLBACK_BYTES:
+            raise HTTPException(status_code=413, detail="wechat callback body too large")
+
     body = await request.body()
+    if len(body) > MAX_WECHAT_CALLBACK_BYTES:
+        raise HTTPException(status_code=413, detail="wechat callback body too large")
 
     # ── 解密消息体 ──────────────────────────────────────────────
-    xml_tree = ET.fromstring(body.decode("utf-8"))
+    try:
+        xml_tree = ET.fromstring(body.decode("utf-8"))
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="invalid wechat callback xml")
     encrypted_content = xml_tree.findtext("Encrypt", "")
 
     if not verify_signature(msg_signature, timestamp, nonce, encrypted_content):
         return "invalid signature"
 
     raw_xml = decrypt_message(encrypted_content)
-    msg_tree = ET.fromstring(raw_xml)
+    try:
+        msg_tree = ET.fromstring(raw_xml)
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="invalid decrypted wechat xml")
 
     from_user: str = msg_tree.findtext("FromUserName", "")
     msg_type: str = msg_tree.findtext("MsgType", "")
 
     # ── 身份映射（企微 userid → 数据库 User） ─────────────────────
-    result = await db.execute(select(User).where(User.wechat_userid == from_user))
+    result = await db.execute(
+        select(User).where(
+            User.wechat_userid == from_user,
+            User.is_active.is_(True),
+        )
+    )
     user = result.scalar_one_or_none()
 
     if not user:
@@ -104,7 +127,7 @@ async def receive_wechat_message(
     elif msg_type == "image":
         media_id = msg_tree.findtext("MediaId", "")
         if media_id:
-            url = await fetch_media_url(media_id)
+            url = await fetch_media_url(media_id, owner_id=from_user)
             if url:
                 media_urls.append(url)
         raw_text = "[员工附上了图片作为进度佐证]"
@@ -143,6 +166,21 @@ async def _process_report_async(
     from app.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
+        report_date = date.today()
+        duplicate = await db.execute(
+            select(DailyReport.id)
+            .where(
+                DailyReport.user_id == user.id,
+                DailyReport.report_date == report_date,
+                DailyReport.raw_input_text == raw_text,
+                DailyReport.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if duplicate.scalar_one_or_none():
+            await send_text_message(user.wechat_userid, "✅ 这条日报今天已经收到，请勿重复提交。")
+            return
+
         # ── Token 熔断检查 ──────────────────────────────────────
         allowed = await check_daily_quota(db)
         if not allowed:
@@ -168,7 +206,7 @@ async def _process_report_async(
         # ── 落库（事务） ────────────────────────────────────────
         report = DailyReport(
             user_id=user.id,
-            report_date=date.today(),
+            report_date=report_date,
             raw_input_text=raw_text,
             media_urls=media_urls,
             parsed_content=ai_result.parsed_content.model_dump(mode="json"),

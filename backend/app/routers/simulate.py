@@ -182,7 +182,7 @@ async def web_submit_daily_report(
     credentials = await security(request)
     # HTTPBearer 内部会在缺失 Authorization 头时直接抛 403,不会返回 None;给 mypy 保证
     assert credentials is not None
-    current_user = await get_current_user(credentials=credentials, db=db)
+    current_user = await get_current_user(request=request, credentials=credentials, db=db)
 
     # ── V2.2: 校验 project_id + sprint_task_id 一致性 ──
     await _validate_project_task_consistency(db, req.project_id, req.sprint_task_id)

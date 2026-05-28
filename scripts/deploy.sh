@@ -59,18 +59,38 @@ if [ ! -f "${ENV_FILE}" ]; then
     exit 1
 fi
 
-# 检查关键配置
-if grep -q "placeholder" "${ENV_FILE}"; then
-    echo -e "${YELLOW}  ⚠️  检测到 .env 中有 placeholder 值，生产环境请替换为真实配置${NC}"
+# 检查关键配置：生产部署不允许带模板占位值继续启动。
+if grep -Ev '^[[:space:]]*(#|$)' "${ENV_FILE}" | grep -Eiq '(placeholder|change-me|your_)'; then
+    echo -e "${RED}  ❌ 检测到 .env 中仍有 placeholder/change-me/your_ 占位值${NC}"
+    echo -e "  请先把 backend/.env 中的密钥、数据库和第三方服务配置替换为真实值。"
+    exit 1
 fi
+
+env_value() {
+    grep -E "^$1=" "${ENV_FILE}" 2>/dev/null | tail -n 1 | cut -d= -f2- || true
+}
+
+require_secret() {
+    local key="$1"
+    local value
+    value="$(env_value "${key}")"
+    if [ -z "${value}" ] || [ "${#value}" -lt 32 ]; then
+        echo -e "${RED}  ❌ ${key} 必须设置为至少 32 字符的安全随机值${NC}"
+        exit 1
+    fi
+}
 
 # 从 .env 获取 POSTGRES_PASSWORD 或使用默认值
 export POSTGRES_PASSWORD=$(grep -E "^POSTGRES_PASSWORD=" "${ENV_FILE}" 2>/dev/null | cut -d= -f2 || echo "")
 if [ -z "${POSTGRES_PASSWORD}" ]; then
-    export POSTGRES_PASSWORD="aipm_prod_$(date +%s | sha256sum | head -c 16)"
+    export POSTGRES_PASSWORD="aipm_prod_$(openssl rand -hex 16)"
     echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" >> "${ENV_FILE}"
     echo -e "  🔐 已自动生成 POSTGRES_PASSWORD 并写入 .env"
 fi
+
+require_secret "POSTGRES_PASSWORD"
+require_secret "JWT_SECRET_KEY"
+require_secret "ERP_WEBHOOK_SECRET"
 
 echo -e "${GREEN}  ✅ 配置检查通过${NC}"
 
@@ -86,13 +106,15 @@ echo -e "${GREEN}  ✅ 镜像构建完成${NC}"
 
 # ── Step 5: 启动服务 ─────────────────────────────────────────
 echo -e "\n${YELLOW}[5/6] 启动全栈服务...${NC}"
-docker compose -f "${COMPOSE_FILE}" up -d
+docker compose -f "${COMPOSE_FILE}" up -d postgres redis
 
-# 等待健康检查
-echo -n "  等待服务就绪"
+# 等待基础依赖健康，后端 readiness 依赖 Alembic，因此迁移必须先于 backend 常驻启动。
+echo -n "  等待 PostgreSQL / Redis 就绪"
 MAX_WAIT=60
 for i in $(seq 1 ${MAX_WAIT}); do
-    if docker compose -f "${COMPOSE_FILE}" ps | grep -q "healthy"; then
+    PG_STATUS=$(docker inspect -f '{{.State.Health.Status}}' aipm-postgres 2>/dev/null || echo "missing")
+    REDIS_STATUS=$(docker inspect -f '{{.State.Health.Status}}' aipm-redis 2>/dev/null || echo "missing")
+    if [ "${PG_STATUS}" = "healthy" ] && [ "${REDIS_STATUS}" = "healthy" ]; then
         break
     fi
     echo -n "."
@@ -100,17 +122,25 @@ for i in $(seq 1 ${MAX_WAIT}); do
 done
 echo ""
 
+if [ "${PG_STATUS}" != "healthy" ] || [ "${REDIS_STATUS}" != "healthy" ]; then
+    echo -e "${RED}  ❌ PostgreSQL / Redis 未在预期时间内就绪${NC}"
+    docker compose -f "${COMPOSE_FILE}" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+    exit 1
+fi
+
 # 检查各服务状态
 echo -e "\n  服务状态："
 docker compose -f "${COMPOSE_FILE}" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
-echo -e "${GREEN}  ✅ 服务启动完成${NC}"
+echo -e "${GREEN}  ✅ 基础依赖启动完成${NC}"
 
 # ── Step 6: 数据库迁移 ────────────────────────────────────────
 echo -e "\n${YELLOW}[6/6] 执行数据库迁移...${NC}"
-sleep 5  # 等待 PG 完全就绪
-docker exec aipm-backend alembic upgrade head 2>/dev/null && \
-    echo -e "${GREEN}  ✅ 数据库迁移完成${NC}" || \
-    echo -e "${YELLOW}  ⚠️  Alembic 迁移跳过（可能尚无迁移脚本，表已通过 init.sql 创建）${NC}"
+docker compose -f "${COMPOSE_FILE}" run --rm backend alembic upgrade head
+echo -e "${GREEN}  ✅ 数据库迁移完成${NC}"
+
+echo -e "\n${YELLOW}启动后端与前端服务...${NC}"
+docker compose -f "${COMPOSE_FILE}" up -d backend frontend
+echo -e "${GREEN}  ✅ 服务启动完成${NC}"
 
 # ── 完成 ──────────────────────────────────────────────────────
 echo -e "\n${BLUE}"

@@ -5,6 +5,7 @@ scripts/seed_admin.py — 创建默认管理员用户（总经理）
 
 import asyncio
 import os
+import secrets
 import sys
 
 # 确保 backend 目录在 path 中
@@ -27,7 +28,6 @@ SEED_USERS = [
         "department": "管理层",
         "job_title": "总经理",
         "role": UserRole.admin,
-        "password": "admin2026",
         "must_change_password": True,
     },
     {
@@ -36,7 +36,6 @@ SEED_USERS = [
         "department": "技术部",
         "job_title": "技术部长",
         "role": UserRole.manager,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -45,7 +44,6 @@ SEED_USERS = [
         "department": "生产部",
         "job_title": "生产经理",
         "role": UserRole.employee,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -54,7 +52,6 @@ SEED_USERS = [
         "department": "采购部",
         "job_title": "采购经理",
         "role": UserRole.employee,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -63,7 +60,6 @@ SEED_USERS = [
         "department": "财务部",
         "job_title": "财务部长",
         "role": UserRole.manager,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -72,7 +68,6 @@ SEED_USERS = [
         "department": "商务部",
         "job_title": "商务经理",
         "role": UserRole.employee,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -81,7 +76,6 @@ SEED_USERS = [
         "department": "销售部",
         "job_title": "销售部长",
         "role": UserRole.manager,
-        "password": "aipm2026",
         "must_change_password": True,
     },
     {
@@ -90,7 +84,6 @@ SEED_USERS = [
         "department": "仓储部",
         "job_title": "仓管",
         "role": UserRole.employee,
-        "password": "aipm2026",
         "must_change_password": True,
     },
 ]
@@ -109,24 +102,24 @@ async def seed():
                 print(f"  ⏭️  用户 '{u['name']}' 已存在，跳过")
                 continue
 
+            temporary_password = secrets.token_urlsafe(12)
             user = User(
                 name=u["name"],
                 wechat_userid=u["wechat_userid"],
                 department=u["department"],
                 job_title=u["job_title"],
                 role=u["role"],
-                hashed_password=pwd_context.hash(u["password"]),
+                hashed_password=pwd_context.hash(temporary_password),
                 must_change_password=u["must_change_password"],
                 is_active=True,
             )
             db.add(user)
-            print(f"  ✅ 创建用户: {u['name']} ({u['job_title']}) — 密码: {u['password']}")
+            print(f"  ✅ 创建用户: {u['name']} ({u['job_title']}) — 临时密码: {temporary_password}")
 
         await db.commit()
         print("\n🎉 种子数据初始化完成！")
         print("─────────────────────────────────")
-        print("总经理登录: 用户名 admin, 密码 admin2026")
-        print("其他用户:   密码统一 aipm2026")
+        print("所有新建用户已生成随机临时密码，首次登录后必须修改密码。")
 
 
 if __name__ == "__main__":

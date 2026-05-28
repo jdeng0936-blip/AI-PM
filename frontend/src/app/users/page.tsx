@@ -49,7 +49,7 @@ export default function UsersPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState({ name: '', wechat_userid: '', phone: '', email: '', department: '', role: 'employee', password: 'aipm2026' })
+  const [form, setForm] = useState({ name: '', wechat_userid: '', phone: '', email: '', department: '', role: 'employee', password: '' })
   const searchTimer = useRef<any>(null)
 
   // 出勤状态对话框
@@ -200,7 +200,7 @@ export default function UsersPage() {
 
   function openCreate() {
     setIsEditing(false); setEditingId('')
-    setForm({ name: '', wechat_userid: '', phone: '', email: '', department: '', role: 'employee', password: 'aipm2026' })
+    setForm({ name: '', wechat_userid: '', phone: '', email: '', department: '', role: 'employee', password: '' })
     setDialogOpen(true)
   }
 
@@ -219,8 +219,19 @@ export default function UsersPage() {
         await updateUser(editingId, { name: form.name, phone: form.phone || undefined, email: form.email || undefined, department: form.department, role: form.role })
         toast.success('用户信息已更新')
       } else {
-        await createUser({ name: form.name, wechat_userid: form.wechat_userid, phone: form.phone || undefined, email: form.email || undefined, department: form.department, role: form.role, password: form.password || 'aipm2026' })
+        const res: any = await createUser({
+          name: form.name,
+          wechat_userid: form.wechat_userid,
+          phone: form.phone || undefined,
+          email: form.email || undefined,
+          department: form.department,
+          role: form.role,
+          password: form.password || undefined,
+        })
         toast.success('用户创建成功')
+        if (res?.temporary_password) {
+          window.alert(`临时密码：${res.temporary_password}\n用户首次登录后必须修改密码。`)
+        }
       }
       setDialogOpen(false); fetchUsers()
     } catch (e: any) { toast.error(e?.response?.data?.detail || '操作失败') }
@@ -228,9 +239,12 @@ export default function UsersPage() {
   }
 
   async function handleReset(row: any) {
-    if (!confirm(`确定重置用户 "${row.name}" 的密码为 aipm2026？`)) return
-    await resetPassword(row.id)
-    toast.success(`${row.name} 的密码已重置为 aipm2026`)
+    if (!confirm(`确定重置用户 "${row.name}" 的密码？系统将生成随机临时密码。`)) return
+    const res: any = await resetPassword(row.id)
+    toast.success(`${row.name} 的密码已重置`)
+    if (res?.temporary_password) {
+      window.alert(`临时密码：${res.temporary_password}\n用户首次登录后必须修改密码。`)
+    }
   }
 
   function openStatus(row: any) {
@@ -459,7 +473,7 @@ export default function UsersPage() {
               {!isEditing && (
                 <div>
                   <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>初始密码</label>
-                  <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="默认 aipm2026" className="w-full px-3 py-2 rounded-lg text-sm outline-none" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }} />
+                  <input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="留空自动生成临时密码" className="w-full px-3 py-2 rounded-lg text-sm outline-none" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }} />
                 </div>
               )}
             </div>

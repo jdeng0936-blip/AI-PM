@@ -46,20 +46,7 @@ async def init_db():
     生产环境应使用 Alembic migrate，而非此函数。
     """
     async with engine.begin() as conn:
-        # 导入所有模型确保 metadata 注册（顺序重要：base_mixin 最先）
-        from app.models import (  # noqa: F401  # noqa: F401
-            audit_log,
-            base_mixin,  # noqa: F401
-            daily_report,
-            deletion_history,
-            gate_review,
-            project,
-            project_member,
-            project_stage,
-            risk_alert,
-            sprint,
-            usage_log,
-            user,
-        )
+        # 走 models/__init__.py，确保新增模型不会漏注册到 metadata。
+        import app.models  # noqa: F401
 
         await conn.run_sync(Base.metadata.create_all)

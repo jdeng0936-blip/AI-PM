@@ -19,9 +19,10 @@
     # gzip / zstd 压缩
     encode gzip zstd
 
-    # ── 后端 API + 健康检查 + auth + ASR + ... 全部转后端 ──
+    # ── 后端 API + 最小 liveness 健康检查 ──
+    # /health/ready、/health/detailed、/docs、/openapi.json 不对公网暴露。
     @backend {
-        path /api/* /health /health/* /docs /openapi.json /redoc
+        path /api/* /health
     }
     handle @backend {
         reverse_proxy aipm-backend:8000

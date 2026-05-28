@@ -31,7 +31,9 @@ COPY --from=builder /install /usr/local
 # 复制应用代码
 COPY app/ ./app/
 COPY alembic/ ./alembic/
+COPY scripts/ ./scripts/
 COPY alembic.ini .
+COPY llm_registry.yaml .
 
 # 非 root 用户运行（安全加固）
 RUN useradd -m -u 1000 aipm && chown -R aipm:aipm /app

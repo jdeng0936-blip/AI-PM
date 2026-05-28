@@ -17,10 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user
 from app.models.daily_report import DailyReport
+from app.models.notification import NotificationChannel, NotificationTemplate
 from app.models.project import Project
+from app.models.risk_alert import RiskAlert
+from app.models.sprint import Sprint
 from app.models.sprint_task import SprintTask
 from app.models.user import User, UserRole
+from app.services.ai_engine import parse_report_with_ai
 from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
+from app.services.kr_progress_extractor import extract_and_update_kr_progress_safe
+from app.services.notification_service import notify_safe
+from app.services.token_guard import check_daily_quota, log_token_usage
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"], redirect_slashes=False)
 
@@ -33,6 +40,208 @@ class BatchDeleteBody(BaseModel):
 # V2.4 Stage 3 C3:批量恢复请求体(撤销 / 回收站共用)
 class BatchRestoreBody(BaseModel):
     ids: list[uuid.UUID] = Field(..., min_length=1, max_length=200, description="待恢复的日报 ID 列表")
+
+
+class WebReportRequest(BaseModel):
+    """Web 端日报请求体"""
+
+    raw_text: str
+    report_date: Optional[date] = None
+    project_id: Optional[uuid.UUID] = None
+    sprint_task_id: Optional[uuid.UUID] = None
+
+
+async def _validate_project_task_consistency(
+    db: AsyncSession,
+    project_id: Optional[uuid.UUID],
+    sprint_task_id: Optional[uuid.UUID],
+) -> Optional[uuid.UUID]:
+    """校验项目/任务关系；只传任务时反推并返回任务所属项目。"""
+    if project_id is not None:
+        project_exists = (
+            await db.execute(
+                select(Project.id).where(
+                    Project.id == project_id,
+                    Project.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if project_exists is None:
+            raise HTTPException(404, detail="项目不存在")
+
+    if sprint_task_id is None:
+        return project_id
+
+    result = await db.execute(
+        select(Sprint.project_id)
+        .join(SprintTask, SprintTask.sprint_id == Sprint.id)
+        .where(SprintTask.id == sprint_task_id, SprintTask.deleted_at.is_(None))
+    )
+    task_project_id = result.scalar_one_or_none()
+    if task_project_id is None:
+        raise HTTPException(status_code=404, detail="Sprint 任务不存在")
+    if project_id is not None and task_project_id != project_id:
+        raise HTTPException(status_code=400, detail="Sprint 任务不属于所选项目，请重新选择")
+    return task_project_id
+
+
+@router.post("/web-submit")
+async def web_submit_daily_report(
+    req: WebReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Web 端提交日报（通过 JWT 自动识别用户）。
+    """
+    project_id = await _validate_project_task_consistency(db, req.project_id, req.sprint_task_id)
+
+    report_date = req.report_date or date.today()
+    dup_check = await db.execute(
+        select(DailyReport.id)
+        .where(
+            and_(
+                DailyReport.user_id == current_user.id,
+                DailyReport.report_date == report_date,
+                DailyReport.raw_input_text == req.raw_text,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
+        .limit(1)
+    )
+    if dup_check.scalar():
+        raise HTTPException(
+            status_code=409,
+            detail="该内容今天已经提交过，请勿重复提交。如需修改，请更新内容后再提交。",
+        )
+
+    allowed = await check_daily_quota(db)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="今日 AI 处理配额已满，请稍后再试。")
+
+    ai_result, p_tokens, c_tokens = await parse_report_with_ai(
+        req.raw_text,
+        [],
+        job_title=current_user.job_title,
+        department=current_user.department,
+    )
+    await log_token_usage(db, str(current_user.id), p_tokens, c_tokens)
+
+    if not ai_result.pass_check:
+        await notify_safe(
+            db,
+            template=NotificationTemplate.report_rejected,
+            context={
+                "name": current_user.name,
+                "reason": ai_result.reject_reason or "",
+                "guidance": ai_result.suggested_guidance or "",
+            },
+            channels=[
+                NotificationChannel.in_app,
+                NotificationChannel.wechat,
+                NotificationChannel.dingtalk,
+            ],
+            user=current_user,
+            related_type="report_rejected",
+        )
+        await db.commit()
+        return {
+            "status": "rejected",
+            "user_name": current_user.name,
+            "department": current_user.department,
+            "ai_score": ai_result.ai_score,
+            "pass_check": False,
+            "ai_comment": ai_result.ai_comment,
+            "reject_reason": ai_result.reject_reason,
+            "suggested_guidance": ai_result.suggested_guidance,
+            "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
+            "management_alert": ai_result.management_alert,
+            "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
+        }
+
+    report = DailyReport(
+        user_id=current_user.id,
+        report_date=report_date,
+        raw_input_text=req.raw_text,
+        media_urls=[],
+        parsed_content=ai_result.parsed_content.model_dump(mode="json"),
+        pass_check=ai_result.pass_check,
+        reject_reason=ai_result.reject_reason,
+        suggested_guidance=ai_result.suggested_guidance,
+        ai_score=ai_result.ai_score,
+        ai_comment=ai_result.ai_comment,
+        management_alert=ai_result.management_alert,
+        project_id=project_id,
+        sprint_task_id=req.sprint_task_id,
+    )
+    db.add(report)
+    await db.flush()
+
+    if ai_result.management_alert and ai_result.parsed_content.blocker:
+        alert = RiskAlert(
+            report_id=report.id,
+            user_id=current_user.id,
+            alert_type="blocker",
+            description=ai_result.management_alert,
+        )
+        db.add(alert)
+
+        await notify_safe(
+            db,
+            template=NotificationTemplate.risk_alert,
+            context={
+                "name": current_user.name,
+                "department": current_user.department,
+                "alert_type": "blocker",
+                "description": ai_result.management_alert,
+                "days_unresolved": 1,
+            },
+            channels=[
+                NotificationChannel.wechat_bot,
+                NotificationChannel.dingtalk_bot,
+            ],
+            user=current_user,
+            related_type="risk_alert",
+            related_id=str(report.id),
+        )
+
+    await notify_safe(
+        db,
+        template=NotificationTemplate.report_passed,
+        context={
+            "name": current_user.name,
+            "score": ai_result.ai_score,
+            "comment": ai_result.ai_comment or "",
+        },
+        channels=[NotificationChannel.in_app],
+        user=current_user,
+        related_type="report_passed",
+        related_id=str(report.id),
+    )
+
+    kr_updates = await extract_and_update_kr_progress_safe(
+        db,
+        report=report,
+        raw_text=req.raw_text,
+    )
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "report_id": str(report.id),
+        "user_name": current_user.name,
+        "department": current_user.department,
+        "ai_score": ai_result.ai_score,
+        "pass_check": True,
+        "ai_comment": ai_result.ai_comment,
+        "parsed_content": ai_result.parsed_content.model_dump(mode="json"),
+        "management_alert": ai_result.management_alert,
+        "tokens_used": {"prompt": p_tokens, "completion": c_tokens},
+        "kr_updates": kr_updates,
+        "project_id": str(report.project_id) if report.project_id else None,
+        "sprint_task_id": str(report.sprint_task_id) if report.sprint_task_id else None,
+    }
 
 
 @router.get("")
@@ -162,6 +371,15 @@ async def batch_soft_delete_reports(
     deleted_at = datetime.now(timezone.utc)
     result = await db.execute(update(DailyReport).where(cond).values(deleted_at=deleted_at).returning(DailyReport.id))
     deleted_ids = [r[0] for r in result.all()]
+    if deleted_ids:
+        await db.execute(
+            update(RiskAlert)
+            .where(
+                RiskAlert.report_id.in_(deleted_ids),
+                RiskAlert.deleted_at.is_(None),
+            )
+            .values(deleted_at=deleted_at)
+        )
     await record_soft_delete(
         db,
         actor_id=current_user.id,
@@ -203,6 +421,15 @@ async def batch_restore_reports(
 
     result = await db.execute(update(DailyReport).where(cond).values(deleted_at=None).returning(DailyReport.id))
     restored_ids = [r[0] for r in result.all()]
+    if restored_ids:
+        await db.execute(
+            update(RiskAlert)
+            .where(
+                RiskAlert.report_id.in_(restored_ids),
+                RiskAlert.deleted_at.is_not(None),
+            )
+            .values(deleted_at=None)
+        )
     await mark_soft_delete_restored(
         db,
         table_name="daily_reports",

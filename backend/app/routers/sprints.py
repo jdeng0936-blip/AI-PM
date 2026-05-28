@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
+from app.models.project import Project
+from app.models.project_stage import ProjectStage
 from app.models.sprint import Sprint, SprintStatus
 from app.models.sprint_task import (
     SprintTask,
@@ -54,6 +56,40 @@ async def create_sprint(
     创建 Sprint。
     如果未指定 end_date 系统自动 start_date + 13 天（14天周期）。
     """
+    project = (
+        await db.execute(
+            select(Project).where(
+                Project.id == data.project_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(404, "项目不存在")
+
+    if data.stage_id is not None:
+        stage = (
+            await db.execute(
+                select(ProjectStage.id).where(
+                    ProjectStage.id == data.stage_id,
+                    ProjectStage.project_id == data.project_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if stage is None:
+            raise HTTPException(400, "Sprint 关联的阶段不属于所选项目")
+
+    duplicate = (
+        await db.execute(
+            select(Sprint.id).where(
+                Sprint.project_id == data.project_id,
+                Sprint.sprint_number == data.sprint_number,
+            )
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该项目下 Sprint 编号已存在")
+
     sprint = Sprint(
         project_id=data.project_id,
         stage_id=data.stage_id,
@@ -546,9 +582,11 @@ async def get_critical_path(
     sprint_id: uuid.UUID,
     persist: bool = False,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """计算 Sprint 关键路径。persist=true 时把结果回写到 task.is_on_critical_path"""
+    if persist and current_user.role not in (UserRole.manager, UserRole.admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="持久化关键路径需要管理权限")
     result = await compute_critical_path(db, sprint_id, persist=persist)
     if persist:
         await db.commit()

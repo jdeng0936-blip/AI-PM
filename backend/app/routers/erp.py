@@ -9,6 +9,7 @@ POST /api/v1/erp/webhook/status_update
 import hashlib
 import hmac
 import logging
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -38,7 +39,11 @@ class ERPStatusPayload(BaseModel):
     po_number: str = ""  # 采购订单号（可选，优先精确匹配）
 
 
-async def verify_erp_hmac(request: Request, x_erp_signature: str = Header(None)):
+async def verify_erp_hmac(
+    request: Request,
+    x_erp_signature: str = Header(None),
+    x_erp_timestamp: str = Header(None),
+):
     """
     验证 ERP 系统 Webhook 推送的 HMAC-SHA256 签名。
 
@@ -55,9 +60,18 @@ async def verify_erp_hmac(request: Request, x_erp_signature: str = Header(None))
 
     if not x_erp_signature:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-ERP-Signature header")
+    if not x_erp_timestamp:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-ERP-Timestamp header")
+    try:
+        timestamp = int(x_erp_timestamp)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-ERP-Timestamp header")
+    if abs(time.time() - timestamp) > 300:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="ERP webhook timestamp expired")
 
     body_bytes = await request.body()
-    computed_signature = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+    signed_payload = x_erp_timestamp.encode("utf-8") + b"." + body_bytes
+    computed_signature = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(computed_signature, x_erp_signature):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid X-ERP-Signature")

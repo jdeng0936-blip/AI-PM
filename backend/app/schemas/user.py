@@ -30,7 +30,7 @@ class ChangePasswordRequest(BaseModel):
     """修改密码"""
 
     old_password: str = ""
-    new_password: str = Field(..., min_length=6, max_length=64)
+    new_password: str = Field(..., min_length=8, max_length=64)
 
 
 # ── 用户管理 CRUD ─────────────────────────────────────────────
@@ -44,7 +44,7 @@ class UserCreate(BaseModel):
     department: str = Field("", max_length=64)
     job_title: str = Field("", max_length=50, description="岗位：技术部长/研发工程师/采购经理 等")
     role: str = Field("employee", description="employee / manager / admin")
-    password: str = Field("aipm2026", min_length=6, max_length=64, description="初始密码，默认 aipm2026")
+    password: Optional[str] = Field(None, min_length=8, max_length=64, description="可选初始密码；为空时生成随机临时密码")
 
 
 class UserUpdate(BaseModel):
@@ -79,6 +79,12 @@ class UserOut(BaseModel):
     status_until: Optional[date] = None
 
     model_config = {"from_attributes": True}
+
+
+class UserCreateResponse(UserOut):
+    """新增用户响应；仅创建接口返回一次性临时密码。"""
+
+    temporary_password: Optional[str] = None
 
 
 class UserListResponse(BaseModel):

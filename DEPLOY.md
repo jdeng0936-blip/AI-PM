@@ -90,26 +90,16 @@ bash scripts/preflight.sh
 
 如果有红色 ✗,按提示修;有黄色 ⚠ 可选择性修(不影响启动)。
 
-### Step 4:一键启动
+### Step 4:一键部署
 
 ```bash
 cd ..   # 回到项目根
-docker compose -f docker-compose.prod.yml up -d --build
+bash scripts/deploy.sh
 ```
 
-第一次会拉镜像 + 构建前后端,约 5-10 分钟。
-
-### Step 5:跑数据库迁移(关键!)
-
-```bash
-docker exec aipm-backend alembic upgrade head
-```
-
-预期输出:
-```
-INFO  [alembic.runtime.migration] Running upgrade  -> 7c681b8e950c, Alembic migrations script template.
-INFO  [alembic.runtime.migration] Running upgrade 7c681b8e950c -> v2_0_baseline, V2.0 baseline: 全表 + Week 1-8 schema 一次性建齐
-```
+脚本会先启动 PostgreSQL/Redis，确认健康后用一次性 backend 容器执行 `alembic upgrade head`，
+最后再启动 backend/frontend。不要直接 `docker compose up -d` 全量启动后再迁移；
+后端 readiness 会等待 Alembic 到 head，顺序反了会导致 backend/frontend 一直 unhealthy。
 
 验证:
 ```bash
@@ -117,15 +107,15 @@ docker exec aipm-postgres psql -U aipm -d aipm_db -c "\dt" | wc -l
 # 应该 ≥ 20 张表
 ```
 
-### Step 6:创建第一个 admin 账号
+### Step 5:创建第一个 admin 账号
 
 ```bash
 docker exec -it aipm-backend python scripts/seed_admin.py
 ```
 
-按提示输入用户名 / 密码。
+脚本会为新建用户打印一次性随机临时密码；首次登录后必须修改密码。
 
-### Step 7:验证启动
+### Step 6:验证启动
 
 ```bash
 curl http://localhost:8000/health

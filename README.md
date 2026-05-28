@@ -83,19 +83,16 @@ cpolar http 8000
 # ── Step 1: 配置环境变量 ─────────────────────────────────────────
 cd backend && cp .env.example .env
 # 编辑 .env，填写所有配置
+cd ..
 
-# ── Step 2: 启动所有服务 ─────────────────────────────────────────
-export POSTGRES_PASSWORD=your_secure_password
-docker compose -f docker-compose.prod.yml up -d
+# ── Step 2: 一键部署（会先启动 PG/Redis，再迁移，最后启动后端/前端）──
+bash scripts/deploy.sh
 
-# ── Step 3: 【关键】进入后端容器执行数据库迁移 ─────────────────────
-docker exec -it aipm-backend alembic upgrade head
-
-# ── Step 4: 验证服务 ──────────────────────────────────────────────
+# ── Step 3: 验证服务 ──────────────────────────────────────────────
 curl http://localhost:8000/health
 # 预期返回：{"status":"ok","service":"huiyuancheng-ai-pm"}
 
-# ── Step 5: 查看日志 ──────────────────────────────────────────────
+# ── Step 4: 查看日志 ──────────────────────────────────────────────
 docker compose -f docker-compose.prod.yml logs -f backend
 ```
 

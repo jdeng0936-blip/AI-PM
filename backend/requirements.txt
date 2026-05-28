@@ -20,6 +20,8 @@ openpyxl==3.1.5
 reportlab>=4.0,<5.0
 # ── AI 动态路由 (Rule 01-Stack-AI-Routing) ──
 pyyaml>=6.0
+# ── 向量检索 (pgvector) ──
+pgvector>=0.3.0
 # ── 数据飞轮 (Rule 01-Stack-AI-Routing) ──
 langfuse>=2.0.0
 # ── 测试框架 (Rule 01-Stack-Backend) ──

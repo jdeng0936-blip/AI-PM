@@ -7,6 +7,7 @@ DELETE /users/{id}      — 停用用户（软删除）
 POST   /users/{id}/reset-password — 重置密码
 """
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -20,6 +21,7 @@ from app.models.user import User, UserRole
 from app.routers.auth import hash_password
 from app.schemas.user import (
     UserCreate,
+    UserCreateResponse,
     UserListResponse,
     UserOut,
     UserUpdate,
@@ -105,7 +107,7 @@ async def list_users(
     )
 
 
-@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     req: UserCreate,
     db: AsyncSession = Depends(get_db),
@@ -129,21 +131,24 @@ async def create_user(
                 detail=f"手机号 '{req.phone}' 已被使用",
             )
 
+    initial_password = req.password or secrets.token_urlsafe(12)
     user = User(
         name=req.name,
         wechat_userid=req.wechat_userid,
         phone=req.phone,
+        email=req.email,
         department=req.department,
         job_title=req.job_title,
         role=UserRole(req.role),
-        hashed_password=hash_password(req.password),
+        hashed_password=hash_password(initial_password),
+        must_change_password=True,
         is_active=True,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
-    return UserOut(
+    return UserCreateResponse(
         id=str(user.id),
         name=user.name,
         wechat_userid=user.wechat_userid,
@@ -158,6 +163,7 @@ async def create_user(
         last_login_at=user.last_login_at,
         status=(user.status.value if hasattr(user.status, "value") else str(user.status)),
         status_until=user.status_until,
+        temporary_password=initial_password if req.password is None else None,
     )
 
 
@@ -270,15 +276,21 @@ async def reset_password(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
-    """管理员重置用户密码为默认 aipm2026"""
+    """管理员重置用户密码为随机临时密码，并要求用户下次登录后改密。"""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    user.hashed_password = hash_password("aipm2026")
+    temporary_password = secrets.token_urlsafe(12)
+    user.hashed_password = hash_password(temporary_password)
+    user.must_change_password = True
     await db.commit()
-    return {"message": f"用户 '{user.name}' 密码已重置为默认密码"}
+    return {
+        "message": f"用户 '{user.name}' 密码已重置，请通知其尽快登录并修改密码",
+        "temporary_password": temporary_password,
+        "must_change_password": True,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════

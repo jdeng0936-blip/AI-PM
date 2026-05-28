@@ -10,7 +10,7 @@ app/middleware/rbac.py — RBAC 权限中间件
         ...
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -23,9 +23,14 @@ from app.models.user import User, UserRole
 security = HTTPBearer()
 
 ALGORITHM = "HS256"
+PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/v1/auth/me",
+    "/api/v1/auth/change-password",
+}
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -58,6 +63,11 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="账号已被停用,请联系管理员",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.must_change_password and request.url.path not in PASSWORD_CHANGE_ALLOWED_PATHS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="首次登录或密码已重置,请先修改密码",
         )
     return user
 

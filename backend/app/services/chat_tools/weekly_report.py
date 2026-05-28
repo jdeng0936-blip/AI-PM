@@ -65,6 +65,7 @@ async def collect_weekly_data(
             and_(
                 DailyReport.report_date >= monday,
                 DailyReport.report_date <= sunday,
+                DailyReport.deleted_at.is_(None),
             )
         )
         .order_by(DailyReport.report_date.desc(), DailyReport.ai_score.desc())
@@ -79,7 +80,13 @@ async def collect_weekly_data(
             func.count(DailyReport.id).label("submitted"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= monday, DailyReport.report_date <= sunday))
+        .where(
+            and_(
+                DailyReport.report_date >= monday,
+                DailyReport.report_date <= sunday,
+                DailyReport.deleted_at.is_(None),
+            )
+        )
         .group_by(User.department)
         .order_by(desc("avg_score"))
     )
@@ -104,9 +111,11 @@ async def collect_weekly_data(
             RiskAlert.created_at,
         )
         .join(User, RiskAlert.user_id == User.id)
+        .join(DailyReport, RiskAlert.report_id == DailyReport.id)
         .where(
             RiskAlert.created_at >= monday,
             RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删不进周报 AI 引用
+            DailyReport.deleted_at.is_(None),
         )
         .order_by(desc(RiskAlert.days_unresolved))
         .limit(30)
@@ -124,7 +133,14 @@ async def collect_weekly_data(
     ]
 
     # 4) 项目健康度
-    proj_stmt = select(Project).where(Project.status == ProjectStatus.active).order_by(Project.health_score)
+    proj_stmt = (
+        select(Project)
+        .where(
+            Project.status == ProjectStatus.active,
+            Project.deleted_at.is_(None),
+        )
+        .order_by(Project.health_score)
+    )
     projects = [
         {
             "code": p.code,

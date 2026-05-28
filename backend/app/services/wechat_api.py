@@ -11,6 +11,7 @@ app/services/wechat_api.py — 企业微信 API 工具函数
 """
 import base64
 import hashlib
+import hmac
 import struct
 import time
 
@@ -37,9 +38,14 @@ def verify_signature(msg_signature: str, timestamp: str, nonce: str, encrypt: st
     校验企微消息签名（防止伪造回调）。
     sha1(sorted([token, timestamp, nonce, encrypt])) == msg_signature
     """
+    try:
+        if abs(time.time() - int(timestamp)) > 600:
+            return False
+    except (TypeError, ValueError):
+        return False
     items = sorted([settings.wechat_token, timestamp, nonce, encrypt])
     sha1 = hashlib.sha1("".join(items).encode("utf-8")).hexdigest()
-    return sha1 == msg_signature
+    return hmac.compare_digest(sha1, msg_signature)
 
 
 def decrypt_message(encrypted_msg: str) -> str:
@@ -121,14 +127,33 @@ async def send_markdown_message(to_user: str, content: str) -> None:
         )
 
 
-async def fetch_media_url(media_id: str) -> Optional[str]:
+async def fetch_media_url(media_id: str, owner_id: str = "wechat") -> Optional[str]:
     """
-    将企微临时素材 media_id 转换为可访问的 URL。
-    生产环境应将文件转存至 OSS，此处返回下载流 URL 作为简化实现。
+    下载企微临时素材并转存到 OSS/本地降级存储，避免把应用级 access_token 入库或发给 LLM。
     """
     token = await _get_access_token()
-    # 实际生产：需下载后上传 OSS，并返回 OSS 公网 URL
-    return f"{WECHAT_API_BASE}/media/get?access_token={token}&media_id={media_id}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"{WECHAT_API_BASE}/media/get",
+            params={"access_token": token, "media_id": media_id},
+        )
+        resp.raise_for_status()
+
+    content_type = resp.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+    if content_type == "application/json":
+        return None
+
+    from app.services import oss_service
+
+    ext_by_type = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }
+    file_name = f"{media_id}{ext_by_type.get(content_type, '.bin')}"
+    storage_key = oss_service.make_storage_key(kind="image", user_id=owner_id, file_name=file_name)
+    return await oss_service.upload_bytes(storage_key, resp.content, content_type)
 
 
 # ────────────────────────────────────────────────────────────────

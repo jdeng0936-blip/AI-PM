@@ -15,7 +15,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.rbac import get_current_user, require_role
+from app.middleware.rbac import require_role
 from app.models.audit_log import AuditLog
 from app.models.daily_report import DailyReport
 from app.models.project import Project
@@ -33,12 +33,11 @@ _mgr_or_admin = require_role(UserRole.manager, UserRole.admin)
 async def get_morning_briefing(
     report_date: date = Query(default=None, description="查询日期，不传则为今日"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _user: User = Depends(_mgr_or_admin),
 ):
     """
     晨报总览：
-    - 管理层看全部人的汇报
-    - 员工只看自己的汇报
+    - 仅管理层看全部人的汇报、缺报名单和预警摘要
     """
     if report_date is None:
         report_date = date.today()
@@ -51,9 +50,6 @@ async def get_morning_briefing(
         .where(DailyReport.deleted_at.is_(None))  # V2.4 Stage 2
         .order_by(DailyReport.ai_score.desc().nulls_last())
     )
-    # 员工只看自己的
-    if current_user.role == UserRole.employee:
-        stmt = stmt.where(DailyReport.user_id == current_user.id)
     rows = (await db.execute(stmt)).all()
 
     # 所有员工（用于识别未汇报人员）
@@ -115,7 +111,7 @@ async def get_morning_briefing(
 async def get_risk_alerts(
     status: Optional[str] = Query(default="unresolved"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _user: User = Depends(_mgr_or_admin),
 ):
     """
     卡点预警墙（按未解决天数降序排列，最严重的排最前）
@@ -124,9 +120,11 @@ async def get_risk_alerts(
     stmt = (
         select(RiskAlert, User.name, User.department)
         .join(User, RiskAlert.user_id == User.id)
+        .join(DailyReport, RiskAlert.report_id == DailyReport.id)
         .where(
             RiskAlert.status == status,
             RiskAlert.deleted_at.is_(None),  # V2.5 Stage 3:软删过滤
+            DailyReport.deleted_at.is_(None),
         )
         .order_by(RiskAlert.days_unresolved.desc())
     )

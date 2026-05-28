@@ -12,6 +12,14 @@ class Settings(BaseSettings):
 
     # 运行环境（dev / prod）
     aipm_env: str = "dev"
+    enable_dev_auth_bypass: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ENABLE_DEV_AUTH_BYPASS"),
+    )
+    enable_dev_simulation: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ENABLE_DEV_SIMULATION"),
+    )
 
     # 数据库
     database_url: str

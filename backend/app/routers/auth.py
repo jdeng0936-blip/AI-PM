@@ -31,14 +31,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain: str, hashed: str | None) -> bool:
-    """校验密码。dev 模式下:
-    - hashed 为空 → 放行
-    - 万能口令 "dev" → 放行（供前端「开发快捷登录」按钮使用）
-    """
-    if settings.aipm_env == "dev" and plain == "dev":
+    """校验密码。开发绕过必须显式开启 ENABLE_DEV_AUTH_BYPASS。"""
+    dev_bypass_enabled = settings.aipm_env == "dev" and settings.enable_dev_auth_bypass
+    if dev_bypass_enabled and plain == "dev":
         return True
     if not hashed:
-        return settings.aipm_env == "dev"
+        return dev_bypass_enabled
     return pwd_context.verify(plain, hashed)
 
 

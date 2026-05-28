@@ -17,7 +17,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,9 @@ class SprintStatus(str, enum.Enum):
 
 class Sprint(BaseMixin, Base):
     __tablename__ = "sprints"
+    __table_args__ = (
+        UniqueConstraint("project_id", "sprint_number", name="uq_sprints_project_sprint_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
