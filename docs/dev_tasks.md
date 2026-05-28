@@ -227,76 +227,106 @@ cd frontend && npm run lint && npm run typecheck
   - **指挥官二次验收(`[2026-05-28 16:03:00]`)**:✅ **PASS — 接受 Codex pytest-only closure**(Worker timestamp `[2026-05-28 16:47:22]`)。Codex 双 commit `1c67bd4 fix(tests) → 19ac08e chore(progress)` 改动 5 个 test files(spec §2 原白名单 3 文件 + Supervisor 特批扩展 `test_analytics.py` + `test_export_phase8.py`),Codex 环境实测 178 passed + 2 skipped。**指挥官本机抽样验证**(`[2026-05-28 16:03]`):`JWT_SECRET_KEY` inline 注入跑 `pytest -q --tb=no` 实测 **177 passed + 1 failed + 2 skipped**;唯一 failed 是 `test_notifications.py::test_notify_unconfigured_channels_skipped`(Codex closure 明确说明需要"进程级清空通知渠道 env",属环境依赖非测试代码 bug,**留作 T-1102 议题 A 测试隔离污染下沉**)。**注**:指挥官 16:00 之前误判 T-1101 为"自然解决"(基于本机 6 failures baseline),实际 Codex 在它环境跑到 26 failures 并真做 fix Edit,**判断错误已纠正,Codex 工作完整有效,不撤回 1c67bd4 / 19ac08e**。**Phase 11 首任 Task 闭环**,T-1102 候选议题待指挥官起草 spec。
 
 ### 测试隔离污染 + 配置漂移 (Test Isolation & Config Drift) — T-1102 候选 backlog
-- [ ] **Task 2 (T-1102 候选 — 待指挥官起草 spec): 测试隔离污染 + `backend/.env.example` 配置漂移修复**(Phase 11 第二任 candidate)
-  - **议题 A — 测试隔离污染**(T-1101 closure 后剩余,`[2026-05-28 16:03]` 指挥官实测):全套 `pytest -q` 跑出 **1 failed / 177 passed / 2 skipped**(`test_notifications.py::test_notify_unconfigured_channels_skipped` 在 Codex env-cleanup 前是 6 failures 之一,Codex 通过"进程级清空通知渠道 env"绕过,但**测试本身仍依赖外部环境而非 isolation 自治**)。仓库层面真正需要的是测试代码层面的 mock + isolation,而不是依赖跑测试者手动清 env。
-  - **议题 B — `backend/.env` 配置漂移仓库层面修复**(原 T-1102 Option α 范围):
-    - `backend/.env.example` 完整对齐 `config.py` 字段命名(`AIPM_ENV` / `SMTP_SERVER` / `WECHAT_CORP_ID` / `DINGTALK_APP_KEY` / `NEW_API_*`),并在注释中标注常见误用别名(`APP_ENV` / `SMTP_HOST` / `WECHAT_CORPID_ID` / `DING_APP_KEY` / `OPENAI_API_KEY` 等)。
-    - `README.md` 或 `DEPLOY.md` 加「本地启动检查清单」段,强调 `cd backend` 工作目录 + 必填 5 项 env vars(`JWT_SECRET_KEY` / `DATABASE_URL` / `AIPM_ENV` / ...)+ Docker PG 容器端口提醒(`localhost:5434`)。
-    - `backend/app/config.py` 加 startup validation:缺关键变量(`JWT_SECRET_KEY` / `DATABASE_URL`)抛带帮助文字的 `RuntimeError`,而非难懂 pydantic `ValidationError`。
-  - **议题 C(隐患,留待 T-1103 单独评估)**:**`conftest.py:25`** `replace("/aipm_db", "/aipm_db_test")` 硬编码对 `qiaocai` / 非 `aipm_db` 命名的 DB 失效,测试库 URL 可能等于 production DB URL(`drop_all` 风险)。
+- [/] **Task 2 (T-1102): 测试隔离污染 + 配置漂移仓库层面修复(议题 A + B + C 三合一)** — In Progress by Codex `[2026-05-28 17:21:38]`(指挥官契约起草中)
+  - **议题 A — `test_notifications.py` 测试自治**(T-1101 closure 后剩余,`[2026-05-28 16:03]` 指挥官实测):全套 `pytest -q` 跑出 **1 failed / 177 passed / 2 skipped**(`test_notifications.py::test_notify_unconfigured_channels_skipped` 在 Codex env-cleanup 前是 6 failures 之一,Codex 通过"进程级清空通知渠道 env"绕过,但**测试本身仍依赖外部环境而非 isolation 自治**)。修复路径:加 `_clean_notification_settings(monkeypatch)` autouse fixture,主动清空 13 项通道 settings(wechat 5 + dingtalk 5 + smtp 4),让测试**完全不依赖跑测试者本机 .env 状态**。
+  - **议题 B — `backend/.env.example` 兼容别名注释 + `README.md` 最小必填 env 清单**:
+    - `.env.example` 在 4 处章节头(WECHAT / DINGTALK / NEW_API / SMTP)加 `# 兼容别名(config.py AliasChoices):XXX` 注释行(L66 OSS 已有兼容别名注释,保留不动)。
+    - `README.md`「开发环境启动」Step 1 之后插入 7 行最小必填项清单(`JWT_SECRET_KEY` + `DATABASE_URL` + `REDIS_URL` + `AIPM_ENV` + `POSTGRES_PASSWORD`,其余字段缺失时优雅降级)。
+    - **不**改 `backend/app/config.py`(pydantic 必填 + AliasChoices 已生效,过度封装风险高)。
+    - **不**改 `DEPLOY.md`(它是生产部署清单,本任务只面向本地开发)。
+  - **议题 C — `conftest.py:25` + `test_notifications.py:93` 双处硬编码 `replace("/aipm_db", "/aipm_db_test")` 隐患升级为 T-1102 主线**:**红线风险** — DB 名非 `aipm_db` 时(如 `qiaocai` / 用户自定义)replace 不命中,`TEST_DATABASE_URL` = 生产 URL,`Base.metadata.drop_all` 会**清生产表**。修复路径:抽 helper `derive_test_database_url(source_url, suffix="_test")` 到新建 `backend/tests/_db_url.py`(~50 行),用 `sqlalchemy.engine.url.make_url` 精确替换 `database` 字段 + production-同名防御性 assert;`conftest.py` + `test_notifications.py` 双调用点同步切换。
   - **不**改 `backend/.env`(个人本机配置,**严禁 Agent 直接改**)。
-  - **完整执行契约**:待 T-1102 spec 由指挥官正式起草后链接;**本 entry 仅为 backlog 占位**,**严禁** Worker 在 spec 物理落盘前自启。
+  - **不**改 `backend/app/`、`backend/alembic/`、`frontend/`、`DEPLOY.md` 任何文件。
+  - **完整执行契约见 `docs/T-1102_spec.md`**(必读,~620 行 10 章 + 📣 附录)。
 
 ---
 
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-28 15:30:00]`(指挥官 T-1101 契约起草完成 — Phase 11 首任 Task 测试基线回归修复发牌)
+> **更新时间戳**: `[2026-05-28 17:21:38]`(指挥官 T-1102 契约起草完成 — Phase 11 第二任 Task 测试隔离 + 配置漂移修复发牌;**议题 A + B + C 三合一**)
 
-- **当前持牌任务**: **T-1101**(Phase 11 **首任** — 测试基线回归修复,**零 src 改动**)—— 修复 26 个 test failure。根因:`8459a5b` + `b5e77c3` 两条远程 fix(由 ericdv111 在 12:54 + 13:34)改了 service 签名 + RBAC middleware,但测试**未同步**导致。
+- **当前持牌任务**: **T-1102**(Phase 11 **第二任** — 测试隔离污染 + 配置漂移仓库层面修复,**零业务 src 改动**)—— 收口 T-1101 二次验收实测剩余的 1 failed (`test_notify_unconfigured_channels_skipped` 测试自治缺失)+ 仓库层面消除 `backend/.env` 配置漂移隐患(`.env.example` 兼容别名 + `README.md` 最小必填项清单)+ 根除 `conftest.py:25` + `test_notifications.py:93` 双处硬编码 `replace("/aipm_db", "/aipm_db_test")` 红线风险(DB 名非 `aipm_db` 时 `TEST_DATABASE_URL` 会指向生产库,`Base.metadata.drop_all` 会清生产表)。
 
-- **执行入口**: **必须读完整** `docs/T-1101_spec.md`(本契约 ~450 行 10 章 + 📣 附录)。**必须**在改动前跑 4 个前置探针(`git status --short --branch` / `git log -3 --oneline` / `git diff` / `git diff --cached`),核验 HEAD = `c9693a9` 之后(T-1101 spec commit 落地后),工作树干净,4 既定 untracked + `.claude/` 保留。
+- **执行入口**: **必须读完整** `docs/T-1102_spec.md`(本契约 ~620 行 10 章 + 📣 附录)。**必须**在改动前跑前置探针(`git status --short --branch` / `git log -3 --oneline` / `git diff` / `git diff --cached` + `ls backend/tests/__init__.py 2>&1`),核验 HEAD = `chore(spec): T-1102 契约起草` commit 之后,工作树干净(`dev_tasks.md` Task 2 已被指挥官加锁 `[/]`),4 既定 untracked + `.claude/` 保留。
 
-- **核心动作**(2 commit / 4 文件 = 3 tests + 1 dev_tasks):
+- **核心动作**(2 commit / 5-6 文件):
 
-  **Commit 1 (fix)** — `fix(tests): T-1101 restore baseline — pass tenant_id and must_change_password=False`:
-  1. **改** `backend/tests/test_phase10_dept_group.py`:`_make_user` helper L76-99 在 `User(...)` 字段末尾插入 `must_change_password=False,`(spec §3.1.1);**12 处 service call**(grep `list_departments\|delete_department\|get_department_with_members\|group_reports_by_department\|group_reports_by_project`)逐处加 `tenant_id=TENANT_ID` 关键字参数(spec §3.1.2)。
-  2. **改** `backend/tests/test_kpi_phase9.py`:L147+ `_make_user` helper 在 `User(...)` 字段末尾插入 `must_change_password=False,`(spec §3.2.1)。
-  3. **改** `backend/tests/test_me_deletions.py`:L25+ inline `User(...)`(可能多处,grep `User(` 全找出)每处末尾插入 `must_change_password=False,`(spec §3.3.1)。
+  **Commit 1 (fix)** — `fix(tests): T-1102 harden test isolation and config drift — derive_test_database_url helper + notification settings monkeypatch + .env.example aliases + README minimum env checklist`:
 
-  **Commit 2 (chore)** — `chore(progress): close T-1101 — Phase 11 测试基线回归修复完工`:
-  4. **改** `docs/dev_tasks.md`:Phase 11 Task 1 (T-1101) `[ ]` → `[x]`;本 📣 锚点**末尾追加** T-1101 完工时间戳标记(不擦除当前 T-1101 持牌文字,保留作审计)。
+  **议题 C 主修复**(优先做,后两步依赖 helper 存在):
+  1. **新建** `backend/tests/_db_url.py`(spec §3.1 完整字面量复制粘贴,~50 行,`derive_test_database_url(source_url, suffix="_test")` helper)。
+  2. **(条件)** 若 `ls backend/tests/__init__.py` 返回 not found,**新建空文件** `backend/tests/__init__.py`(0 字节);已存在则跳过。
+  3. **改** `backend/tests/conftest.py`:`from app.main import app`(L21)之后加 `from tests._db_url import derive_test_database_url`;**替换** L25 整行为 `TEST_DATABASE_URL = os.getenv("DATABASE_URL_TEST") or derive_test_database_url(settings.database_url)`(spec §3.2.1 字面量)。
+  4. **改** `backend/tests/test_notifications.py`:L33 import 区追加 `from tests._db_url import derive_test_database_url`;**替换** L93 整行为 `TEST_DATABASE_URL = derive_test_database_url(settings.database_url)`(spec §3.3.1)。
 
-- **严禁项**(违反立即驳回,详见 spec §6 完整 20 项):
-  - **严禁**改 `backend/app/` / `backend/alembic/` / `frontend/` 任何文件(远程 fix 是有意改动,不要回滚)。
-  - **严禁**改 `must_change_password` RBAC 检查或 `tenant_id` service 签名(本任务仅修测试基线)。
-  - **严禁**给 service `tenant_id` 加默认值绕过新签名。
-  - **严禁**在 model 层把 `must_change_password` 改为 `default=False`(model 是 src)。
+  **议题 A 主修复**:
+  5. **改** `backend/tests/test_notifications.py`:在 L107(`isolated_db` fixture 结束)之后 / L110(`@pytest.mark.asyncio`)之前,插入 `_clean_notification_settings(monkeypatch)` autouse fixture(spec §3.3.2 完整字面量,**13 项 setattr 顺序锁定**:wechat 5 + dingtalk 5 + smtp 4)。
+
+  **议题 B 主修复**:
+  6. **改** `backend/.env.example`:在 4 处章节头(WECHAT L24 之前 / DINGTALK L45 之前 / NEW_API L56 之前 / SMTP L92 之前)**纯插入** 1 行 `# 兼容别名(config.py AliasChoices):XXX`(spec §3.4.1 字面量逐条复制粘贴)。**严禁**改 L66 OSS(已有兼容别名注释)。
+  7. **改** `README.md`:在 L31(`# 编辑 .env，填写企微、NewApi、数据库连接等配置`)之后 / L33(`# ── Step 2: ...`)之前,**纯插入** 7 行最小必填项清单 + 上下各 1 空行(spec §3.5.1 字面量)。
+
+  **Commit 2 (chore)** — `chore(progress): close T-1102 — Phase 11 测试隔离 + 配置漂移修复完工`:
+  8. **改** `docs/dev_tasks.md`:Phase 11 Task 2 (T-1102) `[/]` → `[x]`,标题改为 `**Task 2 (T-1102): 测试隔离污染 + 配置漂移仓库层面修复(议题 A + B + C 三合一)** — Done by Codex [YYYY-MM-DD HH:MM:SS]`;**保留**子 bullet 全部不动;在本 📣 锚点段**末尾追加**(不擦除当前 T-1102 持牌字面量):
+     ```markdown
+     > **更新时间戳(T-1102 完工)**: `[YYYY-MM-DD HH:MM:SS]`
+     > **当前持牌任务**: 无(T-1102 已 `[x]`,议题 A/B/C 三合一收口;等待指挥官二次验收)。**绝对不要**自启 T-1103。**绝对不要** `git push`。
+     ```
+
+- **严禁项**(违反立即驳回,详见 spec §6 完整 25 项):
+  - **严禁**改 `backend/app/` 任何文件(包括 `config.py` —— pydantic 必填 + AliasChoices 已生效,**不**叠加自定义 validator)。
+  - **严禁**改 `backend/alembic/` 任何 migration。
+  - **严禁**改 `frontend/` 任何文件。
+  - **严禁**改 `DEPLOY.md`(本任务面向本地开发,不重写生产部署清单)。
+  - **严禁**改 `backend/.env`(个人本机配置)。
+  - **严禁**改 `backend/tests/` 上述白名单 3 文件 + `_db_url.py` + `__init__.py` 之外的任何 test。
+  - **严禁**给 `_clean_notification_settings` 加超范围 setattr(`new_api_*` / `oss_*` / `xunfei_*` / `jwt_*` 等非通知通道字段不允许)。
+  - **严禁**把 fixture 改为 `autouse=False` 或非 `monkeypatch.setattr`。
+  - **严禁**给 `notify_service` / 通知模板 / `Notification` model 加防御性代码(议题 A 是测试问题,不是 service bug)。
+  - **严禁**在 `_db_url.py` 内 import `app.config` / `Base` / `settings`(必须**纯 sqlalchemy.engine.url** 依赖)。
+  - **严禁**篡改 `derive_test_database_url` 签名 / 默认 suffix / 防御性 assert 字面量。
+  - **严禁**在 `.env.example` / `README.md` 中**删除**任何现有行(只能纯插入)。
   - **严禁** sed 一刀切批量 replace(必须 Read + 精确 Edit 每处)。
-  - **严禁**改其他 `tests/test_*.py` 文件(spec §2 白名单严格 3 文件)。
   - **严禁**动 4 既定 untracked + `.claude/` 项目级 ECC symlinks。
   - **严禁** `git push`(留给指挥官决策推送时机)。
-  - **严禁**自启 T-1102 / T-11XX 任何后续任务。
-  - **严禁** revert `8459a5b` / `b5e77c3` / `c9693a9` 任何 commit。
-  - **严禁**在两条 commit message 中遗漏 `Worker timestamp:` 行。
-  - **严禁**写极简一行 commit message(必须 multi-line body,对比 T-1005/T-1007 风格)。
+  - **严禁**自启 T-1103 / Phase 11 后续任务。
+  - **严禁** revert `8459a5b` / `b5e77c3` / `c9693a9` / `1c67bd4` / `19ac08e` / `8d69ca8` 任何 commit。
+  - **严禁**在 feat / chore commit 之外打额外提交(`chore(lock)` 已由指挥官代办)。
+  - **严禁**在两条 commit message 中遗漏 `Worker timestamp:` 行 或 写极简一行 commit message。
 
 - **闸门**(全绿才提交,详见 spec §5):
   ```bash
   cd backend
-  .venv/bin/ruff check .
-  .venv/bin/mypy tests/test_phase10_dept_group.py tests/test_kpi_phase9.py tests/test_me_deletions.py
-  .venv/bin/pytest -q   # 必须 0 failed, ≥178 passed, 2 skipped
-  .venv/bin/alembic check
+  .venv/bin/ruff check tests/_db_url.py tests/conftest.py tests/test_notifications.py
+  .venv/bin/mypy tests/_db_url.py tests/conftest.py tests/test_notifications.py
+  .venv/bin/pytest -q   # 0 failed, ≥178 passed, 2 skipped
+  .venv/bin/pytest -q tests/test_notifications.py::test_notify_unconfigured_channels_skipped -v   # 1 passed
+  .venv/bin/alembic check   # No new upgrade operations
+
+  # 议题 C 单点验收(derive helper 3 用例)
+  .venv/bin/python -c "
+  from tests._db_url import derive_test_database_url
+  assert derive_test_database_url('postgresql+asyncpg://u:p@h:5432/aipm_db').endswith('/aipm_db_test')
+  assert derive_test_database_url('postgresql+asyncpg://u:p@h:5432/qiaocai').endswith('/qiaocai_test')
+  print('derive_test_database_url helper PASS')
+  "
   ```
 
   改动面校验:
   ```bash
   cd ..
-  git diff <fix-sha>^..<fix-sha> -- backend/app/ backend/alembic/ frontend/   # 必须空
-  git status --short | grep "^??" | wc -l                                     # 必须 = 4
+  git diff <fix-sha>^..<fix-sha> -- backend/app/ backend/alembic/ frontend/ DEPLOY.md backend/.env   # 必须空
+  git diff <fix-sha>^..<fix-sha> --name-only   # 严格 5-6 文件,无其他
+  git status --short | grep "^??" | grep -vE "^\?\? \.claude/$" | wc -l   # 必须 = 4
   ```
 
 - **完工提交序列**(2 commit,顺序锁定):
-  1. `fix(tests): T-1101 restore baseline — pass tenant_id and must_change_password=False` —— **3 文件**(`test_phase10_dept_group.py` + `test_kpi_phase9.py` + `test_me_deletions.py`)。
-  2. `chore(progress): close T-1101 — Phase 11 测试基线回归修复完工` —— **1 文件**(`dev_tasks.md`)。
+  1. `fix(tests): T-1102 harden test isolation and config drift — derive_test_database_url helper + notification settings monkeypatch + .env.example aliases + README minimum env checklist` —— **5-6 文件**(`backend/tests/_db_url.py` + `backend/tests/conftest.py` + `backend/tests/test_notifications.py` + `backend/.env.example` + `README.md` + 视情况新建 `backend/tests/__init__.py`)。
+  2. `chore(progress): close T-1102 — Phase 11 测试隔离 + 配置漂移修复完工` —— **1 文件**(`dev_tasks.md`)。
 
-  两条 commit message 都**必须**包含 multi-line body + 末尾 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 行。
+  两条 commit message 都**必须**包含 multi-line body(对比 T-1005/T-1007/T-1008 风格)+ 末尾 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 行。
 
 - **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
 
-- **完工后**: 立即停手汇报「T-1101 完工,pytest 26 failed → 0 failed,等待指挥官二次验收 + Phase 11 后续 task 起草」。**绝对不要**自启 T-1102。**绝对不要** `git push`。
-
-> **更新时间戳(T-1101 完工)**: `[2026-05-28 16:47:55]`
-> **当前持牌任务**: 无(T-1101 已 `[x]`,pytest-only closure 已按 Supervisor 授权收口;等待指挥官二次验收)。**绝对不要**自启 T-1102。**绝对不要** `git push`。
+- **完工后**: 立即停手汇报「T-1102 完工,议题 A/B/C 三合一收口,pytest 1 failed → 0 failed,178 passed + 2 skipped。等待指挥官二次验收 + Phase 11 后续 task 起草」。**绝对不要**自启 T-1103。**绝对不要** `git push`。
