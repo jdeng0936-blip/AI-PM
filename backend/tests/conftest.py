@@ -9,7 +9,8 @@ tests/conftest.py — pytest 全局 Fixtures (Rule 01-Stack-Backend)
 
 import asyncio
 import os
-from typing import AsyncGenerator
+from importlib import import_module
+from typing import Any, AsyncGenerator, cast
 
 import pytest
 import pytest_asyncio
@@ -18,11 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.database import Base, get_db
-from app.main import app
+from tests._db_url import derive_test_database_url
+
+app = cast(Any, import_module("app.main").app)
 
 # ── 使用独立测试数据库（生产数据库名追加 _test）──────────────────
 # CI 显式传 DATABASE_URL_TEST;本地未配置时沿用历史规则。
-TEST_DATABASE_URL = os.getenv("DATABASE_URL_TEST") or settings.database_url.replace("/aipm_db", "/aipm_db_test")
+# T-1102 议题 C:用 derive_test_database_url 替代 str.replace,
+# 防御 DB 名非 `aipm_db` 时硬编码 replace 失效落到生产 URL 的风险。
+TEST_DATABASE_URL = os.getenv("DATABASE_URL_TEST") or derive_test_database_url(settings.database_url)
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)

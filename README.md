@@ -30,6 +30,14 @@
 cd backend && cp .env.example .env
 # 编辑 .env，填写企微、NewApi、数据库连接等配置
 
+# ── 最小必填项(否则后端启动会失败) ───────────────────────────────
+# 1. JWT_SECRET_KEY      — 用 `openssl rand -hex 32` 生成 32 字符随机串
+# 2. DATABASE_URL        — 例:postgresql+asyncpg://aipm:devpass@localhost:5432/aipm_db
+# 3. REDIS_URL           — 例:redis://localhost:6379/0
+# 4. AIPM_ENV            — dev(自动建表)或 prod(必须先 alembic upgrade head)
+# 5. POSTGRES_PASSWORD   — 与 DATABASE_URL 中的 pwd 字段保持一致(供 Docker Compose 启动 PG 用)
+# 其余字段(企微 / 钉钉 / OSS / Sentry / NewApi)缺失时对应功能优雅降级,不阻断启动。
+
 # ── Step 2: 启动本地 PostgreSQL & Redis ──────────────────────────
 # 如果没有本地 PG/Redis，可以用 Docker 单独启动：
 docker run -d --name pg-dev -e POSTGRES_USER=aipm -e POSTGRES_PASSWORD=devpass \
