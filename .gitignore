@@ -54,3 +54,4 @@ tsconfig.tsbuildinfo
 CLAUDE.md
 CONVENTIONS.md
 backend/uv.lock
+.claude/
