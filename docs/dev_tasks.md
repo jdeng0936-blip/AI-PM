@@ -224,6 +224,18 @@ cd frontend && npm run lint && npm run typecheck
   - **不**改 `backend/alembic/`、`backend/conftest.py`、`backend/pyproject.toml`、`backend/requirements.txt`。
   - **不**改 T-1101 修复面以外的其他 `tests/test_*.py` 文件。
   - **完整执行契约见 `docs/T-1101_spec.md`**(必读,~450 行 10 章 + 📣 附录)。
+  - **指挥官二次验收(`[2026-05-28 16:03:00]`)**:✅ **PASS — 接受 Codex pytest-only closure**(Worker timestamp `[2026-05-28 16:47:22]`)。Codex 双 commit `1c67bd4 fix(tests) → 19ac08e chore(progress)` 改动 5 个 test files(spec §2 原白名单 3 文件 + Supervisor 特批扩展 `test_analytics.py` + `test_export_phase8.py`),Codex 环境实测 178 passed + 2 skipped。**指挥官本机抽样验证**(`[2026-05-28 16:03]`):`JWT_SECRET_KEY` inline 注入跑 `pytest -q --tb=no` 实测 **177 passed + 1 failed + 2 skipped**;唯一 failed 是 `test_notifications.py::test_notify_unconfigured_channels_skipped`(Codex closure 明确说明需要"进程级清空通知渠道 env",属环境依赖非测试代码 bug,**留作 T-1102 议题 A 测试隔离污染下沉**)。**注**:指挥官 16:00 之前误判 T-1101 为"自然解决"(基于本机 6 failures baseline),实际 Codex 在它环境跑到 26 failures 并真做 fix Edit,**判断错误已纠正,Codex 工作完整有效,不撤回 1c67bd4 / 19ac08e**。**Phase 11 首任 Task 闭环**,T-1102 候选议题待指挥官起草 spec。
+
+### 测试隔离污染 + 配置漂移 (Test Isolation & Config Drift) — T-1102 候选 backlog
+- [ ] **Task 2 (T-1102 候选 — 待指挥官起草 spec): 测试隔离污染 + `backend/.env.example` 配置漂移修复**(Phase 11 第二任 candidate)
+  - **议题 A — 测试隔离污染**(T-1101 closure 后剩余,`[2026-05-28 16:03]` 指挥官实测):全套 `pytest -q` 跑出 **1 failed / 177 passed / 2 skipped**(`test_notifications.py::test_notify_unconfigured_channels_skipped` 在 Codex env-cleanup 前是 6 failures 之一,Codex 通过"进程级清空通知渠道 env"绕过,但**测试本身仍依赖外部环境而非 isolation 自治**)。仓库层面真正需要的是测试代码层面的 mock + isolation,而不是依赖跑测试者手动清 env。
+  - **议题 B — `backend/.env` 配置漂移仓库层面修复**(原 T-1102 Option α 范围):
+    - `backend/.env.example` 完整对齐 `config.py` 字段命名(`AIPM_ENV` / `SMTP_SERVER` / `WECHAT_CORP_ID` / `DINGTALK_APP_KEY` / `NEW_API_*`),并在注释中标注常见误用别名(`APP_ENV` / `SMTP_HOST` / `WECHAT_CORPID_ID` / `DING_APP_KEY` / `OPENAI_API_KEY` 等)。
+    - `README.md` 或 `DEPLOY.md` 加「本地启动检查清单」段,强调 `cd backend` 工作目录 + 必填 5 项 env vars(`JWT_SECRET_KEY` / `DATABASE_URL` / `AIPM_ENV` / ...)+ Docker PG 容器端口提醒(`localhost:5434`)。
+    - `backend/app/config.py` 加 startup validation:缺关键变量(`JWT_SECRET_KEY` / `DATABASE_URL`)抛带帮助文字的 `RuntimeError`,而非难懂 pydantic `ValidationError`。
+  - **议题 C(隐患,留待 T-1103 单独评估)**:**`conftest.py:25`** `replace("/aipm_db", "/aipm_db_test")` 硬编码对 `qiaocai` / 非 `aipm_db` 命名的 DB 失效,测试库 URL 可能等于 production DB URL(`drop_all` 风险)。
+  - **不**改 `backend/.env`(个人本机配置,**严禁 Agent 直接改**)。
+  - **完整执行契约**:待 T-1102 spec 由指挥官正式起草后链接;**本 entry 仅为 backlog 占位**,**严禁** Worker 在 spec 物理落盘前自启。
 
 ---
 
