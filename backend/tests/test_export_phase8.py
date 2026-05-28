@@ -73,6 +73,7 @@ async def _make_user(db: AsyncSession, *, role: UserRole, department: str, name:
         job_title="工程师",
         role=role,
         is_active=True,
+        must_change_password=False,
     )
     db.add(user)
     await db.flush()

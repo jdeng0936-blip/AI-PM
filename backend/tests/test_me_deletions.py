@@ -30,6 +30,7 @@ def _user(role: UserRole = UserRole.employee) -> User:
         job_title="工程师",
         role=role,
         is_active=True,
+        must_change_password=False,
     )
 
 

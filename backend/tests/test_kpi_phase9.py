@@ -153,6 +153,7 @@ async def _make_user(db: AsyncSession, role: UserRole, name: str = "KPI 测试�
         job_title="工程师",
         role=role,
         is_active=True,
+        must_change_password=False,
     )
     db.add(user)
     await db.commit()
@@ -275,7 +276,7 @@ async def test_calculate_achievement_no_data_returns_none(db_session: AsyncSessi
         actor,
     )
 
-    resp = await calculate_kpi_achievement(db_session, KpiPeriod.monthly)
+    resp = await calculate_kpi_achievement(db_session, KpiPeriod.monthly, tenant_id="default")
     row = next(r for r in resp.rows if r.metric == KpiMetric.blocker_resolve_days)
     assert row.actual_value is None
     assert row.gap is None
@@ -312,7 +313,7 @@ async def test_list_kpi_targets_stable_order(db_session: AsyncSession) -> None:
     ]:
         await upsert_kpi_target(db_session, payload, actor)
 
-    rows = await list_kpi_targets(db_session)
+    rows = await list_kpi_targets(db_session, tenant_id="default")
     global_indexes = [i for i, row in enumerate(rows) if row.scope == KpiScope.global_]
     dept_indexes = [i for i, row in enumerate(rows) if row.scope == KpiScope.department]
     assert global_indexes and dept_indexes
@@ -425,7 +426,7 @@ async def test_calculate_achievement_with_real_data(db_session: AsyncSession) ->
         await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_daily_user_stats"))
         await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_weekly_dept_stats"))
 
-        resp = await calculate_kpi_achievement(db_session, KpiPeriod.monthly)
+        resp = await calculate_kpi_achievement(db_session, KpiPeriod.monthly, tenant_id="default")
         row = next(
             r
             for r in resp.rows

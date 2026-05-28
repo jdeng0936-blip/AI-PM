@@ -89,6 +89,7 @@ async def _make_user(
         role=role,
         is_active=is_active,
         tenant_id=TENANT_ID,
+        must_change_password=False,
     )
     db.add(user)
     await db.flush()
@@ -253,7 +254,7 @@ async def test_dept_service_get_with_members_returns_active_users(db_session: As
         await _make_user(db_session, UserRole.employee, name=name, department=dept.name)
     await _make_user(db_session, UserRole.employee, name="Phase10 Inactive", department=dept.name, is_active=False)
 
-    result = await get_department_with_members(db_session, dept.id)
+    result = await get_department_with_members(db_session, dept.id, tenant_id=TENANT_ID)
 
     assert {member.name for member in result.members} == active_names
     assert all(member.department == dept.name for member in result.members)
@@ -263,7 +264,7 @@ async def test_dept_service_get_with_members_empty_returns_empty_list(db_session
     await _cleanup_phase10_test_data(db_session)
     dept = await _make_department(db_session, "Phase10 空部门")
 
-    result = await get_department_with_members(db_session, dept.id)
+    result = await get_department_with_members(db_session, dept.id, tenant_id=TENANT_ID)
 
     assert result.members == []
 
@@ -277,7 +278,13 @@ async def test_admin_reports_group_by_department_aggregates_correctly(db_session
     await _make_daily_report(db_session, tech.id, None, today, ai_score=60.0, pass_check=False)
     await _make_daily_report(db_session, sales.id, None, today, ai_score=90.0, pass_check=True)
 
-    result = await group_reports_by_department(db_session, today - timedelta(days=7), today, project_id=None)
+    result = await group_reports_by_department(
+        db_session,
+        today - timedelta(days=7),
+        today,
+        project_id=None,
+        tenant_id=TENANT_ID,
+    )
     by_key = {row.key: row for row in result.groups}
 
     assert by_key["Phase10 技术部"].report_count == 2
@@ -297,7 +304,13 @@ async def test_admin_reports_group_by_project_inner_join_excludes_null_project(d
     await _make_daily_report(db_session, user.id, None, today, ai_score=50.0, pass_check=False)
     await _make_daily_report(db_session, user.id, project.id, today, ai_score=90.0, pass_check=True)
 
-    result = await group_reports_by_project(db_session, today - timedelta(days=7), today, project_id=project.id)
+    result = await group_reports_by_project(
+        db_session,
+        today - timedelta(days=7),
+        today,
+        project_id=project.id,
+        tenant_id=TENANT_ID,
+    )
 
     assert len(result.groups) == 1
     assert result.groups[0].key == str(project.id)
