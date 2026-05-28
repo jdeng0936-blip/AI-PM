@@ -48,3 +48,9 @@ backend/.venv311/
 # OSS 本地降级目录(Week 3)
 backend/uploads/
 tsconfig.tsbuildinfo
+
+# AI Agent 本地配置(不属于项目代码)
+.cursorrules
+CLAUDE.md
+CONVENTIONS.md
+backend/uv.lock
