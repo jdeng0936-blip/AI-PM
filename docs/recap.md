@@ -1,9 +1,16 @@
 # AI-PM Recap
 
 ## 最新进度摘要
-- [Phase 10] T-1001 §10 实物盘点 + plan 实际落地路径段落落盘(纯文档勘察,backend/frontend/tests 全冻结)
+- **Phase 10 Task 1 (T-1001)**: 完成 §10 实物盘点(纯只读勘察)+ `docs/implementation-plan.md §10` 末尾「实际落地路径(Phase 10 勘察)」段落盘,6 维度对照(3 ❌ + 3 部分 ✅)。
+- **Phase 10 Task 2 (T-1002)**: 完成 `ProjectMember.__table_args__` 补 partial UNIQUE index `(project_id, user_id) WHERE left_at IS NULL`,软删除友好(允许员工离开后重新加入)。
+- **Phase 10 Task 3 (T-1003)**: 完成 `Department(BaseMixin, Base)` 独立表 + Alembic migration + 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部),`User.department` VARCHAR 字段保留双轨在线。
+- **Phase 10 Task 4 (T-1004)**: 完成 `/api/v1/admin/departments/` 5 端点(GET list / POST 201 / GET `{id}/members` / PATCH `{id}` / DELETE `{id}` 204),RBAC `admin+manager`,统一 `ValueError("not_found" / "name_conflict" / "manager_not_found")` 错误信号。
+- **Phase 10 Task 5 (T-1005)**: 完成 `/api/v1/admin/reports?group_by=department|project` 对外分组聚合端点,4 项指标(`report_count` / `avg_score` / `pass_count` / `pass_rate`)+ inner join `Project` 剔除 NULL `project_id`,`start_date>end_date` → 400。
+- **Phase 10 Task 6 (T-1006 + T-1006-FIX)**: 完成前端 `/admin/departments` 管理页(表格 5 列 + Modal CRUD)+ `/dashboard` 3 按钮 Tabs 切换器(`all` / `by_department` / `by_project`)+ sidebar `Building2` 入口;UUID_REGEX `8-4-4-4-12` 五段,单行复议闭环(三次验收通过)。
+- **Phase 10 Task 7 (T-1007)**: 完成 `backend/tests/test_phase10_dept_group.py` 18 case 三层测试(Model 3 + Service 5 + Router 10),后端 pytest `178 passed, 2 skipped` 零回归。
+- **Phase 10 Task 8 (T-1008)**: 完成文档收尾 — `docs/implementation-plan.md §10` 末尾追加「实际落地路径(Phase 10 实施)」段记录 6 维度从 ❌/部分 ✅ → ✅ 的变化 + `docs/recap.md` 当前阶段切换至 Phase 11 候选 + Phase 10 全 task 历史移交记录落盘。
 - **V2.6 阶段**: Deletion Governance 的集成测试与 ESLint 规范修复已完成，工作区已清理并提交 (`f7987dd`)。
-- 当前阶段:Phase 10(勘察先行轮)
+- 当前阶段:Phase 11 候选(Phase 10 已闭环,T-1001 ~ T-1008 八任务全收口)
 - **架构指引**: 详见 `docs/implementation-plan.md` Section 9；实际路由前缀对齐现有 `/api/v1/admin/kpi`。
 - **Phase 7 Task 1**: 已创建 `mv_daily_user_stats` / `mv_weekly_dept_stats` Materialized Views 迁移，并在 scheduler 注册每日 00:45 刷新任务；本地 PostgreSQL 已验证 `alembic upgrade head`、MV refresh、`alembic check`。
 - **Phase 7 Task 2**: 已新增 `/api/analytics/*` FastAPI 接口：user-trend / department-compare / project-health / sprint-efficiency；集成测试覆盖 MV 读取、manager 访问和 employee 越权拦截。
@@ -22,6 +29,15 @@
 - **Phase 9 Task 8 (T-908)**: 修 metric 枚举漂移,后端 ORM/PG ENUM `sprint_completion` → `objective_completion`(单条 `ALTER TYPE RENAME VALUE` DDL 原子重命名 + seed 自动同步),前后端命名统一。Phase 9 PR 已自洽。
 
 ## 历史移交记录
+- [2026-05-28 by Commander] Phase 10 闭环 — `implementation-plan.md` §10 原文 6 维度从 `3 ❌ + 3 部分 ✅` 全部落地为 `6 ✅`;T-1001~T-1008 八任务 33+ commit(含 T-1006-FIX 单行复议)零冗余、零回归;Phase 11 候选方向 — `User.department` → FK 迁移 / 物化视图增量按部门聚合 / Tabs `by_project` 加权重柱状图 / `Department.manager_id` 与 KPI scope 打通。
+- [2026-05-28] Phase 10 Task 8 (T-1008) 完成:`implementation-plan.md §10` 末尾「实际落地路径(Phase 10 实施)」段 + `recap.md` 当前阶段切换至 Phase 11 候选 + Phase 10 全 task 历史移交记录落盘。
+- [2026-05-28] Phase 10 Task 6 (T-1006 + T-1006-FIX) 完成:前端 `/admin/departments` 管理页 + `/dashboard` 3 按钮 Tabs 切换器 + sidebar `Building2` 入口;UUID_REGEX 8-4-4-4-12 五段单行复议闭环(三次验收通过)。
+- [2026-05-27] Phase 10 Task 7 (T-1007) 完成:`backend/tests/test_phase10_dept_group.py` 18 case 三层测试,pytest `178 passed, 2 skipped` 零回归。
+- [2026-05-27] Phase 10 Task 5 (T-1005) 完成:`/api/v1/admin/reports?group_by=department|project` 对外分组聚合端点,4 项指标 + inner join 剔除 NULL project_id。
+- [2026-05-27] Phase 10 Task 4 (T-1004) 完成:`/api/v1/admin/departments/` 5 端点(CRUD + members 反查),RBAC admin+manager,统一 ValueError 错误信号。
+- [2026-05-27] Phase 10 Task 3 (T-1003) 完成:`Department` 独立表 + ORM + Alembic migration + 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部)。
+- [2026-05-27] Phase 10 Task 2 (T-1002) 完成:`ProjectMember` partial UNIQUE index `(project_id, user_id) WHERE left_at IS NULL` 补丁,软删除友好。
+- [2026-05-27] Phase 10 Task 1 (T-1001) 完成:§10 实物盘点 + `implementation-plan.md §10` 末尾「实际落地路径(Phase 10 勘察)」段落盘(纯文档勘察,backend/frontend/tests 全冻结)。
 - [2026-05-27 by Commander] Phase 10 启动 — Phase 9 KPI 已 push origin/main(`0b2a150`),Phase 10 不擅自臆造任务,改派 T-1001 勘察先行,落盘 plan §10 实际落地路径表后再起草后续 task。
 - [2026-05-27] Phase 9 Task 8 (T-908) 完成:后端 KpiMetric `sprint_completion` → `objective_completion`,前后端枚举对齐,Phase 9 PR 闭环可推送。
 - [2026-05-27] Phase 9 Task 7 完成:`docs/recap.md` + `docs/implementation-plan.md §9` 同步,后端测试补全 3 个用例。Phase 9 闭环。

@@ -816,6 +816,42 @@ Phase 10「部门与项目分组」启动前由指挥官派 T-1001 做实物盘�
 - `/api/admin/reports?group_by=department` 与 `/api/admin/reports?group_by=project&project_id=` 对外 reports 分组端点尚未落地。
 - 前端总经理看板的全员 / 按部门 / 按项目 Tabs 切换器尚未落地。
 
+### 实际落地路径(Phase 10 实施)
+
+T-1001 勘察结论(上文)指出 §10 原文 6 维度中 3 个 ❌ + 3 个部分 ✅。经 T-1002 ~ T-1007 七轮实施(七个 PR commit 链),全部 6 维度收敛为 ✅。落地映射如下:
+
+| 维度 | T-1001 勘察 | Phase 10 实施 | 关键 commit | 落地状态 |
+|------|------------|--------------|------------|----------|
+| 部门表 | ❌ 无独立表 | T-1003 新建 `backend/app/models/department.py` `Department(BaseMixin, Base)` + Alembic migration 建表 + 7 seed(技术部/生产部/采购部/财务部/商务部/销售部/仓储部) | `ad6643a` | ✅ |
+| 部门字段(`User.department`) | 部分 ✅(字符串字段,非 FK) | T-1003 增量并存:`User.department: VARCHAR(64)` 保留 + 新建 `Department` 独立表;FK 迁移延后 Phase 11+(本阶段双轨在线) | `ad6643a` | ✅(双轨) |
+| 项目成员关联 | 部分 ✅(缺 UNIQUE) | T-1002 `ProjectMember.__table_args__` 添加 partial unique index `(project_id, user_id) WHERE left_at IS NULL`,软删除友好(允许员工离开后重新加入) | `6e2b94a` | ✅ |
+| 项目路由(`group_by=project`) | 部分 ✅(无对外 group_by query) | T-1005 新建 `GET /api/v1/admin/reports?group_by=project&project_id=&start_date=&end_date=`,4 项聚合指标(`report_count` / `avg_score` / `pass_count` / `pass_rate`)+ inner join `Project` 剔除 NULL `project_id` | `02f3d58` | ✅ |
+| 部门分组端点 | ❌ 无对外 group_by | T-1004 新建 `/api/v1/admin/departments/` 5 端点(GET list / POST 201 / GET `{id}/members` / PATCH `{id}` / DELETE `{id}` 204);T-1005 新建 `GET /api/v1/admin/reports?group_by=department` | `d8737d9` + `02f3d58` | ✅ |
+| 前端 Tabs 切换器 | ❌ 无切换器 | T-1006 新建 `frontend/src/app/admin/departments/page.tsx`(表格 5 列 + Modal CRUD)+ 改造 `frontend/src/app/dashboard/page.tsx`(3 按钮 Tabs:`all` / `by_department` / `by_project` + `canSeeTabs` admin+manager 守卫)+ 改 `sidebar.tsx` 加 `Building2` 入口 | `72111e2` + `d169039` | ✅ |
+
+**测试覆盖**(原 plan §10 未列入维度,但 V2.6 防回归基线要求):T-1007 新增 `backend/tests/test_phase10_dept_group.py` 18 case 三层(Model 3 + Service 5 + Router 10),后端 pytest 全量 `178 passed, 2 skipped`(从 Phase 9 收口 `160 passed` 准确 `+18 case` 零回归)。
+
+实际对外 API 路径(Phase 10 新增,沿用 FastAPI router `prefix="/api/v1/admin/..."`):
+
+| 方法 | 实际路径 | RBAC | 说明 |
+|------|----------|------|------|
+| GET | `/api/v1/admin/departments/` | admin+manager | 部门列表,按 `name asc` |
+| POST | `/api/v1/admin/departments/` | admin+manager | 新建部门(201),名称冲突 409 `name_conflict` |
+| GET | `/api/v1/admin/departments/{id}/members` | admin+manager | 部门成员反查(`User.department` 等值 + `is_active=True` 过滤) |
+| PATCH | `/api/v1/admin/departments/{id}` | admin+manager | 部分更新,`manager_not_found` → 400 |
+| DELETE | `/api/v1/admin/departments/{id}` | admin+manager | 硬删除(204) |
+| GET | `/api/v1/admin/reports/?group_by=department\|project&project_id=&start_date=&end_date=` | admin+manager | 对外分组聚合,4 项指标,`start_date>end_date` → 400 |
+
+前端落地路径(Phase 10 新增):
+
+| 路径 / 入口 | 文件 | 说明 |
+|------|------|------|
+| `/admin/departments` | `frontend/src/app/admin/departments/page.tsx`(306 行) | 管理后台,表格 5 列 + Modal 新建/编辑 + 删除 confirm,RBAC `admin+manager` 守卫 |
+| `/dashboard` Tabs 切换器 | `frontend/src/app/dashboard/page.tsx`(+92/-0 局部插入) | 3 按钮组 `all` / `by_department` / `by_project`,5 列分组表(部门 / 日报数 / 均分 / 通过数 / 通过率),admin+manager 可见;`viewMode === 'all'` 时现有 5 sections 行为 100% 不变 |
+| Sidebar `/admin/departments` 入口 | `frontend/src/components/sidebar.tsx`(+2 行) | lucide-react `Building2` icon + `ADMIN_ITEMS` 入口插入 recycle-bin 之前 |
+
+**Phase 10 闭环口径**:`implementation-plan.md` §10 原文 6 维度 100% 落地;`mv_daily_user_stats` / `mv_weekly_dept_stats` 物化视图未介入(本阶段直查 `daily_reports + users + projects`,精度优先,代价 = `group_by=department` 端点 P95 仍处单表聚合范围);Phase 11 候选方向 — ① `User.department` → `Department.id` FK 迁移(双轨融合);② 物化视图增量按部门聚合预热(将 `/api/v1/admin/reports?group_by=` P95 从 ms 级压到 sub-ms);③ 前端 Tabs `by_project` 视图加权重柱状图 + 趋势线;④ `Department.manager_id` 反查路径与 Phase 9 KPI `KpiScope=department` 打通(总经理在 KPI 面板直接钻取部门日报与达成率)。
+
 ---
 
 ## 完整实施路线（13 周）
