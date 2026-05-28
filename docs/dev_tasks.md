@@ -209,6 +209,7 @@ cd frontend && npm run lint && npm run typecheck
   - 5 散落其他(原因同 Type A/B)
 - 工作树干净,4 既定 untracked + 项目级 ECC symlinks(`.claude/skills/` 16 个 + `.gitignore` 已排除,见 `c9693a9 chore: ignore .claude/`)。
 - 当前 alembic head:`9a1b2c3d4e5f`(`20260528_1000_security_readiness_constraints.py`,由 `b5e77c3` 加)。
+- ⚠️ **本机验证风险**(`backend/.env` 漂移):`backend/.env` 已被 `.gitignore` 忽略(个人本机配置)。若缺 `JWT_SECRET_KEY`(`backend/app/config.py:112` 无默认值,pydantic 必填),本机 `pytest collection`(`conftest.py:19 from app.config import settings`)与 `uvicorn app.main:app` 都会 hard fail。Worker 在本机跑 T-1101 闸门前需先确认 `backend/.env` 含 `JWT_SECRET_KEY`(否则除 26 failures 还会叠加 ImportError),且 `.env` 变量名需与 `config.py` 对齐(`AIPM_ENV` / `SMTP_SERVER` / `WECHAT_CORP_ID` / `DINGTALK_APP_KEY` / `NEW_API_*` 等;`extra="ignore"` 会让旧名 silent miss)。**仓库层面修复待 T-1102**(Option α:改 `backend/.env.example` + README/DEPLOY 启动检查清单 + `config.py` 友好错误提示;**严禁 Agent 直接改 `backend/.env`**)。
 
 ## 任务看板
 
