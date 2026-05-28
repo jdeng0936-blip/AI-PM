@@ -165,7 +165,7 @@
   - **完整执行契约见 `docs/T-1007_spec.md`**(必读)。
   - **指挥官二次验收(`[2026-05-27 21:32:50]`)**:✅ PASS。§8 验收清单 **19/19 全通过**:① commit 链路 `bb18476 → 359c1e8 → 5b6b01f` 干净 ② feat 仅 1 文件新建 420 行(契约预估 ~380 +10% 内合理) ③ chore 仅 `dev_tasks.md` +1/-1 ④ **18/18 case 命名 100% 对齐契约**(grep 校验通过) ⑤ 6/6 helpers `_cleanup_phase10_test_data / _make_user / _headers / _make_department / _make_project / _make_daily_report` 完整 ⑥ **零 mock/skip/print/logger/monkeypatch**(grep 严禁项校验 0 hit) ⑦ `ruff check .` All passed ⑧ `mypy tests/test_phase10_dept_group.py` 0 error ⑨ **pytest 新文件 18/18 passed in 7.29s** ⑩ **pytest 全量 178 passed, 2 skipped**(从 T-1005 的 160 准确 +18 case,**零回归**) ⑪ `alembic check` No new upgrade operations(head 仍 `b58bb129c24b`) ⑫ 前端 `npm run lint && npm run typecheck` 全干净(零改动应清白) ⑬ `git diff 5b6b01f..HEAD -- backend/app/ backend/alembic/ frontend/ docs/T-1007_spec.md` 完全空(零夹带验证) ⑭ Worker timestamp 双 commit 均带(`21:27:12` / `21:28:26`) ⑮ 📣 锚点保留 T-1007 持牌(留给指挥官替换) ⑯ 4 既定 untracked 保留未污染 ⑰ `_cleanup_phase10_test_data` 入口存在(L48,作用域至 wechat_userid like "phase10_%") ⑱ Task 7 = `[x] Done by Codex` ⑲ 测试目录零 `.pyc / __pycache__` 夹带。**Phase 10 后端契约护栏闭环完成**,Codex 此次质量稳定连续两轮(T-1005 + T-1007)零小冗余、零踩雷。
 
-- [ ] **Task 8 (T-1008): 文档收尾**
+- [x] **Task 8 (T-1008): 文档收尾**
   - 在 `docs/implementation-plan.md §10` 末尾再追加「实际落地路径(Phase 10 实施)」段,记录 6 列对照表对应维度从 ❌ → ✅ 的变化与最终对外路径。
   - 更新 `docs/recap.md`「当前阶段」→ Phase 11 候选,新增 Phase 10 全 task bullet + 历史移交记录条目。
 
@@ -195,59 +195,22 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-28 09:10:30]`(指挥官 T-1006 三次验收通过 + T-1008 文档收尾契约起草)
+> **更新时间戳**: `[2026-05-28 09:48:24]`(指挥官 Phase 10 闭环 — T-1008 文档收尾完工,**当前无持牌任务**)
 
-- **当前持牌任务**: **T-1008**(Phase 10 **最终任务** — **文档收尾**,**零代码改动**)—— Phase 10 七功能任务(T-1001~T-1007 + T-1006-FIX)全部 `[x]` 闭环,本任务做 **2 文件 feat + 1 文件 chore = 共 3 文件改动 / 2 commit** 的纯文档收尾。
+- **当前持牌任务**: **无** —— Phase 10(T-1001 ~ T-1008 共 8 任务)已**全数 `[x]` 闭环**,代码 / 测试 / 文档三轴全收口。HEAD 待 Worker T-1008 完工后 push origin/main 决策由指挥官单独决断。
 
-- **执行入口**: **必须读完整** `docs/T-1008_spec.md`(本契约 ~530 行,10 章 + 📣 附录)。**必须**在改动前跑 4 个前置探针(`git status --short --branch` / `git log -3 --oneline` / `git diff` / `git diff --cached`),核验 HEAD = `1ea45a4`,工作树干净,4 既定 untracked 保留。
+- **下一步**: **停手待命,等待指挥官启动 Phase 11 规划**。Phase 11 候选方向:
+  - ① `User.department` VARCHAR 字段 → `Department.id` FK 迁移(双轨融合,清理 Phase 10 增量并存)。
+  - ② 物化视图增量按部门聚合预热(将 `/api/v1/admin/reports?group_by=` P95 从 ms 级压到 sub-ms,复用 Phase 7 `mv_daily_user_stats / mv_weekly_dept_stats` 模式)。
+  - ③ 前端 Tabs `by_project` 视图加权重柱状图 + 趋势线(复用 Phase 7 Recharts `CompareBarChart / TrendLineChart` 组件)。
+  - ④ `Department.manager_id` 反查路径与 Phase 9 KPI `KpiScope=department` 打通(总经理在 KPI 面板直接钻取部门日报与达成率)。
 
-- **核心动作**(2 commit / 3 文件,**字面量已锁定**,严禁手敲改写):
-
-  **Commit 1 (feat)** — `feat(docs): T-1008 Phase 10 文档收尾 — §10 实施段 + recap 8 task entries + Phase 11 候选`:
-  1. **改** `docs/implementation-plan.md`:严格在 L817(`- 前端总经理看板的全员 / 按部门 / 按项目 Tabs 切换器尚未落地。`)之后 + L819(`---`)之前,追加 §3.1 字面量段(`### 实际落地路径(Phase 10 实施)` 整段,含 6 维度对照表 + 实际 API 路径表 + 前端落地路径表 + Phase 11 候选 4 项)。**严禁**改 L1-817 / L819+ 任何已有内容。
-  2. **改** `docs/recap.md`(三处):
-     - **L4 替换**(§3.2.1):删除 `[Phase 10] T-1001 §10 实物盘点 ...` 单行,替换为 Phase 10 Task 1~8 八行字面量。
-     - **L6 替换**(§3.2.2):`Phase 10(勘察先行轮)` → `Phase 11 候选(Phase 10 已闭环,T-1001 ~ T-1008 八任务全收口)`。
-     - **L25 之前插入**(§3.2.3):`## 历史移交记录` 标题之后、L25 `[2026-05-27 by Commander] Phase 10 启动 ...` 之前,**按字面量倒序**插入 8 行条目(`[2026-05-28 by Commander] Phase 10 闭环` 在最上,7 个 task entries 按倒序紧随)。
-
-  **Commit 2 (chore)** — `chore(progress): close T-1008 — Phase 10 文档收尾完工, Phase 10 八任务全闭环`:
-  3. **改** `docs/dev_tasks.md`(本文件):
-     - **§3.3**:L167 `[ ] **Task 8 (T-1008): 文档收尾**` → `[x] **Task 8 (T-1008): 文档收尾**`(只改方括号,子 bullet 不变)。
-     - **§3.4**:L194-end(整个「## 📣 恢复执行指令」段,即本段)整体替换为「Phase 10 已闭环,当前无持牌任务」终态文字 + Phase 11 候选 4 项。字面量见 `T-1008_spec.md §3.4`。
-
-- **严禁项**(违反立即驳回,详见 spec §6 完整 20 项):
-  - **严禁**改 `backend/` / `frontend/` / `alembic/` / `tests/` / `scripts/` 任何文件(零代码改动)。
-  - **严禁**改 `implementation-plan.md` L1-817 / L819+ 任何内容(只能在 L817 之后 / L819 之前追加新段)。
-  - **严禁**改 `recap.md` L7-23 / L26-end 任何内容(只能动 L4 / L6 / 在 L25 之前插入)。
-  - **严禁**改 `dev_tasks.md` L1-193 任何内容(只能动 L167 `[ ]` → `[x]` + L194-end 锚点段整体替换)。
-  - **严禁**篡改 `T-1008_spec.md §3.1 / §3.2.1 / §3.2.3 / §3.4` 字面量(包括 emoji / commit 短哈希 `ad6643a` `6e2b94a` `d8737d9` `02f3d58` `72111e2` `d169039` / 表格对齐 / 空行数)。
-  - **严禁**动 4 既定 untracked 文件。
+- **严禁项**(等待指挥官 Phase 11 发牌前):
+  - **严禁** Worker 自启 Phase 11 任何任务(`/^T-11/` 任务前缀必须由指挥官在 `dev_tasks.md` + `T-11XX_spec.md` 物理落盘后才能动)。
+  - **严禁**改 `implementation-plan.md` 任何非 §10 内容(其他 phase 已闭环,不重写历史)。
   - **严禁** `git push`(留给指挥官决策推送时机)。
-  - **严禁**自启 Phase 11 任何任务。
-  - **严禁** revert 任何历史 commit。
-  - **严禁**在两条 commit message 中遗漏 `Worker timestamp:` 行。
-  - **严禁**写极简一行 commit message(必须 multi-line body,对比 T-1005/T-1007 风格)。
+  - **严禁**改 4 既定 untracked 文件。
 
-- **闸门**(全绿才提交,详见 spec §5):
-  ```bash
-  # 严格 3 文件改动 + 4 既定 untracked
-  git status --short
-  # implementation-plan.md 纯追加(无删除行)
-  git diff docs/implementation-plan.md | grep "^-[^-]" | wc -l  # 必须 = 0
-  # 关键字面量在位
-  grep -c "实际落地路径(Phase 10 实施)" docs/implementation-plan.md  # 必须 = 1
-  grep -c "Phase 11 候选" docs/recap.md  # 必须 ≥ 1
-  grep -c "T-1008" docs/recap.md  # 必须 ≥ 2
-  ```
+- **时间戳纪律**(Phase 11 启动前最后一次落地):所有 commit message 末尾、终端汇报、`dev_tasks.md` 段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
 
-  **不需要跑** backend pytest / frontend lint / typecheck / alembic check —— 本任务零代码改动。
-
-- **完工提交序列**(2 commit,顺序锁定):
-  1. `feat(docs): T-1008 Phase 10 文档收尾 — §10 实施段 + recap 8 task entries + Phase 11 候选` —— **2 文件**(`implementation-plan.md` + `recap.md`)。
-  2. `chore(progress): close T-1008 — Phase 10 文档收尾完工, Phase 10 八任务全闭环` —— **1 文件**(`dev_tasks.md`)。
-
-  两条 commit message 都**必须**包含 multi-line body(对比 T-1005/T-1007 风格,审计可读性收紧)+ 末尾 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 行。
-
-- **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
-
-- **完工后**: 立即停手汇报「T-1008 完工,Phase 10 八任务全闭环,等待指挥官二次验收 + Phase 11 启动规划」。**绝对不要**自启 Phase 11。**绝对不要** `git push`。
+- **完工后**: 立即停手汇报「Phase 10 已闭环,T-1008 文档收尾完工,等待指挥官启动 Phase 11 规划」。**绝对不要**自启 Phase 11。
