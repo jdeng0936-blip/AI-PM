@@ -194,25 +194,91 @@ cd frontend && npm run lint && npm run typecheck
 
 ---
 
+# Phase 11: 测试基线回归修复(远程 fix 后)
+
+## 当前状态与上下文
+
+- Phase 10 已 100% 闭环并 push origin/main(全 34 commit 已合并)。
+- 后续 push 引入 2 条破坏性 fix(由 ericdv111 在 12:54 + 13:34):
+  - `b5e77c3 fix: harden security and deployment readiness` — RBAC middleware 加 `must_change_password` 强制改密检查(`backend/app/middleware/rbac.py` `get_current_user` 拒绝 `must_change_password=True` 的 user 访问非 `/auth/me` 或 `/auth/change-password` 路径)。
+  - `8459a5b fix: tighten tenant scope and report idempotency` — `department_service` + `admin_reports_service` 删除 `TENANT_ID = "default"` 常量,改由 router 从 `actor.tenant_id` 注入(`list_departments / delete_department / get_department_with_members` 加 `*, tenant_id: str` keyword-only;`group_reports_by_department / group_reports_by_project` 加 `tenant_id: str` 位置参数)。
+- 后端 pytest 出现 **26 failures**(从 Phase 10 收口 `178 passed` 退化到 `152 passed`,2 skipped):
+  - 12 in `test_phase10_dept_group.py`(混合 Type A signature + Type B RBAC 403)
+  - 8 in `test_kpi_phase9.py`(Type B RBAC 403)
+  - 1 in `test_me_deletions.py`(Type B RBAC 403)
+  - 5 散落其他(原因同 Type A/B)
+- 工作树干净,4 既定 untracked + 项目级 ECC symlinks(`.claude/skills/` 16 个 + `.gitignore` 已排除,见 `c9693a9 chore: ignore .claude/`)。
+- 当前 alembic head:`9a1b2c3d4e5f`(`20260528_1000_security_readiness_constraints.py`,由 `b5e77c3` 加)。
+
+## 任务看板
+
+### 测试回归修复 (Test Baseline Restoration)
+- [ ] **Task 1 (T-1101): 修复 26 个 test failure(`tenant_id` 签名 + `must_change_password` RBAC)**
+  - **改** `backend/tests/test_phase10_dept_group.py`:`_make_user` helper 加 `must_change_password=False` + 12 处 service call 加 `tenant_id=TENANT_ID` 关键字参数(`list_departments / delete_department / get_department_with_members / group_reports_by_department / group_reports_by_project`)。
+  - **改** `backend/tests/test_kpi_phase9.py`:`_make_user` helper 加 `must_change_password=False`(8 个 router test 因此 RBAC 403 → 200)。
+  - **改** `backend/tests/test_me_deletions.py`:inline `User(...)` 加 `must_change_password=False`(1 个 router test)。
+  - **不**改 `backend/app/` 任何 src 代码(远程 fix 是有意改动)。
+  - **不**改 `backend/alembic/`、`backend/conftest.py`、`backend/pyproject.toml`、`backend/requirements.txt`。
+  - **不**改其他 `tests/test_*.py` 文件。
+  - **完整执行契约见 `docs/T-1101_spec.md`**(必读,~450 行 10 章 + 📣 附录)。
+
+---
+
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-28 09:48:24]`(指挥官 Phase 10 闭环 — T-1008 文档收尾完工,**当前无持牌任务**)
+> **更新时间戳**: `[2026-05-28 15:30:00]`(指挥官 T-1101 契约起草完成 — Phase 11 首任 Task 测试基线回归修复发牌)
 
-- **当前持牌任务**: **无** —— Phase 10(T-1001 ~ T-1008 共 8 任务)已**全数 `[x]` 闭环**,代码 / 测试 / 文档三轴全收口。HEAD 待 Worker T-1008 完工后 push origin/main 决策由指挥官单独决断。
+- **当前持牌任务**: **T-1101**(Phase 11 **首任** — 测试基线回归修复,**零 src 改动**)—— 修复 26 个 test failure。根因:`8459a5b` + `b5e77c3` 两条远程 fix(由 ericdv111 在 12:54 + 13:34)改了 service 签名 + RBAC middleware,但测试**未同步**导致。
 
-- **下一步**: **停手待命,等待指挥官启动 Phase 11 规划**。Phase 11 候选方向:
-  - ① `User.department` VARCHAR 字段 → `Department.id` FK 迁移(双轨融合,清理 Phase 10 增量并存)。
-  - ② 物化视图增量按部门聚合预热(将 `/api/v1/admin/reports?group_by=` P95 从 ms 级压到 sub-ms,复用 Phase 7 `mv_daily_user_stats / mv_weekly_dept_stats` 模式)。
-  - ③ 前端 Tabs `by_project` 视图加权重柱状图 + 趋势线(复用 Phase 7 Recharts `CompareBarChart / TrendLineChart` 组件)。
-  - ④ `Department.manager_id` 反查路径与 Phase 9 KPI `KpiScope=department` 打通(总经理在 KPI 面板直接钻取部门日报与达成率)。
+- **执行入口**: **必须读完整** `docs/T-1101_spec.md`(本契约 ~450 行 10 章 + 📣 附录)。**必须**在改动前跑 4 个前置探针(`git status --short --branch` / `git log -3 --oneline` / `git diff` / `git diff --cached`),核验 HEAD = `c9693a9` 之后(T-1101 spec commit 落地后),工作树干净,4 既定 untracked + `.claude/` 保留。
 
-- **严禁项**(等待指挥官 Phase 11 发牌前):
-  - **严禁** Worker 自启 Phase 11 任何任务(`/^T-11/` 任务前缀必须由指挥官在 `dev_tasks.md` + `T-11XX_spec.md` 物理落盘后才能动)。
-  - **严禁**改 `implementation-plan.md` 任何非 §10 内容(其他 phase 已闭环,不重写历史)。
+- **核心动作**(2 commit / 4 文件 = 3 tests + 1 dev_tasks):
+
+  **Commit 1 (fix)** — `fix(tests): T-1101 restore baseline — pass tenant_id and must_change_password=False`:
+  1. **改** `backend/tests/test_phase10_dept_group.py`:`_make_user` helper L76-99 在 `User(...)` 字段末尾插入 `must_change_password=False,`(spec §3.1.1);**12 处 service call**(grep `list_departments\|delete_department\|get_department_with_members\|group_reports_by_department\|group_reports_by_project`)逐处加 `tenant_id=TENANT_ID` 关键字参数(spec §3.1.2)。
+  2. **改** `backend/tests/test_kpi_phase9.py`:L147+ `_make_user` helper 在 `User(...)` 字段末尾插入 `must_change_password=False,`(spec §3.2.1)。
+  3. **改** `backend/tests/test_me_deletions.py`:L25+ inline `User(...)`(可能多处,grep `User(` 全找出)每处末尾插入 `must_change_password=False,`(spec §3.3.1)。
+
+  **Commit 2 (chore)** — `chore(progress): close T-1101 — Phase 11 测试基线回归修复完工`:
+  4. **改** `docs/dev_tasks.md`:Phase 11 Task 1 (T-1101) `[ ]` → `[x]`;本 📣 锚点**末尾追加** T-1101 完工时间戳标记(不擦除当前 T-1101 持牌文字,保留作审计)。
+
+- **严禁项**(违反立即驳回,详见 spec §6 完整 20 项):
+  - **严禁**改 `backend/app/` / `backend/alembic/` / `frontend/` 任何文件(远程 fix 是有意改动,不要回滚)。
+  - **严禁**改 `must_change_password` RBAC 检查或 `tenant_id` service 签名(本任务仅修测试基线)。
+  - **严禁**给 service `tenant_id` 加默认值绕过新签名。
+  - **严禁**在 model 层把 `must_change_password` 改为 `default=False`(model 是 src)。
+  - **严禁** sed 一刀切批量 replace(必须 Read + 精确 Edit 每处)。
+  - **严禁**改其他 `tests/test_*.py` 文件(spec §2 白名单严格 3 文件)。
+  - **严禁**动 4 既定 untracked + `.claude/` 项目级 ECC symlinks。
   - **严禁** `git push`(留给指挥官决策推送时机)。
-  - **严禁**改 4 既定 untracked 文件。
+  - **严禁**自启 T-1102 / T-11XX 任何后续任务。
+  - **严禁** revert `8459a5b` / `b5e77c3` / `c9693a9` 任何 commit。
+  - **严禁**在两条 commit message 中遗漏 `Worker timestamp:` 行。
+  - **严禁**写极简一行 commit message(必须 multi-line body,对比 T-1005/T-1007 风格)。
 
-- **时间戳纪律**(Phase 11 启动前最后一次落地):所有 commit message 末尾、终端汇报、`dev_tasks.md` 段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
+- **闸门**(全绿才提交,详见 spec §5):
+  ```bash
+  cd backend
+  .venv/bin/ruff check .
+  .venv/bin/mypy tests/test_phase10_dept_group.py tests/test_kpi_phase9.py tests/test_me_deletions.py
+  .venv/bin/pytest -q   # 必须 0 failed, ≥178 passed, 2 skipped
+  .venv/bin/alembic check
+  ```
 
-- **完工后**: 立即停手汇报「Phase 10 已闭环,T-1008 文档收尾完工,等待指挥官启动 Phase 11 规划」。**绝对不要**自启 Phase 11。
+  改动面校验:
+  ```bash
+  cd ..
+  git diff <fix-sha>^..<fix-sha> -- backend/app/ backend/alembic/ frontend/   # 必须空
+  git status --short | grep "^??" | wc -l                                     # 必须 = 4
+  ```
+
+- **完工提交序列**(2 commit,顺序锁定):
+  1. `fix(tests): T-1101 restore baseline — pass tenant_id and must_change_password=False` —— **3 文件**(`test_phase10_dept_group.py` + `test_kpi_phase9.py` + `test_me_deletions.py`)。
+  2. `chore(progress): close T-1101 — Phase 11 测试基线回归修复完工` —— **1 文件**(`dev_tasks.md`)。
+
+  两条 commit message 都**必须**包含 multi-line body + 末尾 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 行。
+
+- **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
+
+- **完工后**: 立即停手汇报「T-1101 完工,pytest 26 failed → 0 failed,等待指挥官二次验收 + Phase 11 后续 task 起草」。**绝对不要**自启 T-1102。**绝对不要** `git push`。
