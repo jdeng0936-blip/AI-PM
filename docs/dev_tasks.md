@@ -195,39 +195,59 @@ cd frontend && npm run lint && npm run typecheck
 ## 📣 恢复执行指令
 
 > **给 Worker (Codex) 的直接发牌,供 PM 探针自动提取**
-> **更新时间戳**: `[2026-05-27 22:05:00]`(指挥官 T-1006 一次验收驳回 — UUID_REGEX bug 复议,**单行 fix**)
+> **更新时间戳**: `[2026-05-28 09:10:30]`(指挥官 T-1006 三次验收通过 + T-1008 文档收尾契约起草)
 
-- **当前持牌任务**: **T-1006-FIX**(指挥官二次验收发现 BLOCKER,T-1006 主体 18/19 PASS + 1 FAIL,Task 6 = `[/]` 重新加锁待复议)—— **单行 typo 修复**:`frontend/src/app/admin/departments/page.tsx` **L17 UUID_REGEX 缺第 4 段 `[0-9a-f]{4}-`**。Worker 实际写 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(8-4-4-12 共 4 段),契约 §3.4 + §9 #13 签字字面量 `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(8-4-4-**4**-12 共 5 段)。**复现证据**(Node REPL):合法 UUID `550e8400-e29b-41d4-a716-446655440000` 在 Worker regex 下返回 `false`,在契约 regex 下返回 `true`。**业务影响**:用户在新建/编辑部门时,若填入任何合法 UUID 作为 manager_id,前端 toast `"负责人 ID 必须是合法 UUID"` 报错,**manager_id 字段实际不可填**(必须留空才能 submit),违反契约 §3.4 设计意图(可选 UUID 字段)。
+- **当前持牌任务**: **T-1008**(Phase 10 **最终任务** — **文档收尾**,**零代码改动**)—— Phase 10 七功能任务(T-1001~T-1007 + T-1006-FIX)全部 `[x]` 闭环,本任务做 **2 文件 feat + 1 文件 chore = 共 3 文件改动 / 2 commit** 的纯文档收尾。
 
-- **执行入口**: **不要**重读完整 `T-1006_spec.md` —— 本 fix **仅 2 文件 1 行核心改动**:
-  1. **改** `frontend/src/app/admin/departments/page.tsx` L17 —— 把 `const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i` 改为 `const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`(**插入第 4 段 `[0-9a-f]{4}-`**)。
-  2. **改** `docs/dev_tasks.md` Task 6 行首 `[/]` → `[x]`(同时**保留**「指挥官二次验收 `[2026-05-27 22:04:30]`」段不擦除,留作审计)。
+- **执行入口**: **必须读完整** `docs/T-1008_spec.md`(本契约 ~530 行,10 章 + 📣 附录)。**必须**在改动前跑 4 个前置探针(`git status --short --branch` / `git log -3 --oneline` / `git diff` / `git diff --cached`),核验 HEAD = `1ea45a4`,工作树干净,4 既定 untracked 保留。
 
-- **严禁项**(违反立即驳回):
-  - **严禁**改 `frontend/src/app/admin/departments/page.tsx` L17 之外的任何行。
-  - **严禁**改 `mapDepartmentError` / Modal / 表格 / 任何其他逻辑(它们都 PASS,不要"顺手优化")。
-  - **严禁**改 `frontend/src/api/admin.ts` / `frontend/src/app/dashboard/page.tsx` / `frontend/src/components/sidebar.tsx`(它们都 PASS)。
-  - **严禁**改 `backend/` / 任何测试文件 / 4 既定 untracked 文件。
-  - **严禁**改 📣 锚点(留给指挥官 T-1006-FIX 验收闭环时替换)。
-  - **严禁** 自动 `git push`。
-  - **严禁** 自启 T-1008。
-  - **严禁** revert T-1006 commit(`72111e2` + `e62279b` 保留,fix 是叠加 commit)。
+- **核心动作**(2 commit / 3 文件,**字面量已锁定**,严禁手敲改写):
 
-- **闸门**(全绿才提交):
+  **Commit 1 (feat)** — `feat(docs): T-1008 Phase 10 文档收尾 — §10 实施段 + recap 8 task entries + Phase 11 候选`:
+  1. **改** `docs/implementation-plan.md`:严格在 L817(`- 前端总经理看板的全员 / 按部门 / 按项目 Tabs 切换器尚未落地。`)之后 + L819(`---`)之前,追加 §3.1 字面量段(`### 实际落地路径(Phase 10 实施)` 整段,含 6 维度对照表 + 实际 API 路径表 + 前端落地路径表 + Phase 11 候选 4 项)。**严禁**改 L1-817 / L819+ 任何已有内容。
+  2. **改** `docs/recap.md`(三处):
+     - **L4 替换**(§3.2.1):删除 `[Phase 10] T-1001 §10 实物盘点 ...` 单行,替换为 Phase 10 Task 1~8 八行字面量。
+     - **L6 替换**(§3.2.2):`Phase 10(勘察先行轮)` → `Phase 11 候选(Phase 10 已闭环,T-1001 ~ T-1008 八任务全收口)`。
+     - **L25 之前插入**(§3.2.3):`## 历史移交记录` 标题之后、L25 `[2026-05-27 by Commander] Phase 10 启动 ...` 之前,**按字面量倒序**插入 8 行条目(`[2026-05-28 by Commander] Phase 10 闭环` 在最上,7 个 task entries 按倒序紧随)。
+
+  **Commit 2 (chore)** — `chore(progress): close T-1008 — Phase 10 文档收尾完工, Phase 10 八任务全闭环`:
+  3. **改** `docs/dev_tasks.md`(本文件):
+     - **§3.3**:L167 `[ ] **Task 8 (T-1008): 文档收尾**` → `[x] **Task 8 (T-1008): 文档收尾**`(只改方括号,子 bullet 不变)。
+     - **§3.4**:L194-end(整个「## 📣 恢复执行指令」段,即本段)整体替换为「Phase 10 已闭环,当前无持牌任务」终态文字 + Phase 11 候选 4 项。字面量见 `T-1008_spec.md §3.4`。
+
+- **严禁项**(违反立即驳回,详见 spec §6 完整 20 项):
+  - **严禁**改 `backend/` / `frontend/` / `alembic/` / `tests/` / `scripts/` 任何文件(零代码改动)。
+  - **严禁**改 `implementation-plan.md` L1-817 / L819+ 任何内容(只能在 L817 之后 / L819 之前追加新段)。
+  - **严禁**改 `recap.md` L7-23 / L26-end 任何内容(只能动 L4 / L6 / 在 L25 之前插入)。
+  - **严禁**改 `dev_tasks.md` L1-193 任何内容(只能动 L167 `[ ]` → `[x]` + L194-end 锚点段整体替换)。
+  - **严禁**篡改 `T-1008_spec.md §3.1 / §3.2.1 / §3.2.3 / §3.4` 字面量(包括 emoji / commit 短哈希 `ad6643a` `6e2b94a` `d8737d9` `02f3d58` `72111e2` `d169039` / 表格对齐 / 空行数)。
+  - **严禁**动 4 既定 untracked 文件。
+  - **严禁** `git push`(留给指挥官决策推送时机)。
+  - **严禁**自启 Phase 11 任何任务。
+  - **严禁** revert 任何历史 commit。
+  - **严禁**在两条 commit message 中遗漏 `Worker timestamp:` 行。
+  - **严禁**写极简一行 commit message(必须 multi-line body,对比 T-1005/T-1007 风格)。
+
+- **闸门**(全绿才提交,详见 spec §5):
   ```bash
-  cd frontend
-  npm run lint
-  npm run typecheck
-  # Node REPL 复检 UUID_REGEX:
-  node -e "const R = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$/i; console.log(R.test('550e8400-e29b-41d4-a716-446655440000'));"
-  # 必须输出 true
+  # 严格 3 文件改动 + 4 既定 untracked
+  git status --short
+  # implementation-plan.md 纯追加(无删除行)
+  git diff docs/implementation-plan.md | grep "^-[^-]" | wc -l  # 必须 = 0
+  # 关键字面量在位
+  grep -c "实际落地路径(Phase 10 实施)" docs/implementation-plan.md  # 必须 = 1
+  grep -c "Phase 11 候选" docs/recap.md  # 必须 ≥ 1
+  grep -c "T-1008" docs/recap.md  # 必须 ≥ 2
   ```
 
-- **完工提交序列**(单一原子 1 commit):
-  - `fix(admin): T-1006 复议 — UUID_REGEX 补回缺失第 4 段 [0-9a-f]{4}-` —— 2 文件改动(`frontend/src/app/admin/departments/page.tsx` L17 + `docs/dev_tasks.md` Task 6 `[/]` → `[x]`)。
+  **不需要跑** backend pytest / frontend lint / typecheck / alembic check —— 本任务零代码改动。
 
-  commit message 末尾必须含 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 一行,**建议在 message body 补充修复说明**(类似 T-1005 / T-1007 commit message 风格,不要再写极简一行 — 这次审计可读性收紧)。
+- **完工提交序列**(2 commit,顺序锁定):
+  1. `feat(docs): T-1008 Phase 10 文档收尾 — §10 实施段 + recap 8 task entries + Phase 11 候选` —— **2 文件**(`implementation-plan.md` + `recap.md`)。
+  2. `chore(progress): close T-1008 — Phase 10 文档收尾完工, Phase 10 八任务全闭环` —— **1 文件**(`dev_tasks.md`)。
+
+  两条 commit message 都**必须**包含 multi-line body(对比 T-1005/T-1007 风格,审计可读性收紧)+ 末尾 `Worker timestamp: [YYYY-MM-DD HH:MM:SS]` 行。
 
 - **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落都必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
 
-- **完工后**: 立即停手汇报「T-1006 复议完工,UUID_REGEX 已补,Node REPL 复检通过,等待指挥官三次验收 + T-1008 起草」。**不要**自行启动 T-1008。
+- **完工后**: 立即停手汇报「T-1008 完工,Phase 10 八任务全闭环,等待指挥官二次验收 + Phase 11 启动规划」。**绝对不要**自启 Phase 11。**绝对不要** `git push`。
