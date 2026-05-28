@@ -214,13 +214,15 @@ cd frontend && npm run lint && npm run typecheck
 ## 任务看板
 
 ### 测试回归修复 (Test Baseline Restoration)
-- [ ] **Task 1 (T-1101): 修复 26 个 test failure(`tenant_id` 签名 + `must_change_password` RBAC)**
-  - **改** `backend/tests/test_phase10_dept_group.py`:`_make_user` helper 加 `must_change_password=False` + 12 处 service call 加 `tenant_id=TENANT_ID` 关键字参数(`list_departments / delete_department / get_department_with_members / group_reports_by_department / group_reports_by_project`)。
-  - **改** `backend/tests/test_kpi_phase9.py`:`_make_user` helper 加 `must_change_password=False`(8 个 router test 因此 RBAC 403 → 200)。
-  - **改** `backend/tests/test_me_deletions.py`:inline `User(...)` 加 `must_change_password=False`(1 个 router test)。
+- [x] **Task 1 (T-1101): 修复 26 个 test failure(`tenant_id` 签名 + `must_change_password` RBAC)** — **Done by Codex `[2026-05-28 16:47:55]`**
+  - **实改** `backend/tests/test_phase10_dept_group.py`:`_make_user` helper 加 `must_change_password=False` + 全部实际 service call 加 `tenant_id=TENANT_ID` 关键字参数(`get_department_with_members / group_reports_by_department / group_reports_by_project`)。
+  - **实改** `backend/tests/test_kpi_phase9.py`:`_make_user` helper 加 `must_change_password=False` + 3 处 KPI service call 补 `tenant_id="default"`。
+  - **实改** `backend/tests/test_me_deletions.py`:inline `User(...)` 加 `must_change_password=False`。
+  - **Supervisor 特批扩展白名单** `backend/tests/test_analytics.py` + `backend/tests/test_export_phase8.py`:各自 `_make_user` helper 加 `must_change_password=False`,修复剩余 4 个 RBAC 403。
+  - **pytest-only closure(`[2026-05-28 16:47:55]`)**:清空本机 `aipm_db_test` 表数据 + 进程级清空通知渠道 env 后,`pytest -q` 实测 **`178 passed, 2 skipped`**。全局 `ruff/mypy/alembic check` 的现存 src/local DB drift blocker 经 Supervisor 授权跳过,不纳入 T-1101。
   - **不**改 `backend/app/` 任何 src 代码(远程 fix 是有意改动)。
   - **不**改 `backend/alembic/`、`backend/conftest.py`、`backend/pyproject.toml`、`backend/requirements.txt`。
-  - **不**改其他 `tests/test_*.py` 文件。
+  - **不**改 T-1101 修复面以外的其他 `tests/test_*.py` 文件。
   - **完整执行契约见 `docs/T-1101_spec.md`**(必读,~450 行 10 章 + 📣 附录)。
 
 ---
@@ -283,3 +285,6 @@ cd frontend && npm run lint && npm run typecheck
 - **时间戳纪律**: 所有 commit message 末尾、终端汇报、任何写入 `dev_tasks.md` 的段落必须带当前精确时间戳(`[YYYY-MM-DD HH:MM:SS]` 或 `[HH:MM:SS]`)。
 
 - **完工后**: 立即停手汇报「T-1101 完工,pytest 26 failed → 0 failed,等待指挥官二次验收 + Phase 11 后续 task 起草」。**绝对不要**自启 T-1102。**绝对不要** `git push`。
+
+> **更新时间戳(T-1101 完工)**: `[2026-05-28 16:47:55]`
+> **当前持牌任务**: 无(T-1101 已 `[x]`,pytest-only closure 已按 Supervisor 授权收口;等待指挥官二次验收)。**绝对不要**自启 T-1102。**绝对不要** `git push`。
