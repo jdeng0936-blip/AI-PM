@@ -128,6 +128,7 @@ export default function SubmitReportPage() {
   const [reviewStatuses, setReviewStatuses] = useState<Record<string, PlannedStatus>>({})
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
   const [eveningExtras, setEveningExtras] = useState<EveningAdHocCardIn[]>([])
+  const initialLoadRef = useRef(true)
 
   useEffect(() => {
     getProjectsOverview(false, null, true)
@@ -213,7 +214,12 @@ export default function SubmitReportPage() {
         setPendingFollowUps(pending.items || [])
         const items = (today?.items || []) as TodayPlanItem[]
         setTodayPlanItems(items)
-        if (items.length > 0 && mode === 'plan' && new Date().getHours() >= 12) setMode('review')
+        if (initialLoadRef.current) {
+          if (items.length > 0 && mode === 'plan' && new Date().getHours() >= 12) {
+            setMode('review')
+          }
+          initialLoadRef.current = false
+        }
       })
       .catch((e) => {
         const message = getApiErrorMessage(e, '加载零选择数据失败')
