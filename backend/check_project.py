@@ -1,10 +1,13 @@
 import asyncio
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sqlalchemy import select
+
 from app.database import AsyncSessionLocal
 from app.models.project import Project
-from sqlalchemy import select
+
 
 async def check():
     async with AsyncSessionLocal() as db:
@@ -13,5 +16,6 @@ async def check():
         for p in projects:
             print(f"ID: {p.id}, Code: {p.code}, Name: {p.name}, Status: {p.status}, Track: {p.track}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     asyncio.run(check())
