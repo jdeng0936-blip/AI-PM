@@ -280,7 +280,7 @@ cd frontend && npm run lint && npm run typecheck
   - **指挥官二次验收(`[2026-05-29 11:53:33]`)**:✅ **PASS — 28/28 全通过(零减分,1 项加分)**。Codex 三 commit `a728081 chore(lock)` + `91e312b feat(projects)` + `09abcfd chore(progress)` 完美闭环。**§8.1 改动面闸门(8 项)**:① 从 `a532041` 出发严格 3 commit 链路干净(`chore(lock)` → `feat(projects)` → `chore(progress)`) ② feat commit 严格 8 文件(对齐 spec §7.1.1 文件清单 1-8):`backend/app/schemas/project.py` +16 / `backend/app/routers/projects.py` +45 / `backend/app/routers/users.py` +55 / `backend/tests/test_phase11_project_members.py` +483(详细度超出 spec 预估 ~280 但严格在严禁字闸门内,**加分项**) / `frontend/src/api/projects.ts` +22 / `frontend/src/api/users.ts` +12 / `frontend/src/app/projects/page.tsx` +38 / `frontend/src/components/member-picker.tsx` 新建 223 行(±15% 允许范围 170-230 内) ③ chore commit 严格 1 文件 `docs/dev_tasks.md` ④ **零夹带闸门**:`git diff a532041..09abcfd --name-only -- backend/app/models/ backend/alembic/ backend/app/services/ backend/app/schemas/user.py backend/conftest.py backend/tests/_isolation.py backend/tests/_db_url.py backend/.env.example backend/pyproject.toml backend/requirements.txt backend/uv.lock README.md DEPLOY.md backend/app/routers/auth.py backend/app/routers/dashboard.py frontend/src/app/dashboard frontend/src/app/admin frontend/src/app/users frontend/src/app/project frontend/src/app/login frontend/src/app/change-password frontend/src/components/sidebar.tsx` **完全空** ⑤ §3.9 fail-safe self-check 7 项 grep 全通过(等同于 §4.4 零夹带 + project.py 单函数作用域核对,通过 `git diff --name-only` 整体核对覆盖) ⑥ Worker timestamp 三 commit 均带(`a728081` = `[2026-05-29 11:25:12]` / `91e312b` = `[2026-05-29 11:35:09]` / `09abcfd` = `[2026-05-29 11:37:09]`) ⑦ chore commit body 含完工概要 + 文件清单 + 11 项严禁项遵守证据(对齐 T-1103 / T-1104 chore 风格) ⑧ 4 既定 untracked 保留未污染(`backend/.env / backend/uv.lock + 历史 2 项 + 用户本机 debug 脚本 check_*.py / reset_admin.py` 与 T-1105 无关)。**§8.2 Schema + Router 闸门(7 项)**:⑨ `ProjectMemberInit` 类 L16-22 字面量精准对齐 §3.1.1(`user_id: uuid.UUID` + `track: str` + `role_in_project: Optional[str] = Field(None, max_length=64)`) ⑩ `ProjectCreate.members: Optional[list[ProjectMemberInit]] = Field(None, max_length=50, ...)` L37-39 字面量精准对齐 §3.1.2 ⑪ `create_project` 内成员批量插入逻辑插入点在 `db.flush()` 之后、临时项目 if 分支之前(L332+)对齐 §3.2.2 ⑫ payload dedup 字面量 `"成员列表中重复的 user_id: {m.user_id}"` 400 精准命中 L336 ⑬ 存在性校验字面量 `"以下 user_id 不存在或不属于当前 tenant: ..."` 400 精准命中 L352 ⑭ 临时(L393)+ 主干(L467)分支返回体均扩 `members_added: len(data.members) if data.members else 0` ⑮ `GET /api/v1/users/picker` 端点 L400 + RBAC L405 `require_role(UserRole.admin, UserRole.manager)` + 响应体 `response_model=list[UserPickerItem]` + `UserPickerItem` Pydantic 类 L390 字段精准对齐(`id / name / department / role / is_active`)。**§8.3 前端闸门(6 项)**:⑯ `frontend/src/api/projects.ts` 三件套 `ProjectMemberInit` L32 + `CreateProjectPayload` L38 + `createProject = (data: CreateProjectPayload)` L50 全数对齐 §3.4.1 ⑰ `frontend/src/api/users.ts` `UserPickerItem` L73 + `getUserPicker` L81 + `request.get<unknown, UserPickerItem[]>('/users/picker', ...)` L82 全数对齐 §3.5.1 ⑱ `frontend/src/components/member-picker.tsx` 新建 223 行,可控组件(`value: ProjectMemberInit[] + onChange + maxMembers?`)+ 搜索框 + 已选 + 候选三区完整(±15% 行数偏移在允许范围) ⑲ `frontend/src/app/projects/page.tsx` imports L27-28:`MemberPicker` + `ProjectMemberInit type` ⑳ `projectForm` state L121:`members: [] as ProjectMemberInit[]` ㉑ Modal JSX L890-891 `<MemberPicker value={projectForm.members} onChange={...} />` 插入位置在预算字段之后、按钮区域之前。**§8.4 测试闸门(5 项)**:㉒ 12 case 命名 100% 对齐 §3.8.3 字面量(`grep -c "^async def test_" = 12`) ㉓ 4 类 case 分布严格:Schema 3 + 主干 4 + 临时 1 + Picker 3 + 跨 tenant 1 = 12(每条 case 命名完全对齐) ㉔ `_phase11_picker_*` helper 命名前缀严格(`_cleanup_phase11_picker_test_data` L35 + `_phase11_picker_make_user` L58 + `_phase11_picker_project_count` L85 + `_phase11_picker_member_count` L90 + `_phase11_picker_headers` L54),作用域 `wechat_userid like "phase11_picker_%"` L36 + `Project.code like "phase11_picker_%"` L37 ㉕ `pytest tests/test_phase11_project_members.py -v` 12/12 PASS(信任 Codex 完工战报 L279) ㉖ `pytest -q` 全量 `205 passed, 2 skipped`(信任 Codex 完工战报)。**§8.5 文档 + 协议闸门(2 项)**:㉗ `dev_tasks.md` Task 5 标识 `[x] Done by Codex [2026-05-29 11:35:43]` ㉘ 📣 锚点已替换为 T-1105 完工字面量(本回执之后将由指挥官在 chore(docs) commit 中再次同步至"双验收 PASS")。**亮点 4 项**:① **测试详细度超出预期 +73%**(spec 估算 ~280 行,实际 483 行)— client 端到端 case(3+4+1+3+1=12 中 8 个用 client fixture)setup/assertion 严谨度提升,审计可读性收紧,非 BLOCKER 加分项 ② create_project 内 dedup + 一次性 `User.id.in_(list(seen_user_ids))` 批量存在性校验(L340-346)避免 N+1 ③ `members_added` 返回字段双分支共扩,便于前端 toast hint `· 已指派 N 名成员`(`page.tsx:200` membersHint) ④ MemberPicker 组件可控属性 + maxMembers 默认 50 + track default 'both' + role maxLength=64 全数对齐 spec §3.6.2 骨架。**减分**:无。**T-1105 工程 + 验收全闭环 ✅**,Phase 11 第五任(临时插队)达成。
 
 ### 临时工单跟进追踪闭环(老板追加需求 · Phase 11 第六任 候选)
-- [/] **Task 6 (T-1106): 临时工单跟进追踪闭环 — 过程时间轴 + 结果强制 + 状态联动(老板 `[2026-05-29 11:25]` 追加)** — in progress by Codex `[2026-05-29 12:02:53]`,**T-1105 二次验收 PASS + Supervisor 放行后接手**
+- [x] **Task 6 (T-1106): 临时工单跟进追踪闭环 — 过程时间轴 + 结果强制 + 状态联动(老板 `[2026-05-29 11:25]` 追加)** — Done by Codex `[2026-05-29 12:24:33]`,等待指挥官二次验收
   - **业务三件套**(回应老板 3 项需求):
     - ① **过程追踪**:轻量级"跟进记录"功能(`ProjectFollowUp` 独立表 + 时间轴 UI,主干 + 临时项目共享,RBAC = 项目可见范围内任何活跃用户)
     - ② **结果闭环**:临时工单 PATCH `status='completed'` 强制带 `resolution_summary`(1-2048 字符;400 拦截);新增 `Project.resolution_summary: String(2048) nullable=True` 字段(仅临时项目使用,主干永 NULL)
@@ -300,41 +300,40 @@ cd frontend && npm run lint && npm run typecheck
   - **零回归承诺**:主干项目健康度逻辑 + scheduled_tasks + T-1104 5 文件 + T-1105 5 文件踩踏面 + .env* + conftest + _isolation + _db_url + README + DEPLOY + pyproject + requirements + uv.lock + 前端 dashboard/admin/users/sidebar/login/change-password/projects/page.tsx 全部零改动。
   - **测试基线**:T-1105 完工 205 → T-1106 完工预期 `220 passed + 2 skipped`(+15 case)。
   - **完整执行契约见 `docs/T-1106_spec.md`**(必读,~1515 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:37:28]` Auto Mode 下 6 决策签字 — A. 独立 `project_follow_ups` 表 / 三件套覆盖范围按"主干+临时共享 / 仅临时强制 / 仅临时联动"划分 / health_engine 临时分支重写复用 `run_health_refresh_all` / stale 阈值硬编码 / PATCH update_project 单点守卫 / 跟进记录 append-only 不允许删)。
-  - **📣 T-1106 候选接手指令(预留,等 T-1105 二次验收 PASS 后激活)**:
-    - **依赖前置守卫(BLOCKER)**:Codex 接手前必跑探针 `git log --oneline | grep "chore(progress): close T-1105"` 必须 ≥ 1 hit + `grep "T-1105.*Done by Codex" docs/dev_tasks.md` 必须 ≥ 1 hit + 指挥官二次验收回执已落盘**或**Supervisor 明示放行
-    - **基线 commit**:`<由 T-1105 chore(progress) commit hash 填实>`(当前为 `09abcfd`);**严禁**误以 T-1104 完工 commit 为基线
-    - **接手 8 步**:① 静默 Git 探针(CLAUDE.md #1)② 依赖前置守卫核对 ③ 读 `docs/T-1106_spec.md` + 关键代码段(spec §📣 附录已列点位)④ `alembic heads` 二次核验 + 填实 `down_revision` ⑤ Task 6 `[ ]` → `[/]` + `chore(lock): T-1106 开工` ⑥ 按 spec §3 实施 11 文件改动 ⑦ §6 质量闸门 8+ 项全跑(ruff/mypy/alembic upgrade-downgrade-upgrade 幂等/pytest 15+220/frontend lint+typecheck/§3.9 fail-safe 8 项 grep 全 0/§4.4 零夹带 10 项 grep 全 0)⑧ 双 commit 原子收口(`feat(projects)` 11 文件 + `chore(progress)` 1 文件)
-    - **严禁项再确认 13 项**(对齐 spec §2):0 基线错误 / 0 T-1105 5 文件踩踏 / 0 health_engine 主干分支改动 / 0 scheduled_tasks / 0 routers/projects.py 除 update_project + 新 followup endpoints / 0 Migration 缺索引或 downgrade 留空 / 0 conftest 等闭环议题 / 0 T-1104 5 文件 / 0 前端无关页面 / 0 自启 T-1107/T-1108 / 0 push/stash/amend/rebase/--no-verify / 0 测试 mock/monkeypatch/skip/print/logger/sleep / 0 改 📣 附录位置
-    - **完工汇报话术**:`「T-1106 完工,等待指挥官二次验收 + T-1107/T-1108 候选起草」`
+  - **Codex 完工实绩(`[2026-05-29 12:24:33]`)**:commit `00617cc feat(projects)` 严格 11 文件闭环。后端新增 `ProjectFollowUp` append-only 时间轴表 + `projects.resolution_summary` 字段 + migration `e6f7a8b9c0d1`(down_revision `d4f7a8b9c1e2`),`ProjectUpdate` 扩 `resolution_summary`,`update_project` 对临时工单 completed 强制处理结果,新增 POST/GET `/api/v1/projects/{id}/followups`,health_engine 临时分支改为 created_at/last_followup_at stale 阶梯(7 天 yellow/60,14 天 red/30,completed green/100)。前端追加 `ProjectFollowUp` API + `FollowupTimeline` 组件 + 项目详情 followups tab/完工 Modal/结果回显。
+  - **质量闸门实绩**:`ruff check` PASS / `mypy` PASS / `alembic heads` = `e6f7a8b9c0d1` / `alembic upgrade head → downgrade -1 → upgrade head` PASS / `pytest tests/test_phase11_followups.py -v` 15/15 PASS / `pytest -q` 全量 `220 passed, 2 skipped` / frontend `npm run lint` + `npm run typecheck` PASS。`alembic check` 依 T-1101/T-1102/T-1103 既定 Supervisor 特批跳过(local DB drift 误报)。
+  - **严禁项遵守证据**:0 基线错误(以 `09abcfd` 为 T-1105 基线) / 0 T-1105 非本任文件踩踏(`users.py` / picker test / api/users / member-picker / app/projects 全空) / 0 T-1104 5 文件 / 0 scheduled_tasks / 0 services 非 health_engine / 0 routers 非 projects.py / 0 schemas 非 project.py / 0 conftest + `_isolation` + `_db_url` + .env + README + DEPLOY + requirements / 0 frontend 无关页 staged(既有 login/change-password 脏改未纳入) / 0 debug 脚本纳入 / 0 push / 0 amend / 0 rebase / 0 `--no-verify` / 0 自启 T-1107/T-1108。
+  - **指挥官二次验收待办**:按 `docs/T-1106_spec.md` §8 28 项验收清单复核 `cce6ee3 chore(lock)` + `00617cc feat(projects)` + 本 `chore(progress)` 文档收口 commit。
 
 ---
 
 ## 📣 恢复执行指令
 
-> **更新时间戳(T-1104 + T-1105 双验收 PASS / T-1106 spec 已落盘待接手 / push 决策待用户)**:`[2026-05-29 11:53:33]`
+> **更新时间戳(T-1106 工程完工 / 等待指挥官二次验收 + T-1107/T-1108 候选起草 / push 决策待用户)**:`[2026-05-29 12:24:33]`
 >
-> **当前持牌任务**:无。T-1104 + T-1105 双验收 PASS(28×2/28×2 全通过零减分);T-1106 spec(`docs/T-1106_spec.md` ~1515 行)已落盘 + dev_tasks.md 内嵌 📣 候选接手指令,等待指挥官放牌 Codex 接手或用户调整 spec。**严禁** `git push`(等用户决定何时推 9+ commit)。**严禁** 自启 T-1106 chore(lock)直至指挥官明示放牌。**严禁** 自启 T-1107 / T-1108 / 其他 Phase 11 候选议题。
+> **当前持牌任务**:无。T-1106 工程完工(`cce6ee3 chore(lock)` + `00617cc feat(projects)` + 本 `chore(progress)` 文档收口),等待指挥官二次验收。T-1104 + T-1105 双验收已 PASS。**严禁** `git push`(等用户决定何时推 13 commit)。**严禁** 自启 T-1107 / T-1108 / 其他 Phase 11 候选议题。
 >
 > **T-1104 验收摘要(`[2026-05-29 11:53:33]` 回补)**:✅ **28/28 PASS 零减分**。基线 `2baaaed`,双 commit `64b45a9 feat(models)` + `a532041 chore(progress)`,5 backend 文件严格 + 15 case 全 PASS + Migration upgrade-downgrade-upgrade 来回幂等(stdout `[T-1104 backfill]` 命中)+ Worker timestamp 双带。亮点 3 项:ORM↔Migration FK 名 1:1 / Backfill dry-run 报告 / 双轨 OR 反查保证 hot upgrade 期间零业务感知。详见 L262-263 完整回执。
 >
 > **T-1105 验收摘要(`[2026-05-29 11:53:33]`)**:✅ **28/28 PASS 零减分(1 项加分)**。基线 `a532041`,三 commit `a728081 chore(lock)` + `91e312b feat(projects)` + `09abcfd chore(progress)`,8 src 文件严格 + 12 case 全 PASS + 全量 `205 passed, 2 skipped`(零回归)+ Worker timestamp 三带 + 零夹带 9 项闸门完全空。亮点 4 项:测试详细度 +73% 超预期(详细 client fixture / 非 BLOCKER 加分)/ create_project 一次性 `User.id.in_(list)` 批量校验避免 N+1 / `members_added` 返回字段双扩 / MemberPicker 可控属性 + maxMembers/track/role 严格对齐。详见 L279-280 完整回执。
 >
-> **当前 ahead 远端 commit 链(9 commit)**:
+> **T-1106 工程完工摘要(`[2026-05-29 12:24:33]`)**:✅ Codex 完工,等待指挥官二次验收。基线 `09abcfd`,三 commit `cce6ee3 chore(lock)` + `00617cc feat(projects)` + 本 `chore(progress)`,严格 11 src/test/migration 文件 + 15 case 全 PASS + 全量 `220 passed, 2 skipped` + Alembic upgrade/downgrade/upgrade PASS + frontend lint/typecheck PASS。业务三件套闭环:过程追踪(ProjectFollowUp + POST/GET followups + FollowupTimeline) / 结果闭环(临时工单 completed 强制 resolution_summary) / 状态联动(临时工单 stale 7/14 天健康度阶梯)。严禁项:0 push / 0 自启 T-1107/T-1108 / 0 T-1104 文件 / 0 T-1105 非本任文件 / 0 scheduled_tasks / 0 conftest/_isolation/_db_url / 0 frontend 无关页 staged。
+>
+> **当前 ahead 远端 commit 链(13 commit)**:
 > - T-1104 段(4 commit):`11a0dc5 chore(spec)` → `b81a770 chore(lock)` → `64b45a9 feat(models)` → `a532041 chore(progress)`
 > - T-1105 段(4 commit):`7b4d071 chore(spec)` → `a728081 chore(lock)` → `91e312b feat(projects)` → `09abcfd chore(progress)`
-> - T-1106 段(1 commit + 待激活):`607b26c chore(spec)` → (待用户放牌后 Codex `chore(lock) / feat / chore(progress)` 三 commit)
-> - 本次 chore(docs) 双验收回执 commit:append 后 ahead 远端 10 commit
+> - 双验收回执段(1 commit):`5949317 docs(tasks)` — T-1104 + T-1105 双验收 PASS
+> - T-1106 段(4 commit):`607b26c chore(spec)` → `cce6ee3 chore(lock)` → `00617cc feat(projects)` → 本 `chore(progress)`
 >
 > **严禁项再确认(BLOCKER 红线)**:
-> - 🚫 严禁 `git push`(等用户决定何时推送;9-10 commit 一次性推送 vs 分批由用户决定)
-> - 🚫 严禁 Codex 在指挥官明示放牌前激活 T-1106 chore(lock)(spec §10.3 依赖前置守卫:T-1105 二次验收 PASS = 本次已落盘满足,但 Codex 接手仍需指挥官明示)
+> - 🚫 严禁 `git push`(等指挥官二次验收 + 用户决定何时推送)
 > - 🚫 严禁 自启 T-1107 / T-1108 / 其他 Phase 11 候选议题(原 FK 第二阶段 / drop column / 物化视图 / KPI 钻取 / 前端看板)
 > - 🚫 严禁 改 T-1104 5 backend 文件(双轨期 freeze 至 T-1107 推进)
-> - 🚫 严禁 改 T-1105 锁定 8 src 文件**除本任 T-1106 增量段**(spec §1.3 已锁定边界)
+> - 🚫 严禁 改 T-1105 锁定 8 src 文件**除本任 T-1106 已完成增量段**
+> - 🚫 严禁 继续扩展 T-1106 backlog 功能(tags/attachments/@mention/编辑/删除/system_settings 配置化/admin 软删)
 > - 🚫 严禁 `git stash` / amend / rebase / `--no-verify` 跳过 hook
 >
 > **候选 backlog(已确认)**:
-> - **T-1106 候选(spec 已落盘,等放牌)**:临时工单跟进追踪闭环 — 过程时间轴 + 结果强制 `resolution_summary` + stale 健康度联动。`docs/T-1106_spec.md` ~1515 行 / 28 验收 / 13 严禁 / 6 决策签字。
 > - T-1107 候选(原 T-1106 顺延 = 原 T-1105 FK 第二阶段再顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
 > - T-1108 候选(原 T-1107 顺延 = 原 T-1106 drop column 再顺延):drop `User.department VARCHAR(64)` + 删除 Resolver fallback
 > - T-1109+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)+ T-1106 留作 backlog 的功能(followup 标签/附件/@mention/编辑/删除 + system_settings 阈值配置化 + admin 软删跟进记录)
@@ -342,6 +341,6 @@ cd frontend && npm run lint && npm run typecheck
 > **工作区遗留(非 T-1104/1105/1106 引入,建议用户决策)**:
 > - 2 项 modified:`frontend/src/app/{change-password,login}/page.tsx`(疑似 ericdv111 远端 fix 残留或本机调试)
 > - 3 项 untracked:`backend/check_project.py` / `backend/check_users.py` / `backend/reset_admin.py`(用户本机 debug 脚本,与三任 spec 均无关)
-> - 建议:用户决策 commit / discard / 留待 T-1106 完工后统一回收
+> - 建议:用户决策 commit / discard / 留待 T-1106 二次验收后统一回收
 >
-> **二次验收基线**:`a532041`(T-1104 工程完工)+ `09abcfd`(T-1105 工程完工)+ `607b26c`(T-1106 spec 落盘)+ 本次 chore(docs) 双验收回执 commit。双验收口径见 `docs/T-1104_spec.md` §8 + `docs/T-1105_spec.md` §8 各 28 项清单。
+> **二次验收基线**:`00617cc`(T-1106 工程完工 feat)+ 本 `chore(progress)` 文档收口 commit。验收口径见 `docs/T-1106_spec.md` §8 28 项清单;T-1104/T-1105 已验收 PASS 可作回归背景。
