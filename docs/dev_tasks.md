@@ -383,7 +383,7 @@ cd frontend && npm run lint && npm run typecheck
 
 ### 任务看板
 
-- [/] **Task 9 (T-1401): 里程碑+贡献积分激励模块 — 立项定盘+3 层验收+动态加减分+多人 ratio+积分流水(老板 `[2026-05-29 16:50:00]` 追加,Phase 14 启动任 — spec 已落盘 by Claude(指挥官)`[2026-05-29 17:24:44]` — 2257 行 10 章 + 物理交接单 §📣;等 Codex 接手工程)**
+- [/] **Task 9 (T-1401): 里程碑+贡献积分激励模块 — 立项定盘+3 层验收+动态加减分+多人 ratio+积分流水(老板 `[2026-05-29 16:50:00]` 追加,Phase 14 启动任 — In Progress by Codex `[2026-05-29 17:55:38]`;spec 已落盘 by Claude(指挥官)`[2026-05-29 17:24:44]` — 2257 行 10 章 + 物理交接单 §📣)**
   - **业务三件套**(回应老板 4 段需求 + PHASE14_REQUIREMENTS.md):
     - ① **立项定盘 + 节点模板**:5 轨道(software/hardware/dual/support/other)+ is_temporary=True → 各轨预置标准节点模板(software 4 / hardware 3 / dual 7 / support+other+temporary 1 个"完成"),立项弹窗逐行展开为可编辑 `ProjectMilestone`,admin 改名/增删/填 `initial_points`
     - ② **里程碑打卡 + 动态加减分**:节点 owner 发起验收 → tech_lead 分 ratio(∑=100%)→ admin 终批 `final_points` + `adjustment_reason NOT NULL`(轻量审计,单字段覆盖式调整 + 必填理由)
