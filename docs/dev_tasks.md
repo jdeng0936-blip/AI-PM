@@ -383,7 +383,7 @@ cd frontend && npm run lint && npm run typecheck
 
 ### 任务看板
 
-- [/] **Task 9 (T-1401): 里程碑+贡献积分激励模块 — 立项定盘+3 层验收+动态加减分+多人 ratio+积分流水(老板 `[2026-05-29 16:50:00]` 追加,Phase 14 启动任 — In Progress by Codex `[2026-05-29 17:55:38]`;spec 已落盘 by Claude(指挥官)`[2026-05-29 17:24:44]` — 2257 行 10 章 + 物理交接单 §📣)**
+- [x] **Task 9 (T-1401): 里程碑+贡献积分激励模块 — 立项定盘+3 层验收+动态加减分+多人 ratio+积分流水(老板 `[2026-05-29 16:50:00]` 追加,Phase 14 启动任 — Done by Codex `[2026-05-29 18:30:34]`;spec 已落盘 by Claude(指挥官)`[2026-05-29 17:24:44]` — 2257 行 10 章 + 物理交接单 §📣)**
   - **业务三件套**(回应老板 4 段需求 + PHASE14_REQUIREMENTS.md):
     - ① **立项定盘 + 节点模板**:5 轨道(software/hardware/dual/support/other)+ is_temporary=True → 各轨预置标准节点模板(software 4 / hardware 3 / dual 7 / support+other+temporary 1 个"完成"),立项弹窗逐行展开为可编辑 `ProjectMilestone`,admin 改名/增删/填 `initial_points`
     - ② **里程碑打卡 + 动态加减分**:节点 owner 发起验收 → tech_lead 分 ratio(∑=100%)→ admin 终批 `final_points` + `adjustment_reason NOT NULL`(轻量审计,单字段覆盖式调整 + 必填理由)
@@ -412,20 +412,23 @@ cd frontend && npm run lint && npm run typecheck
   - **零 T-1104/T-1105/T-1106/T-1201/T-1301 文件踩踏**:~18 条 BLOCKER 红线见 spec §2;Codex 接手前必跑 §3.8 ~10 项 grep self-check;特别**严禁** 改 `project_followup.py / daily_report.py / daily_supervised_task.py / chat_session.py / chat_message.py / sprint_task.py` 等共享模型字段(零 ALTER)。
   - **零回归承诺**:`backend/app/services/{ai_engine,kr_progress_extractor,notification_service,token_guard,health_engine}.py` + `routers/{wechat,reports,chat,projects}.py`(projects.py 仅末尾追加可选种节点钩子,其余冻结)+ `schemas/{report,morning_evening,chat_session}.py` + `backend/conftest.py + tests/_isolation.py + tests/_db_url.py + .env* + README + DEPLOY` 全冻结;前端 `app/{reports,submit-report,chat,login,change-password}/page.tsx + dashboard 既有 UI + admin 既有 UI + users + sidebar + member-picker.tsx` 全冻结。
   - **测试基线**:T-1301 完工 `251 passed + 2 skipped` → T-1401 完工预期 `273 passed + 2 skipped`(+22 case)。
+  - **完工实绩(Codex `[2026-05-29 18:30:34]`)**:`9d7ec80 feat(milestones): T-1401 Phase 14 — 里程碑与贡献积分激励模块` 已落盘,严格 21 文件闭包:后端 14 文件(3 模型 + __init__ + project_member + migration + schema + 2 services + router + projects/main/project schema + 22 case 测试),前端 7 文件(API + admin/me 页面 + MilestoneTemplateEditor + dashboard/projects 弹窗接入)。
+  - **质量闸门实绩**:`ruff check <T-1401 touched files>` PASS;`mypy <T-1401 src files>` PASS;`alembic upgrade head → downgrade -1 → upgrade head` PASS 且 stdout 命中 `[T-1401 backfill] members_updated=0`;`pytest tests/test_phase14_milestone_contribution.py -q` = `22 passed`;`pytest tests/ -q` = `273 passed, 2 skipped`;`frontend npm run lint` PASS;`frontend npm run typecheck` PASS。`ruff check` 全仓/`mypy app/` 仍受既有非 T-1401 文件阻塞(`backend/{check_project,check_users,reset_admin,test_api,test_api2}.py` untracked debug + `admin_reports_service.py` import order / `analytics.py` + `scheduled_tasks.py` 既有 mypy),未纳入本任改动。
+  - **严禁项遵守证据**:0 push / 0 stash / 0 amend / 0 rebase / 0 --no-verify;未 stage `frontend/src/app/login/page.tsx`、`frontend/src/app/change-password/page.tsx` 与 5 个 backend debug 脚本;未触碰 `project_followup.py`、`chat_session.py`、`chat_message.py`、`daily_report.py`、`daily_supervised_task.py`、`reports.py`、`chat.py`、`wechat.py`、`health_engine.py`、AI/通知服务、conftest/_db_url/_isolation、依赖锁文件与 README/DEPLOY。
   - **完整执行契约见 `docs/T-1401_spec.md`**(必读,~1800 行 10 章 + 📣 附录;指挥官 `[2026-05-29 17:08:53]` Auto Mode 下 7+4 决策签字 — A. 独立命名 contribution_points / B. 预置模板 + 立项可编辑 / C. 单字段 final_points + adjustment_reason NOT NULL / D. dual 轨 7 节点全展开 / E. 3 层链 owner→tech_lead→admin / F. ∑ratio=100% Pydantic+DB CHECK 双层 / G. 同步建 UserPointsLedger 流水表 + 次级:H. MemberProjectRole 新 enum 列零踩踏 / I. 临时/support/other 默认 1 节点可改 / J. KPI 联动留 Phase 15 / K. 已审批 milestone 走 status='void' 软作废)。
   - **Codex 接手前置守卫(物理交接单 §📣)**:9 步执行指令(chore(lock) → 数据层 4 模型 → migration + backfill → schemas + template service → milestone service + router + main.py 注册 → projects.py + schemas/project.py 钩子 → 前端 API + UI 4 文件 → 测试 22 case + 7 闸门 → feat + chore(progress))+ ~10 项 self-check 探针(基线 `<chore(spec) hash>` 必须命中 / T-1106 ProjectFollowUp + T-1201 ChatSession + T-1301 DailyReport+DailySupervisedTask 模型零改动 / `test -f docs/T-1401_spec.md` / 共享 6 模型零 ALTER / health_engine + AI + wechat 零改动 / 工作区遗留仍 5 项 / alembic heads 单头)。
 
-> **更新时间戳(T-1401 spec 已落盘,等 Codex 接手工程)**:`[2026-05-29 17:24:44]`
+> **更新时间戳(T-1401 工程已完工,等待指挥官二次验收)**:`[2026-05-29 18:30:34]`
 >
-> **当前持牌任务**:**T-1401 spec 由 Claude(指挥官)已落盘**`[2026-05-29 17:24:44]`(`docs/T-1401_spec.md` 2257 行 10 章 + 物理交接单 §📣)。**等 Codex 接手工程**(Codex 接手时按 spec §📣 9 步执行指令推进:Step 1 self-check 10 项探针 → Step 2 chore(lock) → Step 3 数据层 4 模型 → Step 4 migration + backfill → Step 5 schemas + services + router + main → Step 6 projects.py 钩子 + schemas/project.py → Step 7 前端 7 文件 → Step 8 测试 + 7 闸门 → Step 9 feat + chore(progress))。**严禁** 其他后台代理触碰 `docs/T-1401_spec.md`(已签字契约);**严禁** Codex 跳过 §📣 Step 1 self-check 直接进 Step 3 工程;**严禁** Codex 自改 spec(若发现 spec 错误必须 Stop and Ask 喊话指挥官)。
+> **当前持牌任务**:**T-1401 工程已由 Codex 完工**`[2026-05-29 18:30:34]`(`9d7ec80 feat(milestones): T-1401 Phase 14 — 里程碑与贡献积分激励模块` + 本 `chore(progress)` 待落盘)。等待指挥官二次验收;**严禁** `git push`;**严禁** 自启 T-1402/T-1403 或 Phase 11/12/13/14 其他候选议题。
 
 ---
 
 ## 📣 恢复执行指令
 
-> **更新时间戳(T-1201 + T-1301 已通过二次验收;T-1106 待验收;T-1401 spec 已落盘,等 Codex 工程)**:`[2026-05-29 17:24:44]`
+> **更新时间戳(T-1201 + T-1301 已通过二次验收;T-1106 待验收;T-1401 工程已完工,等待二次验收)**:`[2026-05-29 18:30:34]`
 >
-> **当前持牌任务**:**T-1401 spec 由 Claude(指挥官)已落盘**`[2026-05-29 17:24:44]` — `docs/T-1401_spec.md` 2257 行 10 章 + 物理交接单 §📣,7+4 决策签字全闭环;**等 Codex 接手工程**(按 spec §📣 9 步推进)。同时 **T-1201 + T-1301 已双双通过指挥官二次验收 PASS 28/28**(T-1201 `[2026-05-29 14:58:00]` / T-1301 `[2026-05-29 14:54:00]`,详见各自 Task 行完整回执)。剩余等待:① 指挥官二次验收 T-1106(最后一任 Phase 11);② T-1401 工程执行(Codex)+ 完工战报 + 指挥官二次验收;③ 用户决策何时 push(当前 ahead 25 commit:21 工程 + 2 chore(docs) 验收回执 + 1 chore(lock) T-1401 + 1 chore(spec) T-1401);④ 后续是否放牌 T-1107 / T-1202 / T-1302 等候选。**严禁** `git push` / 自启 T-1107 / T-1108 / T-1202 / T-1302 / 自启 T-1402+ / 自启任何 Phase 11/12/13/14 backlog 议题;**严禁** Codex 跳过 spec §📣 Step 1 self-check 10 项探针直接进工程。
+> **当前持牌任务**:**T-1401 工程已由 Codex 完工**`[2026-05-29 18:30:34]` — `9d7ec80 feat(milestones)` 已落盘,本 `chore(progress)` 收口后等待指挥官二次验收。同时 **T-1201 + T-1301 已双双通过指挥官二次验收 PASS 28/28**(T-1201 `[2026-05-29 14:58:00]` / T-1301 `[2026-05-29 14:54:00]`,详见各自 Task 行完整回执)。剩余等待:① 指挥官二次验收 T-1106(最后一任 Phase 11);② 指挥官二次验收 T-1401;③ 用户决策何时 push(当前 ahead 32 commit,含本 chore(progress) 后);④ 后续是否放牌 T-1107 / T-1202 / T-1302 / T-1402 等候选。**严禁** `git push` / 自启 T-1107 / T-1108 / T-1202 / T-1302 / T-1402+ / 自启任何 Phase 11/12/13/14 backlog 议题。
 >
 > **T-1104 验收摘要(`[2026-05-29 11:53:33]` 回补)**:✅ **28/28 PASS 零减分**。基线 `2baaaed`,双 commit `64b45a9 feat(models)` + `a532041 chore(progress)`,5 backend 文件严格 + 15 case 全 PASS + Migration upgrade-downgrade-upgrade 来回幂等(stdout `[T-1104 backfill]` 命中)+ Worker timestamp 双带。亮点 3 项:ORM↔Migration FK 名 1:1 / Backfill dry-run 报告 / 双轨 OR 反查保证 hot upgrade 期间零业务感知。详见 L262-263 完整回执。
 >
@@ -437,7 +440,7 @@ cd frontend && npm run lint && npm run typecheck
 >
 > **T-1301 双验收摘要(`[2026-05-29 14:54:00]`)**:✅ **PASS 28/28 零减分,2 项加分**。基线 `36dc8ed`,四 commit 链路 `800af67 chore(spec)` + `4b24e9f chore(lock)` + `97c75c7 feat(reports)` + `2a7a5df chore(progress)`,严格 9 工程文件 + 1 文档文件闭环;16 case 全 PASS;全量 `251 passed, 2 skipped`;Alembic upgrade/downgrade/upgrade PASS 且 stdout 命中 `[T-1301 backfill]`;frontend lint/typecheck PASS;指挥官本机抽样实测 ruff/mypy/16 case/frontend lint/typecheck 全绿。亮点:Migration backfill 三项分项可审计 / evening-batch 决策 #6 OR 模糊匹配零踩踏 T-1106 / 前端 inputStyle 三态默认 zero-select 业务零业务感知热升级。详见 L361 完整回执。
 >
-> **当前 ahead 远端 commit 链(25 commit,未 push)**:
+> **当前 ahead 远端 commit 链(32 commit,未 push;含本 chore(progress) 后)**:
 > - T-1104 段(4 commit):`11a0dc5 → b81a770 → 64b45a9 → a532041`
 > - T-1105 段(4 commit):`7b4d071 → a728081 → 91e312b → 09abcfd`
 > - 双验收回执 (1 commit):`5949317 docs(tasks)`
@@ -446,7 +449,8 @@ cd frontend && npm run lint && npm run typecheck
 > - T-1301 段(4 commit):`800af67 chore(spec)` → `4b24e9f chore(lock)` → `97c75c7 feat(reports)` → `2a7a5df chore(progress)`
 > - 单验收回执 (2 commit):`dcbeecf chore(docs): T-1301 双验收 PASS` + `9098b6f chore(docs): T-1201 双验收 PASS`
 > - dashboard member picker fix(1 commit):`42a61c1 fix(frontend): 补齐 dashboard 新建弹窗的人员选择器`
-> - T-1401 段(2 commit + 待 Codex 落地):`6788bdf chore(lock): T-1401 spec 起草开工` + 本次 `chore(spec): T-1401 契约起草`(指挥官落盘 `[2026-05-29 17:24:44]`);后续 Codex 接手将再加 `chore(lock) Codex` + `feat(milestones)` + `chore(progress)` 3 commit
+> - T-1401 前置/热修复段(5 commit):`6788bdf chore(lock): T-1401 spec 起草开工` → `6bc7791 chore(spec): T-1401 契约起草` → `6c921bc fix(backend): 修复零输入提交幂等约束报错` → `24fd385 fix(frontend): 修复 422 报错 React 崩溃` → `6db333e chore(lock): T-1401 — Codex 接手工程执行`
+> - T-1401 工程/收口段(3 commit):`398f8e1 fix(frontend): 修复晚复核加载后自动切回规划的问题` → `9d7ec80 feat(milestones): T-1401 Phase 14 — 里程碑与贡献积分激励模块` → 本次 `chore(progress): close T-1401 — Phase 14 里程碑与贡献积分激励模块`
 >
 > **严禁项再确认(BLOCKER 红线)**:
 > - 🚫 严禁 `git push`(等三任全部完工 + 指挥官二次验收 + 用户决定推送时机)
