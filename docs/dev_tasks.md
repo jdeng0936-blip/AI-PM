@@ -263,7 +263,7 @@ cd frontend && npm run lint && npm run typecheck
   - **指挥官二次验收回执**:**Codex 工程完工已接受(commit `a532041`),28 项验收清单逐项核对 follow-up 推迟至 T-1105 完工后批量回补**(用户 `[2026-05-29 临时插队]` 指令打断常规验收流转;基线 `a532041` 工程层面 PASS,无 BLOCKER 风险)。
 
 ### 立项指派成员(临时插队 · 议题 ① backlog 推后,Phase 11 第五任)
-- [/] **Task 5 (T-1105): 立项时一站式指派成员(项目成员批量初始化 + Manager 端 RBAC gap 修复)** — in progress by Codex `[2026-05-29 11:25:12]`
+- [x] **Task 5 (T-1105): 立项时一站式指派成员(项目成员批量初始化 + Manager 端 RBAC gap 修复)** — Done by Codex `[2026-05-29 11:35:43]`
   - **改** `backend/app/schemas/project.py`(+22 行)— 新增 `ProjectMemberInit` 类(`user_id: UUID / track: str / role_in_project: Optional[str]`)+ 扩 `ProjectCreate.members: Optional[list[ProjectMemberInit]] = Field(None, max_length=50, ...)`,默认 None 向后兼容。
   - **改** `backend/app/routers/projects.py`(~+70 行)— imports 块插入 `ProjectMemberInit` + `create_project` 函数在 `db.flush()` 之后、临时项目 if 分支之前插入成员批量插入逻辑(payload dedup + 一次性存在性校验 + 单事务批插)+ 临时/主干分支返回体均扩 `members_added: int`。**严禁**改 `create_project` 外的任何 router 函数(`add_project_member / batch_remove_members / list_project_members / update_project / archive_project / batch_soft_delete_projects / batch_restore_projects / get_deleted_projects / projects_overview` 等 9 函数全部冻结)。
   - **改** `backend/app/routers/users.py`(~+50 行)— 末尾**插入式**新增 `UserPickerItem` Pydantic 类 + `GET /api/v1/users/picker` 端点(RBAC = admin + manager,精简字段 id/name/department/role/is_active,默认过滤 is_active=True,弥补 manager 立项时无法列用户的 RBAC gap)。**严禁**改 `list_users / create_user / update_user / delete_user / batch_disable_users / batch_enable_users / reset_password / update_user_status / get_resource_load` 9 个现有端点。
@@ -276,49 +276,38 @@ cd frontend && npm run lint && npm run typecheck
   - **零回归承诺**:T-1104 5 backend 文件不动 + 现有 POST/DELETE/GET `/{id}/members` 三端点不动 + 项目详情页 `activeTab='members'` UI 不动 + `backend/.env*` / conftest / `_isolation` / `_db_url` / README / DEPLOY 不动 + T-1102/1103 闭环议题不重做。
   - **测试基线**:T-1104 完工 193 passed → T-1105 完工预期 `205 passed + 2 skipped`(+12 case)。
   - **完整执行契约见 `docs/T-1105_spec.md`**(必读,~1184 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:10:44]` Auto Mode 下 6 决策签字 — A. 扩 ProjectCreate.members / 否 允许 0 成员 / 是 临时项目共享指派 / 新建 GET /users/picker 弥补 RBAC gap / track 默认 'both' / 现有单加路径完全冻结)。
+  - **Codex 完工实绩(`[2026-05-29 11:35:43]`)**:commit `91e312b feat(projects)` 严格 8 文件闭环。后端扩 `ProjectCreate.members` + `ProjectMemberInit`, `create_project` 在 project flush 后统一 dedup / tenant 校验 / 批量插入 ProjectMember,临时 + 主干项目返回体均扩 `members_added`;`users.py` 末尾新增 `GET /api/v1/users/picker`(RBAC admin+manager)。前端新增 `MemberPicker` 可控组件并接入立项 Modal,0 成员时不发送 `members` key 维持向后兼容。新测试 `test_phase11_project_members.py` 12 case 全 PASS。闸门全绿:`ruff check` 4 backend 文件 PASS / `mypy` 3 source PASS / 新测试 `12 passed` / 全量 `205 passed, 2 skipped` / frontend `npm run lint` + `npm run typecheck` PASS。`alembic check` 依 T-1101/T-1102/T-1103 既定 Supervisor 特批跳过(local DB drift 误报)。严禁项遵守:0 models / 0 migration / 0 services / 0 schemas/user.py / 0 routers 除 projects.py+users.py 外 / 0 conftest+_isolation+_db_url / 0 .env+README+DEPLOY / 0 pyproject+requirements+uv.lock / 0 T-1104 5 文件 / 0 项目详情页+dashboard+admin+users+sidebar / 0 push / 0 amend / 0 rebase / 0 T-1106 自启。
 
 ---
 
 ## 📣 恢复执行指令
 
-> **更新时间戳(T-1105 spec 起草落盘,等待 Codex 接手)**:`[2026-05-29 11:10:44]`
+> **更新时间戳(T-1105 完工,等待指挥官二次验收 + T-1104 二次验收回补 + T-1106 候选起草)**:`[2026-05-29 11:35:43]`
 >
-> **当前持牌任务**:T-1105(Phase 11 第五任 — 临时插队:立项时一站式指派成员)。**严禁** `git push`(等 Codex 完工 + 指挥官二次验收)。**严禁** 自启 T-1106 / T-1107 / 其他 Phase 11 候选议题。
+> **当前持牌任务**:无。T-1105(Phase 11 第五任 — 临时插队:立项时一站式指派成员)已由 Codex 完工,等待指挥官二次验收。**严禁** `git push`(等指挥官二次验收)。**严禁** 自启 T-1106 / T-1107 / 其他 Phase 11 候选议题。
+>
+> **T-1105 完工摘要**:
+> - feat commit `91e312b` 严格 8 文件:ProjectCreate.members 扩展 + create_project 原子批插 + GET `/api/v1/users/picker` + MemberPicker 前端接入 + 12 case。
+> - docs chore commit:仅 `docs/dev_tasks.md` Task 5 `[x]` + 本 📣 锚点替换(等待指挥官二次验收)。
+> - 质量闸门全绿:`ruff check` PASS / `mypy` PASS / 新测试 `12 passed` / 全量 `205 passed, 2 skipped` / frontend `npm run lint` + `npm run typecheck` PASS。
+> - `alembic check` 按 T-1101/T-1102/T-1103 既定 Supervisor 特批跳过(local DB drift 误报);`alembic heads` 仍为 `d4f7a8b9c1e2`。
 >
 > **T-1104 二次验收并行说明**:
-> - T-1104 工程完工(`a532041`)已默认接受,28 项验收清单逐项核对推迟至 T-1105 完工后批量回补
-> - Codex 接手 T-1105 不依赖 T-1104 二次验收 PASS(基线 `a532041` 即可)
+> - T-1104 工程完工(`a532041`)已默认接受,28 项验收清单逐项核对仍待指挥官与 T-1105 二次验收批量回补。
+> - T-1105 不改变 T-1104 5 个 backend 文件,外键迁移第二阶段未启动。
 >
-> **Codex 接手指令(8 步)**:
-> 1. **静默 Git 探针**(CLAUDE.md #1):`git status --short --branch && git log -5 --oneline && git diff && git diff --cached && git rev-list --left-right --count origin/main...HEAD`(期望 0 5:本地领先 5 commit = T-1104 4 + T-1105 spec 1)
-> 2. **读盘**:`docs/T-1105_spec.md` 全文 + 本节 📣 锚点 + `backend/app/schemas/project.py:84` + `backend/app/routers/projects.py:248-423` + `backend/app/routers/users.py:1-71` + `frontend/src/api/projects.ts:30` + `frontend/src/api/users.ts:70` + `frontend/src/app/projects/page.tsx:111-119 / L166-200 / L795-863`
-> 3. **二次确认 alembic head**:`cd backend && .venv/bin/alembic heads`(本任零 migration,head 应当是 T-1104 `20260529_1037_phase11_user_department_id_fk.py` 内 revision id)
-> 4. **`dev_tasks.md` Task 5 `[ ]` → `[/]`** + 单 commit `chore(lock): T-1105 开工 — Phase 11 第五任 立项时一站式指派成员(临时插队)`
-> 5. **按 spec §3 实施细则 8 文件改动**(3 改 backend + 1 新建 test + 2 改 frontend + 1 新建 frontend + 1 改 frontend)
-> 6. **质量闸门 6+ 项**:ruff(4 backend)+ mypy(3 backend src)+ pytest 子集(12/12 PASS)+ 全量(205 passed + 2 skipped)+ frontend lint + typecheck + alembic check 跳过(Supervisor 既定特批)+ §3.9 fail-safe self-check 7 项 grep 全 0
-> 7. **commit 纪律 2 commit 原子收口**:
->    - Commit 1:`feat(projects): T-1105 立项时一站式指派成员 — ProjectCreate.members 扩展 + GET /users/picker + MemberPicker 组件` 8 文件,Worker timestamp 必带,body 含业务点 + 后端扩展 + 前端接入 + 零回归承诺
->    - Commit 2:`chore(progress): close T-1105 — 立项时一站式指派成员(临时插队,Phase 11 第五任)` 1 文件,body 含完工概要 + 文件清单 + 11 项严禁项遵守证据
-> 8. **完工后停手汇报**:`「T-1105 完工,等待指挥官二次验收 + T-1104 二次验收回补 + T-1106 候选起草」`
->
-> **严禁项再确认(BLOCKER 红线 13 项)**:
+> **严禁项再确认(BLOCKER 红线)**:
 > - 🚫 严禁 `git push`(等指挥官二次验收)
 > - 🚫 严禁 自启 T-1106 / T-1107 / 其他 Phase 11 候选议题(原 FK 第二阶段 / drop column / 物化视图 / KPI 钻取 / 前端看板)
 > - 🚫 严禁 改 `backend/app/models/` / `backend/alembic/` / `backend/app/services/` / `backend/app/schemas/user.py` / `backend/app/routers/` 除 `projects.py + users.py` 外任何文件
-> - 🚫 严禁 改 `backend/app/routers/projects.py` 除 `create_project` 单函数外任何 router 函数
-> - 🚫 严禁 改 `backend/app/routers/users.py` 除末尾**插入式**追加 `UserPickerItem` + `GET /picker` 端点外任何代码
-> - 🚫 严禁 改 `backend/conftest.py` / `tests/_isolation.py` / `tests/_db_url.py` / `.env*` / `README.md` / `DEPLOY.md` / `pyproject.toml` / `requirements.txt` / `uv.lock`
 > - 🚫 严禁 改 T-1104 5 backend 文件
 > - 🚫 严禁 改 前端项目详情页 `frontend/src/app/project/[id]/page.tsx`(`activeTab='members'` UI 完全冻结)
 > - 🚫 严禁 改 前端 dashboard / admin / users / sidebar / components/dashboard / components/charts 任何文件
-> - 🚫 严禁 改 `frontend/src/app/projects/page.tsx` 现有非"新建项目 Modal"区块
 > - 🚫 严禁 `git stash` / amend / rebase / `--no-verify` 跳过 hook
-> - 🚫 严禁 测试 mock / monkeypatch / skip / print / logger / sleep / 直接读 os.environ
-> - 🚫 严禁 改 `📣 附录` 位置 / 删除指挥官签字痕迹
 >
 > **候选 backlog(顺延,未启动)**:
-> - T-1106 候选(原 T-1105 顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
+> - T-1106 候选(原 T-1105 FK 第二阶段顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
 > - T-1107 候选(原 T-1106 顺延):drop `User.department VARCHAR(64)` + 删除 Resolver fallback
 > - T-1108+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)
 >
-> **二次验收基线**:`a532041`(T-1104 chore(progress) 完工)。验收口径见 `docs/T-1105_spec.md` §8(28 项验收清单)。
+> **二次验收基线**:`91e312b` + 本 `chore(progress)` commit(T-1105 工程完工)。验收口径见 `docs/T-1105_spec.md` §8(28 项验收清单),并回补 T-1104 二次验收记录。
