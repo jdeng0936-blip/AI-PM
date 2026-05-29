@@ -39,6 +39,7 @@ from app.models.okr import (
 
 # --- IPD 项目管理模型 ---
 from app.models.project import Project
+from app.models.project_followup import ProjectFollowUp
 from app.models.project_member import ProjectMember
 from app.models.project_stage import ProjectStage
 from app.models.risk_alert import RiskAlert
@@ -64,6 +65,7 @@ __all__ = [
     "AuditLog",
     "AuditLogArchive",
     "Project",
+    "ProjectFollowUp",
     "ProjectStage",
     "GateReview",
     "Sprint",

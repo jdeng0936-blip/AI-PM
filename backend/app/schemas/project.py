@@ -5,7 +5,7 @@ app/schemas/project.py — IPD 项目相关 Pydantic V2 Schemas
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -52,6 +52,23 @@ class ProjectUpdate(BaseModel):
     budget_total: Optional[Decimal] = None
     budget_alert_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
     status: Optional[str] = Field(None, description="active / paused / completed / cancelled")
+    # T-1106 临时工单处理结果(仅 is_temporary=True 完工时强制,主干项目永远 NULL)
+    resolution_summary: Optional[str] = Field(
+        None,
+        max_length=2048,
+        description="临时工单处理结果归集(T-1106):仅 is_temporary=True 流转 status='completed' 时强制",
+    )
+
+
+# ── T-1106 临时工单完工(强制结果填写) ─────────────────────────
+class ProjectComplete(BaseModel):
+    """临时工单流转 'completed' 时的强制结果填写 payload(供 router 守卫使用)。
+
+    本 schema 不直接绑定到端点,仅作 router 内字段语义锚点。
+    实际端点(PATCH /projects/{id})继续用 ProjectUpdate,守卫逻辑在 router 层。
+    """
+
+    resolution_summary: str = Field(..., min_length=1, max_length=2048)
 
 
 # ── 里程碑节点（JSONB 内元素）────────────────────────────────────
@@ -102,6 +119,26 @@ class ProjectMemberAdd(BaseModel):
     user_id: uuid.UUID
     track: str = Field(..., description="hardware / software / both")
     role_in_project: Optional[str] = Field(None, max_length=64)
+
+
+# ── T-1106 项目跟进记录(轻量时间轴) ──────────────────────────
+class ProjectFollowUpCreate(BaseModel):
+    """成员追加跟进记录的 payload(POST /projects/{id}/followups)。"""
+
+    content: str = Field(..., min_length=1, max_length=1024, description="跟进文本内容,1-1024 字")
+
+
+class ProjectFollowUpOut(BaseModel):
+    """跟进记录返回(GET /projects/{id}/followups list item)。"""
+
+    id: str
+    project_id: str
+    content: str
+    created_by: Optional[str]
+    created_by_name: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── API 响应：项目总览（红绿黄矩阵） ─────────────────────────────

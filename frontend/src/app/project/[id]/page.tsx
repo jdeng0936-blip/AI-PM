@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage, batchRemoveProjectMembers } from '@/api/projects'
+import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage, batchRemoveProjectMembers, updateProject } from '@/api/projects'
 import { getUsers } from '@/api/users'
 import { getProjectSprints } from '@/api/sprints'
 import { trackLabel } from '@/lib/project-track'
@@ -14,6 +14,7 @@ import { RefreshCw, Users, CheckCircle, Shield, Plus, Play, Check, Lock, Target,
 import { useAuthStore } from '@/stores/use-auth-store'
 import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import ListActionBar from '@/components/list-action-bar'
+import FollowupTimeline from '@/components/followup-timeline'
 
 const STAGE_STATUS_MAP: Record<string, { icon: any; color: string; label: string }> = {
   green:  { icon: CheckCircle, color: '#22c55e', label: '进行中' },
@@ -36,7 +37,7 @@ export default function ProjectDetailPage() {
   const [stages, setStages] = useState<any[]>([])
   const [sprints, setSprints] = useState<any[]>([])
   const [gates, setGates] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'overview' | 'sprints' | 'gates' | 'members'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'sprints' | 'gates' | 'members' | 'followups'>('overview')
   const [allUsers, setAllUsers] = useState<any[]>([])
   const [showAddMember, setShowAddMember] = useState(false)
   const [addingMember, setAddingMember] = useState(false)
@@ -44,6 +45,9 @@ export default function ProjectDetailPage() {
   const [editingStage, setEditingStage] = useState<any>(null)
   const [editMilestones, setEditMilestones] = useState<any[]>([])
   const [savingMs, setSavingMs] = useState(false)
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [resolutionDraft, setResolutionDraft] = useState('')
+  const [completing, setCompleting] = useState(false)
   // V2.5 Stage 2:成员多选 + 批量移出
   const { userRole } = useAuthStore()
   const canManageMembers = userRole === 'admin' || userRole === 'manager'
@@ -125,12 +129,38 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function handleCompleteTemporaryProject() {
+    const trimmed = resolutionDraft.trim()
+    if (!trimmed) {
+      toast.error('请填写处理结果')
+      return
+    }
+    if (trimmed.length > 2048) {
+      toast.error('处理结果超过 2048 字符上限')
+      return
+    }
+    setCompleting(true)
+    try {
+      await updateProject(id, { status: 'completed', resolution_summary: trimmed })
+      toast.success('临时工单已完工')
+      setProject((prev: any) => prev ? { ...prev, status: 'completed', resolution_summary: trimmed, health_status: 'green', health_score: 100 } : prev)
+      setShowCompleteModal(false)
+      setResolutionDraft('')
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail
+      toast.error(typeof detail === 'string' ? detail : '完工失败')
+    } finally {
+      setCompleting(false)
+    }
+  }
+
   const healthColor = (s: string) => ({ green: '#22c55e', yellow: '#eab308', red: '#ef4444' }[s] || '#4b5563')
   const tabs = [
     { key: 'overview', label: '概览' },
     { key: 'sprints', label: 'Sprint' },
     { key: 'gates', label: '门禁' },
     { key: 'members', label: '成员' },
+    { key: 'followups', label: '跟进' },
   ]
 
   if (id === 'default') {
@@ -289,6 +319,36 @@ export default function ProjectDetailPage() {
               </div>
             )
           })()}
+
+          {project.is_temporary && (
+            <div className="stat-card">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="section-title">临时工单处理结果</div>
+                  {project.status === 'completed' ? (
+                    <p className="text-sm leading-6 whitespace-pre-wrap break-words mt-2" style={{ color: 'var(--color-text-primary)' }}>
+                      {project.resolution_summary || '已完工'}
+                    </p>
+                  ) : (
+                    <p className="text-sm mt-2" style={{ color: 'var(--color-text-secondary)' }}>
+                      当前仍在跟进中
+                    </p>
+                  )}
+                </div>
+                {project.status !== 'completed' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleteModal(true)}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
+                    style={{ background: 'linear-gradient(135deg, #22c55e, #14b8a6)' }}
+                  >
+                    <CheckCircle size={14} />
+                    完工
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -491,6 +551,13 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {/* Followups */}
+      {activeTab === 'followups' && (
+        <div className="animate-in">
+          <FollowupTimeline projectId={id} onAdded={fetchAll} />
+        </div>
+      )}
+
       {/* 添加成员弹窗 */}
       {showAddMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
@@ -533,6 +600,46 @@ export default function ProjectDetailPage() {
                 style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}
               >
                 {addingMember ? '添加中...' : '确认添加'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 临时工单完工弹窗 */}
+      {showCompleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-lg mx-4 rounded-2xl p-6" style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--color-text-primary)' }}>填写处理结果</h3>
+            <textarea
+              value={resolutionDraft}
+              onChange={(e) => setResolutionDraft(e.target.value)}
+              rows={6}
+              maxLength={2048}
+              placeholder="归纳处理过程、最终结论、交付物或遗留事项..."
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
+                {resolutionDraft.length}/2048
+              </span>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowCompleteModal(false)}
+                className="px-4 py-2 rounded-lg text-xs font-medium"
+                style={{ border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}
+              >
+                取消
+              </button>
+              <button
+                disabled={completing || !resolutionDraft.trim()}
+                onClick={handleCompleteTemporaryProject}
+                className="px-4 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #22c55e, #14b8a6)' }}
+              >
+                {completing ? '提交中...' : '确认完工'}
               </button>
             </div>
           </div>

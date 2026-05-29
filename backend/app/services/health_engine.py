@@ -21,13 +21,14 @@ app/services/health_engine.py — 日报→项目健康度聚合引擎
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import Float, Integer, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
 from app.models.project import Project, ProjectHealthStatus
+from app.models.project_followup import ProjectFollowUp
 from app.models.project_member import MemberTrack, ProjectMember
 from app.models.project_stage import ProjectStage, StageHealthStatus, StageTrack
 from app.models.risk_alert import RiskAlert
@@ -43,6 +44,10 @@ BLOCKER_RED_DAYS = 5  # 连续≥5天未解决 → red
 W_AI_SCORE = 0.50
 W_PROGRESS = 0.30
 W_NO_BLOCKER = 0.20
+
+# T-1106 临时工单 stale 阈值
+STALE_YELLOW_DAYS = 7
+STALE_RED_DAYS = 14
 
 
 def _compute_health(
@@ -69,6 +74,27 @@ def _compute_health(
         return score, ProjectHealthStatus.yellow
     else:
         return score, ProjectHealthStatus.red
+
+
+def _as_aware_utc(moment: datetime) -> datetime:
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
+def _days_since(moment: datetime, now: datetime | None = None) -> int:
+    current = now or datetime.now(timezone.utc)
+    return max(0, (current - _as_aware_utc(moment)).days)
+
+
+def _compute_temp_stale_health(days_stale: int) -> tuple[ProjectHealthStatus, int]:
+    """T-1106:基于"最近 followup 距今天数"计算临时工单健康度与分数。"""
+
+    if days_stale >= STALE_RED_DAYS:
+        return ProjectHealthStatus.red, 30
+    if days_stale >= STALE_YELLOW_DAYS:
+        return ProjectHealthStatus.yellow, 60
+    return ProjectHealthStatus.green, 100
 
 
 async def compute_stage_health(
@@ -100,9 +126,7 @@ async def compute_stage_health(
     if track_filter:
         member_conditions.append(ProjectMember.track.in_(track_filter))
 
-    members_result = await db.execute(
-        select(ProjectMember.user_id).where(and_(*member_conditions))
-    )
+    members_result = await db.execute(select(ProjectMember.user_id).where(and_(*member_conditions)))
     member_ids = [row[0] for row in members_result.all()]
 
     if not member_ids:
@@ -179,11 +203,22 @@ async def refresh_project_health(
     if not project:
         return
 
-    # V2.3 临时工单项目: 无 IPD 阶段、无预算/健康度概念,固定 green
-    # 否则下面对 ProjectStage 的查询会拿不到 stage 直接 return,健康分永远不会更新
+    # V2.3/T-1106 临时工单项目: 无 IPD 阶段,按完工状态与最近跟进时间计算健康度
     if project.is_temporary:
-        project.health_status = ProjectHealthStatus.green
-        project.health_score = 100
+        project_status = getattr(project.status, "value", project.status)
+        if project_status == "completed":
+            project.health_status = ProjectHealthStatus.green
+            project.health_score = 100
+        else:
+            last_followup_at = await db.scalar(
+                select(func.max(ProjectFollowUp.created_at)).where(
+                    ProjectFollowUp.project_id == project_id,
+                    ProjectFollowUp.tenant_id == project.tenant_id,
+                )
+            )
+            temp_health, score = _compute_temp_stale_health(_days_since(last_followup_at or project.created_at))
+            project.health_status = temp_health
+            project.health_score = score
         await db.commit()
         return
 

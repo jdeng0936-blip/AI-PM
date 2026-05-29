@@ -23,13 +23,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
 from app.models.project import Project, ProjectHealthStatus, ProjectStatus
+from app.models.project_followup import ProjectFollowUp
 from app.models.project_member import ProjectMember
 from app.models.project_stage import STAGE_DEFINITIONS_BY_TRACK, ProjectStage
 from app.models.sprint import Sprint, SprintStatus
 from app.models.user import User, UserRole
 from app.schemas.project import (
     GanttStage,
+    ProjectComplete,
     ProjectCreate,
+    ProjectFollowUpCreate,
+    ProjectFollowUpOut,
     ProjectMemberAdd,
     ProjectMemberInit,  # T-1105 新增
     ProjectUpdate,
@@ -691,11 +695,27 @@ async def update_project(
     if "track" in updates and updates["track"] not in _VALID_TRACKS:
         raise HTTPException(400, f"无效 track，允许值：{sorted(_VALID_TRACKS)}")
 
+    target_status = updates.get("status")
+    if "resolution_summary" in updates and updates["resolution_summary"] is not None:
+        updates["resolution_summary"] = updates["resolution_summary"].strip()
+
+    if not project.is_temporary and "resolution_summary" in updates:
+        del updates["resolution_summary"]
+
+    if project.is_temporary and target_status == ProjectStatus.completed.value:
+        resolution_summary = updates.get("resolution_summary") or project.resolution_summary
+        if not resolution_summary:
+            raise HTTPException(400, "临时工单完工必须填写处理结果 resolution_summary")
+        ProjectComplete(resolution_summary=resolution_summary)
+
     for k, v in updates.items():
         setattr(project, k, v)
 
     await db.commit()
     await db.refresh(project)
+    if project.is_temporary and ("status" in updates or "resolution_summary" in updates):
+        await refresh_project_health(db, project_id)
+        await db.refresh(project)
     return {
         "message": "项目已更新",
         "project_id": str(project.id),
@@ -772,6 +792,75 @@ async def get_gantt_data(
             milestones=s.milestones or [],
         )
         for s in stages
+    ]
+
+
+# ── 项目跟进记录(T-1106) ─────────────────────────────────────────
+@router.post("/{project_id}/followups", status_code=201)
+async def create_project_followup(
+    project_id: uuid.UUID,
+    data: ProjectFollowUpCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    project = await _get_visible_project(db, project_id, user)
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(400, "跟进内容不能为空")
+
+    followup = ProjectFollowUp(
+        project_id=project.id,
+        content=content,
+        tenant_id=user.tenant_id,
+        created_by=user.id,
+    )
+    db.add(followup)
+    await db.commit()
+    await db.refresh(followup)
+
+    if project.is_temporary:
+        await refresh_project_health(db, project_id)
+
+    return {
+        "message": "跟进记录已创建",
+        "id": str(followup.id),
+        "project_id": str(followup.project_id),
+        "content": followup.content,
+        "created_by": str(followup.created_by) if followup.created_by else None,
+        "created_at": followup.created_at,
+    }
+
+
+@router.get("/{project_id}/followups", response_model=list[ProjectFollowUpOut])
+async def list_project_followups(
+    project_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _get_visible_project(db, project_id, user)
+    result = await db.execute(
+        select(ProjectFollowUp, User.name)
+        .outerjoin(User, ProjectFollowUp.created_by == User.id)
+        .where(
+            and_(
+                ProjectFollowUp.project_id == project_id,
+                ProjectFollowUp.tenant_id == user.tenant_id,
+            )
+        )
+        .order_by(ProjectFollowUp.created_at.desc())
+        .limit(limit)
+    )
+    return [
+        ProjectFollowUpOut(
+            id=str(followup.id),
+            project_id=str(followup.project_id),
+            content=followup.content,
+            created_by=str(followup.created_by) if followup.created_by else None,
+            created_by_name=created_by_name,
+            created_at=followup.created_at,
+        )
+        for followup, created_by_name in result.all()
     ]
 
 

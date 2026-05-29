@@ -64,3 +64,22 @@ export const batchRestoreProjects = (ids: string[]) =>
 
 // V2.4 Stage 3 C4:回收站 — 已软删的临时项目列表(admin only)
 export const getDeletedProjects = () => request.get('/projects/deleted')
+
+// T-1106 项目跟进记录(轻量时间轴)
+export interface ProjectFollowUp {
+  id: string
+  project_id: string
+  content: string
+  created_by: string | null
+  created_by_name: string | null
+  created_at: string  // ISO timestamp
+}
+
+export const createFollowup = (projectId: string, content: string) =>
+  request.post<unknown, { id: string; project_id: string; content: string; created_at: string }>(
+    `/projects/${projectId}/followups`,
+    { content },
+  )
+
+export const listFollowups = (projectId: string, limit = 50) =>
+  request.get<unknown, ProjectFollowUp[]>(`/projects/${projectId}/followups`, { params: { limit } })

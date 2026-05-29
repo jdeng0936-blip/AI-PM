@@ -80,6 +80,15 @@ class Project(BaseMixin, Base):
     budget_spent: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), default=0)
     budget_alert_threshold: Mapped[float] = mapped_column(default=0.8)  # 超过80%触发预警
 
+    # ── T-1106 临时工单处理结果归集 ─────────────────────────────────
+    # 仅 is_temporary=True 流转到 status='completed' 时强制要求填写
+    # 主干项目走 IPD G4 关卡评审,resolution_summary 永远 NULL
+    resolution_summary: Mapped[Optional[str]] = mapped_column(
+        String(2048),
+        nullable=True,
+        comment="临时工单处理结果(T-1106):仅 is_temporary=True 完工时强制填写;主干项目永久 NULL",
+    )
+
     # ── V2.4 Stage 2 软删标识 ──────────────────────────────────────
     # 主干项目走 archive(status=cancelled),临时项目走 deleted_at 软删
     # list query 默认过滤 deleted_at IS NULL
