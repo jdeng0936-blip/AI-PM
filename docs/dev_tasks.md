@@ -248,9 +248,47 @@ cd frontend && npm run lint && npm run typecheck
   - **完整执行契约见 `docs/T-1103_spec.md`**(必读,~620 行 10 章 + 📣 附录)。
   - **指挥官二次验收(`[2026-05-28 18:35:00]`)**:✅ **PASS — 28/28 验收清单全通过(零减分)**。Codex 双 commit `e343db3` fix + `045533d` chore 完美闭环。**改动面 100% 精准**:fix commit 严格 **15 文件**(`backend/tests/_isolation.py` +86 行新建 / `_db_url.py` docstring +6 -X / `conftest.py` +14 / `test_notifications.py` -26 去重 / 11 处 test file 各 +3 -1),chore commit 严格 1 文件(`dev_tasks.md`),零 src / 零 alembic / 零 frontend / 零 DEPLOY.md / 零 README.md / 零 backend/.env / 零 .env.example。**议题 A 实测**:`_isolation.py` 28 项字段精准对齐 spec(wechat 6 + dingtalk 5 + smtp 4 + new_api 2 + xunfei 3 + oss 5 + erp 1 + sentry 2 = 28)+ 8 类别注释全到位 + `from app.config import settings` L83 延迟 import(防循环依赖正确)+ conftest.py L75-76 autouse fixture 入位 + `test_notifications.py::_clean_notification_settings` 0 hit(完美去重)。**议题 B 红线根除**:11 处 test file 逐文件 `import=1, cutover=1, orig=0` 完美(test_okr / test_daily_report_relations / test_analytics / test_sprints / test_retro / test_capacity / test_kpi_phase9 / test_phase10_dept_group / test_attachments / test_chat_tools / test_me_deletions),**全仓零残留闸门** `grep -rn 'replace.*aipm_db.*aipm_db_test' backend/tests/ \| grep -v _db_url.py \| wc -l` = **0**(议题 B 全仓收口)。**闸门**:`ruff check tests/` All passed / `mypy` 2 文件 0 error / **`pytest -q` 178 passed + 2 skipped in 50.37s 零回归** / `test_asr.py 11 passed`(议题 A monkeypatch later wins 机制不破坏 33 case)/ `test_notifications.py 8 passed`(去重后 isolation 由 conftest.py autouse 提供仍生效)。**Worker timestamp** 双 commit 均带(feat `[2026-05-28 18:42:36]` / chore `[2026-05-28 18:43:06]`)。**亮点 4 项**:① **chore commit body 大幅改进**(T-1102 chore 仅 1 行 Worker timestamp 减分 → T-1103 chore **11 行 body** 含完工概要 + 文件清单 + 验证结果 + 严禁项遵守证据,审计可读性收紧);② **议题 A monkeypatch 顺序覆盖兼容**(test_asr.py 33 case 全 PASS,证明 autouse fixture 不破坏现有 setattr later wins 机制);③ **议题 B 红线 100% 根除**(T-1102 spec 起草盲点 11 处遗漏 → T-1103 全仓收口,无论 DB 名是 `aipm_db / qiaocai / 自定义` 都安全派生 test 库);④ **零 src 防线**(15 文件全在 test / docs,backend/app + alembic + frontend + DEPLOY.md + README.md + backend/.env + .env.example 全冻结)。**减分**:无。**Phase 11 三任 Task(T-1101 ~ T-1103)全闭环 ✅**,等待指挥官启动 T-1104 / Phase 12 规划。
 
+### 外键迁移(议题 ① · 3 任务渐进 T-1104 → T-1105 → T-1106)
+- [ ] **Task 4 (T-1104): `User.department` → `Department.id` FK 双轨迁移 第一阶段(Migration + Model + Resolver helper + `department_service.get_department_with_members` 接入)** — 指挥官 `[2026-05-29]` 起草 spec,等待 Codex 接手
+  - **新建** `backend/alembic/versions/20260529_HHMM_phase11_user_department_id_fk.py`(~80 行)— `users.department_id UUID FK→departments.id ON DELETE SET NULL nullable=True` + `fk_users_department_id_departments` 约束 + `ix_users_department_id` 索引 + 一次性 backfill(严格 LEFT JOIN unmapped 留 NULL + `[T-1104 backfill]` stdout dry-run 报告)+ downgrade 反向 drop_index → drop_constraint → drop_column 可回滚。`down_revision = "9a1b2c3d4e5f"`(T-1102 head;Codex 接手时 alembic heads 二次核验)。
+  - **新建** `backend/app/services/_department_resolver.py`(~65 行)— `resolve_user_department_name(db, user)`(FK 优先 → fallback VARCHAR)+ `resolve_department_id_by_name(db, name)`(T-1105 写路径用)2 公开 async helper,零 HTTPException。
+  - **改** `backend/app/models/user.py`(插入式 +5~8 行)— L53 `department: Mapped[str]` 字段**不动**,L54 起插入 `department_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("departments.id", ondelete="SET NULL"), index=True, nullable=True, ...)`;import 块视需补 `Optional` / `ForeignKey` / `uuid`。**不**加 `relationship("Department", ...)`(留给 T-1105 评估 N+1 风险)。
+  - **改** `backend/app/services/department_service.py`(单函数 +5 / -3)— 仅 `get_department_with_members` 内 stmt 改双轨 OR(`or_(department_id == dept.id, and_(department_id IS NULL, department == dept.name))`);**严禁**改 `list_departments / create_department / update_department / delete_department / _map_value_error` 等其他函数。
+  - **新建** `backend/tests/test_phase11_dept_fk.py`(~280 行 ~15 case)— Model 3 + Backfill 3 + Resolver 4 + Service 5,消费 `db_session + _isolation_external_settings` autouse fixture(T-1102/1103),`_cleanup_phase11_test_data` 入口必跑,作用域 `wechat_userid like "phase11_%"` + `departments.name like "phase11_%"`,零 mock/skip/print/logger/monkeypatch ORM。
+  - **3 任务渐进路径锁定**:T-1104 本任 = Migration + Model + Resolver + 1 处接入(双轨纯增量);T-1105 候选 = 切剩余 36+ 处后端 routers/services 读路径用 Resolver + frontend schemas 扩 `department_id` output + 写路径(`routers/users.py:188` 等 7 处);T-1106 候选 = drop column `User.department VARCHAR(64)` + 删 Resolver fallback 路径。
+  - **不**改 `backend/app/routers/`(20 处读路径全留给 T-1105)、`backend/app/services/` 除白名单外(16 处其他 services 读路径全留给 T-1105)、`backend/app/schemas/`(留给 T-1105 扩 output)、`frontend/`(留给 T-1105)、`backend/conftest.py + tests/_isolation.py + tests/_db_url.py`(T-1102/1103 已闭环)、`backend/.env*` / `README.md` / `DEPLOY.md`(T-1102 已闭环)、`backend/pyproject.toml + requirements.txt + uv.lock`。
+  - **测试基线**:T-1103 完工 178 passed → T-1104 完工预期 `193 passed + 2 skipped`(新 15 case 全 PASS + 旧 178 case 零回归)。
+  - **完整执行契约见 `docs/T-1104_spec.md`**(必读,~600 行 10 章 + 📣 附录;指挥官 `[2026-05-29]` 4 决策签字 — 方案 A 双轨纯增量 / i 严格保留 NULL / SET NULL / 拆 3 任务渐进)。
+
 ---
 
 ## 📣 恢复执行指令
 
-> **更新时间戳(T-1103 完工 + 指挥官二次验收通过)**: `[2026-05-28 18:35:00]`
-> **当前持牌任务**: 无(T-1103 已 `[x]`,议题 A 全局 fixture + 议题 B 11 处统一收口;等待指挥官二次验收)。**绝对不要**自启 T-1104。**绝对不要** `git push`。
+> **更新时间戳(T-1104 spec 起草完成,等待 Codex 接手)**: `[2026-05-29]`
+>
+> **当前持牌任务**: **T-1104**(Phase 11 第四任 — `User.department` FK 双轨迁移 · 第一阶段)。指挥官 `[2026-05-29]` 已落盘 `docs/T-1104_spec.md` ~600 行 10 章 + 📣 附录(含 4 决策签字 + §3 实施细则 + §2 严禁项 12 条 + §8 验收清单 28 项 + §7 commit 纪律 + §9 风险与回滚 + §10 自洽校验 + 物理交接单)。
+>
+> **Codex 接手指令(物理交接单 — 摘自 spec §📣 附录)**:
+> 1. 静默 Git 探针(CLAUDE.md #1):`git status --short --branch` / `git log -5 --oneline` / `git diff` / `git diff --cached` / `git rev-list --left-right --count origin/main...HEAD`(期望 `0 0`)。
+> 2. 读盘 `docs/T-1104_spec.md` 全文 + 本文件末尾 📣 锚点 + `backend/app/models/user.py:53`(`User.department` 字段定义)+ `backend/app/models/department.py` 全文(Department 表 + manager_id FK 体例)+ `backend/app/services/department_service.py` 内 `get_department_with_members` 函数(L135 `User.department == dept.name` 等值反查段)。
+> 3. 二次确认 alembic head:`cd backend && .venv/bin/alembic heads`,期望 `9a1b2c3d4e5f`,如已偏移以实际为准更新 spec §3.1 `down_revision` 字面量(spec 字面量优先级 < alembic 实际 head)。
+> 4. 改 `dev_tasks.md` Task 4 → `[/]` + 单 commit `chore(lock): T-1104 开工 — Phase 11 第四任 User.department FK 双轨迁移第一阶段`(CLAUDE.md #3 加锁,带 Worker timestamp)。
+> 5. 按 spec §3 实施细则完成 **5 文件改动**:① `backend/alembic/versions/20260529_HHMM_phase11_user_department_id_fk.py` 新建(~80 行)② `backend/app/services/_department_resolver.py` 新建(~65 行)③ `backend/app/models/user.py` 插入式改(+5~8 行)④ `backend/app/services/department_service.py` 单函数改(+5/-3)⑤ `backend/tests/test_phase11_dept_fk.py` 新建(~280 行 ~15 case)。
+> 6. 跑 spec §6 质量闸门 6 项:`ruff check` 4 文件 / `mypy` 3 src 文件 / `alembic upgrade head` → `downgrade -1` → `upgrade head` 来回 PASS(stdout 命中 `[T-1104 backfill]`)/ `pytest tests/test_phase11_dept_fk.py -v` 15/15 PASS / `pytest -q` 全量 `193 passed + 2 skipped` / 前端 `npm run lint && npm run typecheck` 干净。`alembic check` 凭 T-1101/1102/1103 既定 Supervisor 特批跳过(local DB drift 误报)。
+> 7. 按 spec §7 commit 纪律 **严格 2 commit 原子收口**:Commit 1 `feat(models): T-1104 ...` 5 文件(均带 Worker timestamp);Commit 2 `chore(progress): close T-1104 ...` 1 文件(`docs/dev_tasks.md` Task 4 → `[x]` + 📣 锚点替换),body 含完工概要 + 文件清单 + 严禁项遵守证据(对齐 T-1103 chore body 风格,审计可读性收紧)。
+> 8. 完工后停手汇报「T-1104 完工,等待指挥官二次验收 + T-1105 候选起草」。
+>
+> **🚫 严禁项(BLOCKER 红线 12 条)**:
+> - 严禁 `git push`(等指挥官二次验收)
+> - 严禁自启 T-1105 / T-1106 / Phase 11 其他候选议题(② 物化视图 / ③ KPI 钻取 / ④ 前端看板)
+> - 严禁改 `backend/app/routers/` / `backend/app/schemas/` / `frontend/` / `backend/conftest.py` / `backend/tests/_isolation.py` / `backend/tests/_db_url.py` / `backend/.env*` / `README.md` / `DEPLOY.md` / `backend/pyproject.toml` / `backend/requirements.txt` / `backend/uv.lock`(任一改动 = BLOCKER 立即退回)
+> - 严禁改 `backend/app/services/department_service.py` 除 `get_department_with_members` 单函数外的任何函数
+> - 严禁 Migration backfill 内 silent 跳过 unmapped(必须输出 `[T-1104 backfill]` stdout 报告)
+> - 严禁 Migration `downgrade()` 留空 / `NotImplementedError`
+> - 严禁 `git stash` / amend / rebase / `--no-verify`
+> - 严禁测试 mock / monkeypatch / skip / print / logger
+> - 严禁改 spec §📣 附录位置 / 删除指挥官签字痕迹
+>
+> **回滚动作**(production hot rollback):`cd backend && .venv/bin/alembic downgrade -1`(VARCHAR 字段保留 = 数据零丢失)。
+>
+> **二次验收基线**:`2baaaed`(T-1103 docs 二次验收通过)。验收口径见 spec §8(28 项验收清单)。
