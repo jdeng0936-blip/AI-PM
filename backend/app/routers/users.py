@@ -384,3 +384,58 @@ async def get_resource_load(
         "overloaded_count": overloaded_count,
         "members": load_data,
     }
+
+
+# T-1105 立项指派成员用户选择器(轻量 + manager 可访问)
+class UserPickerItem(BaseModel):
+    """精简字段 - 用于立项 Modal / 项目成员追加场景的下拉选择器。"""
+
+    id: str
+    name: str
+    department: str = ""
+    role: str
+    is_active: bool
+
+
+@router.get("/picker", response_model=list[UserPickerItem])
+async def list_users_for_picker(
+    search: str = Query("", description="按姓名 / 部门 / 企微ID 模糊搜索"),
+    include_inactive: bool = Query(False, description="是否包含已停用用户(默认 False)"),
+    db: AsyncSession = Depends(get_db),
+    _mgr: User = Depends(require_role(UserRole.admin, UserRole.manager)),
+):
+    """
+    立项指派成员 / 项目成员追加场景用户选择器。
+
+    设计:
+    - 与 `GET /users` 现有 admin-only 端点解耦:本端点 RBAC = admin + manager,
+      避免 manager 立项时无法列用户的 RBAC gap
+    - 字段精简到 id / name / department / role / is_active,降低数据传输量
+    - 同 tenant_id 隔离(沿用 require_role 注入的 _mgr.tenant_id)
+    - 默认过滤 is_active=True(立项不应指派已停用员工);可选 include_inactive=True
+    - 不分页(一站式立项指派场景通常 <= 几百用户,前端可本地过滤)
+    """
+    stmt = select(User).where(User.tenant_id == _mgr.tenant_id)
+    if not include_inactive:
+        stmt = stmt.where(User.is_active.is_(True))
+    if search:
+        like_pat = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                User.name.ilike(like_pat),
+                User.department.ilike(like_pat),
+                User.wechat_userid.ilike(like_pat),
+            )
+        )
+    stmt = stmt.order_by(User.name)
+    rows = await db.execute(stmt)
+    return [
+        UserPickerItem(
+            id=str(u.id),
+            name=u.name,
+            department=u.department or "",
+            role=u.role.value,
+            is_active=u.is_active,
+        )
+        for u in rows.scalars().all()
+    ]

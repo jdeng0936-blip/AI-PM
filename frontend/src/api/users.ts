@@ -68,3 +68,15 @@ export const batchDisableUsers = (ids: string[]) =>
 
 export const batchEnableUsers = (ids: string[]) =>
   request.post('/users/batch-enable', { ids })
+
+// T-1105 立项指派成员用户选择器(轻量 + manager 可访问)
+export interface UserPickerItem {
+  id: string
+  name: string
+  department: string
+  role: string
+  is_active: boolean
+}
+
+export const getUserPicker = (params: { search?: string; include_inactive?: boolean } = {}) =>
+  request.get<unknown, UserPickerItem[]>('/users/picker', { params })

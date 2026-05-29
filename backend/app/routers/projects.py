@@ -31,6 +31,7 @@ from app.schemas.project import (
     GanttStage,
     ProjectCreate,
     ProjectMemberAdd,
+    ProjectMemberInit,  # T-1105 新增
     ProjectUpdate,
     StageUpdate,
 )
@@ -323,6 +324,48 @@ async def create_project(
     db.add(project)
     await db.flush()  # 获取 project.id
 
+    # T-1105 立项时一站式指派成员(主干 + 临时项目共享路径)
+    # data.members 为 None / [] 时跳过,沿用零成员路径(向后兼容)
+    if data.members:
+        project_members: list[ProjectMemberInit] = data.members
+        # 1. payload 内 user_id dedup 校验(同一 user_id 出现 2 次 -> 400)
+        seen_user_ids: set[uuid.UUID] = set()
+        for m in project_members:
+            if m.user_id in seen_user_ids:
+                await db.rollback()
+                raise HTTPException(400, f"成员列表中重复的 user_id: {m.user_id}")
+            seen_user_ids.add(m.user_id)
+
+        # 2. 一次性校验 user_id 全部存在且同 tenant_id(零部分插入)
+        existing_user_ids_q = await db.execute(
+            select(User.id).where(
+                User.id.in_(list(seen_user_ids)),
+                User.tenant_id == creator.tenant_id,
+            )
+        )
+        existing_user_ids = {row[0] for row in existing_user_ids_q.all()}
+        missing_user_ids = seen_user_ids - existing_user_ids
+        if missing_user_ids:
+            await db.rollback()
+            raise HTTPException(
+                400,
+                f"以下 user_id 不存在或不属于当前 tenant: {sorted(str(u) for u in missing_user_ids)}",
+            )
+
+        # 3. 批量插入 ProjectMember(单事务,失败整体 rollback)
+        for m in project_members:
+            db.add(
+                ProjectMember(
+                    project_id=project.id,
+                    user_id=m.user_id,
+                    track=m.track,
+                    role_in_project=m.role_in_project,
+                    tenant_id=creator.tenant_id,
+                    created_by=creator.id,
+                )
+            )
+        await db.flush()  # 让 partial UNIQUE (T-1002) 触发 IntegrityError 落到 router 异常处理
+
     # ── V2.3 临时工单项目:走轻量路径 ──────────────────────────
     # 跳过 5 阶段 + 里程碑模板,只建一个 sprint_number=0 的虚拟"Backlog" Sprint
     # 让日报的 sprint_task_id 也能有归属(虽然实际任务为空)
@@ -347,6 +390,7 @@ async def create_project(
             "code": project.code,
             "is_temporary": True,
             "backlog_sprint_id": str(backlog_sprint.id),
+            "members_added": len(data.members) if data.members else 0,  # T-1105 新增
         }
 
     # ── 各阶段默认里程碑模板（按轨道区分）──────────────────
@@ -420,6 +464,7 @@ async def create_project(
         "message": "项目创建成功，已自动初始化5个 IPD 阶段及里程碑",
         "project_id": str(project.id),
         "code": project.code,
+        "members_added": len(data.members) if data.members else 0,  # T-1105 新增
     }
 
 

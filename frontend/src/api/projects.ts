@@ -27,7 +27,27 @@ export const batchRemoveProjectMembers = (projectId: string, memberIds: string[]
     removed_count: number
     removed_member_ids: string[]
   }>(`/projects/${projectId}/members/batch`, { data: { member_ids: memberIds } })
-export const createProject = (data: any) => request.post('/projects/', data)
+
+// T-1105 立项时一站式指派成员(可选,默认空 -> 走"零成员"路径)
+export interface ProjectMemberInit {
+  user_id: string  // UUID
+  track: 'hardware' | 'software' | 'both'
+  role_in_project?: string
+}
+
+export interface CreateProjectPayload {
+  name: string
+  code?: string
+  description?: string
+  track?: string
+  planned_launch_date?: string  // ISO date
+  budget_total?: number
+  budget_alert_threshold?: number
+  is_temporary?: boolean
+  members?: ProjectMemberInit[]  // T-1105 新增
+}
+
+export const createProject = (data: CreateProjectPayload) => request.post('/projects/', data)
 export const updateProject = (id: string, data: any) => request.patch(`/projects/${id}`, data)
 export const archiveProject = (id: string) => request.delete(`/projects/${id}`)
 export const getGateReviews = (projectId: string) => request.get(`/gates/project/${projectId}`)

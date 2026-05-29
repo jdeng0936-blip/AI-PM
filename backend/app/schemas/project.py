@@ -12,6 +12,16 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+# ── 项目成员初始化(立项时一站式批量插入,T-1105 新增) ──────────
+class ProjectMemberInit(BaseModel):
+    """立项时一次性指派的项目成员。不带 project_id(由 URL 上下文注入),
+    其余字段与 ProjectMemberAdd 对齐 1:1。"""
+
+    user_id: uuid.UUID
+    track: str = Field(..., description="hardware / software / both")
+    role_in_project: Optional[str] = Field(None, max_length=64)
+
+
 # ── 项目创建 ──────────────────────────────────────────────────────
 class ProjectCreate(BaseModel):
     name: str = Field(..., max_length=128, description="项目名称，如'206样机研发及落地'")
@@ -23,6 +33,12 @@ class ProjectCreate(BaseModel):
     budget_alert_threshold: float = Field(0.8, ge=0.0, le=1.0, description="预算预警阈值")
     # V2.3 临时工单项目：勾上后跳过 5 阶段初始化，自动建一个 Backlog 虚拟 Sprint
     is_temporary: bool = Field(False, description="是否为临时工单项目(V2.3)：跳过 IPD 5 阶段初始化")
+    # T-1105 立项时一站式指派成员(可选,默认 None 等价于"零成员"现状)
+    members: Optional[list[ProjectMemberInit]] = Field(
+        None,
+        max_length=50,
+        description="立项时一次性指派的项目成员(0..50);None / [] 时走零成员路径,与现状 100% 兼容",
+    )
 
 
 # ── 项目更新（PATCH）──────────────────────────────────────────────

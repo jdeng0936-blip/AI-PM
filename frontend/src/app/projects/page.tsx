@@ -24,6 +24,8 @@ import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
 import ListActionBar from '@/components/list-action-bar'
 import { toast } from 'sonner'
+import MemberPicker from '@/components/member-picker'
+import type { ProjectMemberInit } from '@/api/projects'
 import {
   FolderKanban, Plus, ArrowRight, RefreshCw, Search, Calendar, Wallet,
   MoreVertical, Pencil, PauseCircle, PlayCircle, Archive, ArchiveRestore,
@@ -116,6 +118,7 @@ export default function ProjectsPage() {
     planned_launch_date: '',
     budget_total: 100000,
     is_temporary: false, // V2.3 临时工单项目
+    members: [] as ProjectMemberInit[], // T-1105 新增
   })
 
   // 卡片右上角菜单(项目操作)
@@ -179,16 +182,38 @@ export default function ProjectsPage() {
             planned_launch_date: projectForm.planned_launch_date || undefined,
             is_temporary: true,
             track: projectForm.track, // 临时项目也允许选择轨道 (如日常支撑)
+            // T-1105:临时项目也支持立项指派成员
+            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
           }
-        : projectForm
+        : {
+            // T-1105:主干项目 payload 展开,显式列出字段以便注入 members
+            name: projectForm.name,
+            code: projectForm.code || undefined,
+            description: projectForm.description || undefined,
+            track: projectForm.track,
+            planned_launch_date: projectForm.planned_launch_date || undefined,
+            budget_total: projectForm.budget_total,
+            is_temporary: false,
+            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+          }
       const created = await createProject(payload) as any
+      const membersHint = projectForm.members.length > 0 ? ` · 已指派 ${projectForm.members.length} 名成员` : ''
       toast.success(
         projectForm.is_temporary
-          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功`
-          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功`,
+          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功${membersHint}`
+          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功${membersHint}`,
       )
       setShowCreate(false)
-      setProjectForm({ name: '', code: '', description: '', track: 'dual', planned_launch_date: '', budget_total: 100000, is_temporary: false })
+      setProjectForm({
+        name: '',
+        code: '',
+        description: '',
+        track: 'dual',
+        planned_launch_date: '',
+        budget_total: 100000,
+        is_temporary: false,
+        members: [],
+      })
       // 创建临时项目后,自动开启 includeTemporary 让用户能立即看到
       if (projectForm.is_temporary) setIncludeTemporary(true)
       fetchProjects()
@@ -861,6 +886,11 @@ export default function ProjectsPage() {
                   </div>
                 </>
               )}
+              {/* T-1105 立项指派成员选择器(可选,主干 + 临时项目共享) */}
+              <MemberPicker
+                value={projectForm.members}
+                onChange={(next) => setProjectForm({ ...projectForm, members: next })}
+              />
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
