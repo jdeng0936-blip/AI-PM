@@ -75,6 +75,26 @@ const statusLabels: Record<PlannedStatus, string> = {
   cancelled: '取消',
 }
 
+function getApiErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail
+  if (Array.isArray(detail)) {
+    const message = detail
+      .map((d: any) => {
+        if (typeof d === 'string') return d
+        if (typeof d?.msg === 'string') return d.msg
+        if (typeof d?.message === 'string') return d.message
+        return ''
+      })
+      .filter(Boolean)
+      .join(', ')
+    return message || fallback
+  }
+  if (typeof detail === 'string') return detail
+  if (detail) return JSON.stringify(detail)
+  if (typeof err?.message === 'string') return err.message
+  return fallback
+}
+
 export default function SubmitReportPage() {
   const { userName } = useAuthStore()
   const defaultMode: ReportMode = new Date().getHours() < 12 ? 'plan' : 'review'
@@ -196,7 +216,7 @@ export default function SubmitReportPage() {
         if (items.length > 0 && mode === 'plan' && new Date().getHours() >= 12) setMode('review')
       })
       .catch((e) => {
-        const message = e?.response?.data?.detail || e?.message || '加载零选择数据失败'
+        const message = getApiErrorMessage(e, '加载零选择数据失败')
         setError(message)
         toast.error(message)
       })
@@ -297,8 +317,7 @@ export default function SubmitReportPage() {
       const res = await request.post('/reports/web-submit', payload)
       setResult(res)
     } catch (err: any) {
-      const detail = err.response?.data?.detail
-      setError(detail || '提交失败')
+      setError(getApiErrorMessage(err, '提交失败'))
     } finally {
       setSubmitting(false)
     }
@@ -353,7 +372,7 @@ export default function SubmitReportPage() {
       setTodayPlanItems(today?.items || [])
       setMode('review')
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '提交晨规划失败')
+      toast.error(getApiErrorMessage(err, '提交晨规划失败'))
     } finally {
       setSubmitting(false)
     }
@@ -384,7 +403,7 @@ export default function SubmitReportPage() {
       const pending = await getPendingFollowUps()
       setPendingFollowUps(pending.items)
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '提交晚复核失败')
+      toast.error(getApiErrorMessage(err, '提交晚复核失败'))
     } finally {
       setSubmitting(false)
     }
