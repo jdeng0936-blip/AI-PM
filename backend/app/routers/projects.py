@@ -370,6 +370,30 @@ async def create_project(
             )
         await db.flush()  # 让 partial UNIQUE (T-1002) 触发 IntegrityError 落到 router 异常处理
 
+    if data.seed_milestones:
+        from app.models.project import ProjectTrack
+        from app.schemas.milestone import MilestoneNodeIn
+        from app.services.milestone_service import seed_project_milestones
+        from app.services.milestone_template_service import get_standard_template
+
+        try:
+            project_track = ProjectTrack(data.track)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(400, f"无效 track，允许值：{sorted(_VALID_TRACKS)}") from exc
+
+        template_nodes = get_standard_template(project_track, data.is_temporary)
+        nodes_in = [
+            MilestoneNodeIn(
+                node_type=node.node_type,
+                title=node.title,
+                node_order=node.node_order,
+                initial_points=node.suggested_initial_points,
+            )
+            for node in template_nodes
+        ]
+        await seed_project_milestones(db, project.id, nodes_in, actor=creator)
+
     # ── V2.3 临时工单项目:走轻量路径 ──────────────────────────
     # 跳过 5 阶段 + 里程碑模板,只建一个 sprint_number=0 的虚拟"Backlog" Sprint
     # 让日报的 sprint_task_id 也能有归属(虽然实际任务为空)

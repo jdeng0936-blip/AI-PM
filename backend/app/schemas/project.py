@@ -39,6 +39,10 @@ class ProjectCreate(BaseModel):
         max_length=50,
         description="立项时一次性指派的项目成员(0..50);None / [] 时走零成员路径,与现状 100% 兼容",
     )
+    seed_milestones: bool = Field(
+        default=True,
+        description="是否在立项时根据 track 自动种入标准节点模板(T-1401);旧客户端默认 True 向后兼容",
+    )
 
 
 # ── 项目更新（PATCH）──────────────────────────────────────────────

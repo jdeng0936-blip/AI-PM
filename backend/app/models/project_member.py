@@ -29,6 +29,12 @@ class MemberTrack(str, enum.Enum):
     both = "both"  # 如 PM / 技术负责人兼跨双轨
 
 
+class MemberProjectRole(str, enum.Enum):
+    tech_lead = "tech_lead"
+    owner = "owner"
+    member = "member"
+
+
 class ProjectMember(BaseMixin, Base):
     __tablename__ = "project_members"
     __table_args__ = (
@@ -55,6 +61,14 @@ class ProjectMember(BaseMixin, Base):
 
     joined_at: Mapped[date] = mapped_column(Date, default=date.today)
     left_at: Mapped[Optional[date]] = mapped_column(Date)  # 退出项目时间（null = 仍在）
+    member_role: Mapped[MemberProjectRole] = mapped_column(
+        Enum(MemberProjectRole, name="member_project_role", native_enum=True),
+        nullable=False,
+        default=MemberProjectRole.member,
+        server_default=MemberProjectRole.member.value,
+        index=True,
+        comment="项目角色(T-1401):tech_lead 可分 ratio,owner 可发起验收,member 默认",
+    )
 
     # NOTE: created_at, updated_at, created_by, tenant_id 由 BaseMixin 提供
 

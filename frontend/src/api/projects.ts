@@ -45,6 +45,7 @@ export interface CreateProjectPayload {
   budget_alert_threshold?: number
   is_temporary?: boolean
   members?: ProjectMemberInit[]  // T-1105 新增
+  seed_milestones?: boolean  // T-1401:默认 true,立项时种入标准模板
 }
 
 export const createProject = (data: CreateProjectPayload) => request.post('/projects/', data)

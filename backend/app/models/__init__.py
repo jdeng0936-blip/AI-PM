@@ -22,6 +22,7 @@ from app.models.knowledge import KnowledgeCategory, KnowledgeItem, RetroScope
 
 # --- KPI 目标设定模型 (Phase 9) ---
 from app.models.kpi_target import KpiMetric, KpiPeriod, KpiScope, KpiTarget
+from app.models.milestone_allocation import AllocationStatus, MilestoneAllocation
 
 # --- 通知推送模型 ---
 from app.models.notification import (
@@ -45,7 +46,8 @@ from app.models.okr import (
 # --- IPD 项目管理模型 ---
 from app.models.project import Project
 from app.models.project_followup import ProjectFollowUp
-from app.models.project_member import ProjectMember
+from app.models.project_member import MemberProjectRole, ProjectMember
+from app.models.project_milestone import MilestoneNodeType, MilestoneStatus, ProjectMilestone
 from app.models.project_stage import ProjectStage
 from app.models.risk_alert import RiskAlert
 from app.models.sprint import Sprint, SprintStatus
@@ -59,6 +61,7 @@ from app.models.usage_log import TenantUsageLog
 
 # --- 基础模型 ---
 from app.models.user import User
+from app.models.user_points_ledger import LedgerDirection, UserPointsLedger
 
 __all__ = [
     "User",
@@ -109,4 +112,12 @@ __all__ = [
     "ChatSession",
     "ChatMessage",
     "ChatRole",
+    "MemberProjectRole",
+    "ProjectMilestone",
+    "MilestoneNodeType",
+    "MilestoneStatus",
+    "MilestoneAllocation",
+    "AllocationStatus",
+    "UserPointsLedger",
+    "LedgerDirection",
 ]

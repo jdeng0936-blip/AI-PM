@@ -27,6 +27,9 @@ from app.routers import (
     wechat,
 )
 from app.routers import projects as projects_router_module
+from app.routers.milestones import admin_router as milestones_admin_router
+from app.routers.milestones import me_router as milestones_me_router
+from app.routers.milestones import project_router as milestones_project_router
 
 
 def _looks_like_placeholder_secret(value: str) -> bool:
@@ -181,6 +184,9 @@ from app.routers import attachments as attachments_router
 
 app.include_router(attachments_router.router)
 app.include_router(asr_router.router)
+app.include_router(milestones_admin_router)
+app.include_router(milestones_project_router)
+app.include_router(milestones_me_router)
 # ── DEV 模拟端点（仅开发环境） ────────────────────
 if settings.aipm_env == "dev" and settings.enable_dev_simulation:
     from app.routers import simulate

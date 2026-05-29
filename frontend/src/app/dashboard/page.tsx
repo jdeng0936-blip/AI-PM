@@ -46,10 +46,12 @@ import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
 import ListActionBar from '@/components/list-action-bar'
 import MemberPicker from '@/components/member-picker'
+import MilestoneTemplateEditor from '@/components/milestone-template-editor'
 import { CompareBarChart, TrendLineChart } from '@/components/charts'
 import { KpiAchievementPanel } from '@/components/dashboard/kpi-achievement-panel'
 import { toast } from 'sonner'
 import type { ProjectMemberInit } from '@/api/projects'
+import { seedProjectMilestones, type MilestoneNodeIn } from '@/api/milestones'
 import {
   LayoutDashboard,
   Cpu,
@@ -124,6 +126,8 @@ export default function DashboardPage() {
     budget_total: 100000,
     is_temporary: false, // V2.3 临时工单项目
     members: [] as ProjectMemberInit[], // T-1105 新增
+    seed_milestones: true,
+    milestone_nodes: [] as MilestoneNodeIn[],
   })
 
   const healthColor = (status: string) =>
@@ -338,6 +342,17 @@ export default function DashboardPage() {
       toast.error('项目名称必填')
       return
     }
+    if (projectForm.seed_milestones) {
+      if (projectForm.milestone_nodes.length === 0) {
+        toast.error('里程碑模板尚未加载完成')
+        return
+      }
+      const invalidNode = projectForm.milestone_nodes.some((node) => !node.title.trim() || node.initial_points < 0)
+      if (invalidNode) {
+        toast.error('里程碑节点名称必填,积分不可为负数')
+        return
+      }
+    }
     setSubmitting(true)
     try {
       // V2.3:临时工单项目只传精简字段,避免后端强校验 budget/launch_date
@@ -349,6 +364,7 @@ export default function DashboardPage() {
             planned_launch_date: projectForm.planned_launch_date || undefined,
             is_temporary: true,
             track: projectForm.track,
+            seed_milestones: false,
             ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
           }
         : {
@@ -359,14 +375,25 @@ export default function DashboardPage() {
             planned_launch_date: projectForm.planned_launch_date || undefined,
             budget_total: projectForm.budget_total,
             is_temporary: false,
+            seed_milestones: false,
             ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
           }
       const created = (await createProject(payload)) as any
+      if (projectForm.seed_milestones && created?.project_id) {
+        await seedProjectMilestones(created.project_id, {
+          nodes: projectForm.milestone_nodes.map((node) => ({
+            ...node,
+            description: node.description || undefined,
+            target_date: node.target_date || undefined,
+          })),
+        })
+      }
       const membersHint = projectForm.members.length > 0 ? ` · 已指派 ${projectForm.members.length} 名成员` : ''
+      const milestoneHint = projectForm.seed_milestones ? ` · 已种入 ${projectForm.milestone_nodes.length} 个节点` : ''
       toast.success(
         projectForm.is_temporary
-          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功${membersHint}`
-          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功${membersHint}`,
+          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功${membersHint}${milestoneHint}`
+          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功${membersHint}${milestoneHint}`,
       )
       setShowCreate(false)
       setProjectForm({
@@ -378,6 +405,8 @@ export default function DashboardPage() {
         budget_total: 100000,
         is_temporary: false,
         members: [],
+        seed_milestones: true,
+        milestone_nodes: [],
       })
       fetchAll()
     } catch (e: any) {
@@ -1186,7 +1215,7 @@ export default function DashboardPage() {
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowCreate(false)}>
           <div
-            className="w-full max-w-md rounded-2xl p-6"
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl p-6"
             style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)' }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1298,6 +1327,25 @@ export default function DashboardPage() {
                 value={projectForm.members}
                 onChange={(next) => setProjectForm({ ...projectForm, members: next })}
               />
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={projectForm.seed_milestones}
+                    onChange={(e) => setProjectForm({ ...projectForm, seed_milestones: e.target.checked })}
+                  />
+                  立项时种入贡献节点
+                </label>
+                {projectForm.seed_milestones && (
+                  <MilestoneTemplateEditor
+                    track={projectForm.track}
+                    isTemporary={projectForm.is_temporary}
+                    value={projectForm.milestone_nodes}
+                    onChange={(nodes) => setProjectForm((current) => ({ ...current, milestone_nodes: nodes }))}
+                    disabled={submitting}
+                  />
+                )}
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
