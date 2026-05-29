@@ -310,7 +310,7 @@ cd frontend && npm run lint && npm run typecheck
 ## Phase 12 — AI 助手多轮对话 + 历史持久化
 
 ### AI 多轮对话上下文 + 历史记录持久化(老板追加需求 · Phase 12 第一任)
-- [ ] **Task 7 (T-1201): AI 助手多轮对话上下文 + 历史持久化(老板 `[2026-05-29 11:56:00]` 追加,Phase 12 启动任)** — 待 Codex 接手(指挥官 spec 已落盘 `[2026-05-29 11:58:30]`)
+- [/] **Task 7 (T-1201): AI 助手多轮对话上下文 + 历史持久化(老板 `[2026-05-29 11:56:00]` 追加,Phase 12 启动任)** — In Progress by Codex `[2026-05-29 12:52:05]`
   - **业务三件套**(回应老板 3 项需求):
     - ① **多轮上下文**:新建 `ChatSession` + `ChatMessage` 2 表;`ChatRequest.session_id: Optional[UUID]`;`admin_ai_chat` 在 SYSTEM_PROMPT 之后、当前 user question 之前注入历史 messages(`MAX_HISTORY_MESSAGES=20 + MAX_HISTORY_CHARS=20000` 双闸门防 LLM context overflow)
     - ② **历史列表查询**:新增 `GET /api/v1/chat/sessions`(分页 + 标题 ilike 搜索)+ `GET /sessions/{id}`(含 messages,按 created_at ASC)
