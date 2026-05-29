@@ -658,11 +658,7 @@ async def submit_morning_batch(
             item.project_id,
             item.sprint_task_id,
         )
-        raw_text = (
-            f"[晨规划] {item.note or ''}".strip()
-            if project_id or item.sprint_task_id
-            else f"[晨规划/计划外] {item.note}"
-        )
+        raw_text = f"[晨规划] {item.note or ''} [ID:{project_id}-{item.sprint_task_id or 'none'}]".strip()
         report = DailyReport(
             user_id=current_user.id,
             report_date=body.report_date,
@@ -703,7 +699,7 @@ async def submit_evening_batch(
         review_report = DailyReport(
             user_id=current_user.id,
             report_date=body.report_date,
-            raw_input_text=f"[晚复盘] {review.actual_note or ''}".strip(),
+            raw_input_text=f"[晚复盘] {review.actual_note or ''} [Ref:{parent_plan.id}]".strip(),
             media_urls=[],
             parsed_content={
                 "tasks": review.actual_note or "",
@@ -785,7 +781,7 @@ async def submit_evening_batch(
         report = DailyReport(
             user_id=current_user.id,
             report_date=body.report_date,
-            raw_input_text=f"[晚复盘/自主新增] {extra.note}",
+            raw_input_text=f"[晚复盘/自主新增] {extra.note} [{uuid.uuid4().hex[:8]}]".strip(),
             media_urls=[],
             parsed_content={"tasks": extra.note, "progress": 100, "report_type": "晚复盘"},
             pass_check=True,
