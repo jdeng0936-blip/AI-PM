@@ -310,7 +310,7 @@ cd frontend && npm run lint && npm run typecheck
 ## Phase 12 — AI 助手多轮对话 + 历史持久化
 
 ### AI 多轮对话上下文 + 历史记录持久化(老板追加需求 · Phase 12 第一任)
-- [/] **Task 7 (T-1201): AI 助手多轮对话上下文 + 历史持久化(老板 `[2026-05-29 11:56:00]` 追加,Phase 12 启动任)** — In Progress by Codex `[2026-05-29 12:52:05]`
+- [x] **Task 7 (T-1201): AI 助手多轮对话上下文 + 历史持久化(老板 `[2026-05-29 11:56:00]` 追加,Phase 12 启动任)** — Done by Codex `[2026-05-29 13:08:41]`
   - **业务三件套**(回应老板 3 项需求):
     - ① **多轮上下文**:新建 `ChatSession` + `ChatMessage` 2 表;`ChatRequest.session_id: Optional[UUID]`;`admin_ai_chat` 在 SYSTEM_PROMPT 之后、当前 user question 之前注入历史 messages(`MAX_HISTORY_MESSAGES=20 + MAX_HISTORY_CHARS=20000` 双闸门防 LLM context overflow)
     - ② **历史列表查询**:新增 `GET /api/v1/chat/sessions`(分页 + 标题 ilike 搜索)+ `GET /sessions/{id}`(含 messages,按 created_at ASC)
@@ -330,6 +330,7 @@ cd frontend && npm run lint && npm run typecheck
   - **测试基线**:T-1106 完工 220 → T-1201 完工预期 `235 passed + 2 skipped`(+15 case)。
   - **完整执行契约见 `docs/T-1201_spec.md`**(必读,~1080 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:58:30]` Auto Mode 下 6 决策签字 — A. 2 表独立 module / 隐式 /ask 建 session / 严格 4 role enum / 双闸门 20 msg + 20000 chars / 首句截 30 字符 title / Session 软删 + Message append-only)。
   - **Codex 接手前置守卫(物理交接单 §📣)**:8 步执行指令(chore(lock) → 数据层 → schema → router → 前端 → 测试 → 8 闸门 → feat + chore(progress))+ 8 项 self-check 探针(基线 `2243e27 chore(progress): close T-1106` 必须命中 / T-1104~T-1106 锁定文件零改动 / conftest 等基础设施零改动 / 工作区遗留仍 5 项 / alembic heads 单头 `e6f7a8b9c0d1`)。
+  - **Codex 完工实绩(`[2026-05-29 13:08:41]`)**:commit `d8d55d7 feat(chat)` 严格 9 文件闭环。新增 `chat_sessions` / `chat_messages` 模型与 migration `20260530_1252_phase12_chat_history.py`(`revision=f7a8b9c0d1e2`, `down_revision=e6f7a8b9c0d1`);扩 `ChatRequest/ChatResponse.session_id`;`admin_ai_chat` 支持隐式建会话、owner 校验、20 条 + 20000 字符历史注入、user/assistant/tool 消息持久化;追加 4 个会话管理端点;前端聊天页接入左侧历史会话、切换、重命名、软删与历史恢复;新增 `test_phase12_chat_sessions.py` 15 case。闸门全绿:`ruff check` PASS / `mypy` PASS / Alembic `upgrade head → downgrade -1 → upgrade head` PASS / 新测试 `15 passed` / 全量 `235 passed, 2 skipped` / frontend `npm run lint` + `npm run typecheck` PASS。严禁项遵守:0 push / 0 stash / 0 amend / 0 rebase / 0 `--no-verify` / 0 T-1104~T-1106 锁定文件 staged drift / 0 legacy dirty-file staged drift / 0 T-1301 自启。
 
 ---
 
@@ -361,9 +362,9 @@ cd frontend && npm run lint && npm run typecheck
 
 ## 📣 恢复执行指令
 
-> **更新时间戳(三任并行新态:T-1106 等指挥官二次验收 / T-1201 In Progress by Codex / T-1301 spec 已落盘待 Codex 接手)**:`[2026-05-29 12:08:50]`
+> **更新时间戳(三任并行新态:T-1106 等指挥官二次验收 / T-1201 Codex 工程完工待二次验收 / T-1301 spec 已落盘待放牌)**:`[2026-05-29 13:08:41]`
 >
-> **当前持牌任务**:**T-1201 由 Codex 持牌**(`79b0496 chore(lock): T-1201 开工` `[2026-05-29 12:52:05]` 已锁工)。指挥官 Claude 同期完成 T-1301 契约起草(`docs/T-1301_spec.md` ~1665 行 10 章 + 📣 附录),等待:① Codex 完工 T-1201 (`feat(chat)` + `chore(progress)`);② 老板 / 指挥官放牌 Codex 接手 T-1301(必须 T-1201 完工 + chore(lock) 释放后);③ 指挥官二次验收 T-1106 + T-1201 完工;④ 用户决策何时 push 16+ commit。**严禁** `git push` / 自启 T-1107 / T-1108 / T-1202 / T-1302 / 自启任何 Phase 11/12/13 backlog 议题。
+> **当前持牌任务**:**T-1201 由 Codex 工程完工并释放工程牌**(`79b0496 chore(lock)` → `d8d55d7 feat(chat)` → 本次 `chore(progress)`)。指挥官 Claude 同期完成 T-1301 契约起草(`docs/T-1301_spec.md` ~1665 行 10 章 + 📣 附录),等待:① 指挥官二次验收 T-1106 + T-1201;② 老板 / 指挥官明示放牌 Codex 接手 T-1301;③ 用户决策何时 push 18 commit。**严禁** `git push` / 自启 T-1107 / T-1108 / T-1202 / T-1302 / 自启任何 Phase 11/12/13 backlog 议题。
 >
 > **T-1104 验收摘要(`[2026-05-29 11:53:33]` 回补)**:✅ **28/28 PASS 零减分**。基线 `2baaaed`,双 commit `64b45a9 feat(models)` + `a532041 chore(progress)`,5 backend 文件严格 + 15 case 全 PASS + Migration upgrade-downgrade-upgrade 来回幂等(stdout `[T-1104 backfill]` 命中)+ Worker timestamp 双带。亮点 3 项:ORM↔Migration FK 名 1:1 / Backfill dry-run 报告 / 双轨 OR 反查保证 hot upgrade 期间零业务感知。详见 L262-263 完整回执。
 >
@@ -371,24 +372,24 @@ cd frontend && npm run lint && npm run typecheck
 >
 > **T-1106 工程完工摘要(`[2026-05-29 12:24:33]`)**:✅ Codex 完工,等待指挥官二次验收。基线 `09abcfd`,三 commit `cce6ee3 chore(lock)` + `00617cc feat(projects)` + `2243e27 chore(progress)`,严格 11 src/test/migration 文件 + 15 case 全 PASS + 全量 `220 passed, 2 skipped` + Alembic upgrade/downgrade/upgrade PASS + frontend lint/typecheck PASS。
 >
-> **T-1201 spec 起草摘要(`[2026-05-29 11:58:30]`)+ T-1201 工程开锁(`[2026-05-29 12:52:05]`)**:✅ 指挥官落 `ade1163 chore(spec)` ~1080 行 spec / 28 验收清单 / 14 严禁项 / 6 决策 / 9 文件改动面;Codex 接手 `79b0496 chore(lock)` 开工执行中。等待 Codex `feat(chat)` + `chore(progress)`。
+> **T-1201 工程完工摘要(`[2026-05-29 13:08:41]`)**:✅ Codex 完工,等待指挥官二次验收。基线 `2243e27`,四 commit 链路 `ade1163 chore(spec)` + `79b0496 chore(lock)` + `d8d55d7 feat(chat)` + 本次 `chore(progress)`,严格 9 src/test/migration/frontend 文件 + 15 case 全 PASS + 全量 `235 passed, 2 skipped` + Alembic upgrade/downgrade/upgrade PASS + frontend lint/typecheck PASS。
 >
 > **T-1301 spec 起草摘要(`[2026-05-29 12:06:30]`)**:✅ 指挥官落盘 `docs/T-1301_spec.md` ~1665 行 / 10 章 + 📣 物理交接单 / 28 验收清单 / 16 严禁项 BLOCKER 红线 / 6 决策签字 / 10 文件改动面锁定(1 改 daily_report + 1 新建 daily_supervised_task + 1 改 __init__ + 1 新建 migration + 1 新建 schema + 1 改 router + 1 新建 test + 1 改 api + 1 改 page + 1 dev_tasks)/ 9 self-check 探针 + 4 边界 grep + 7 质量闸门。Phase 13 启动任(基于零选择智能铺盘 + 晨晚闭环 + 督导追踪 + 老板蓝图 4 段)。与 T-1201 **并行无依赖**(改 routers/reports.py 而非 chat.py;改 daily_report 衍生模型而非 chat 模型)。
 >
-> **当前 ahead 远端 commit 链(15 commit + 即将 +1 chore(spec) T-1301)**:
+> **当前 ahead 远端 commit 链(18 commit,未 push)**:
 > - T-1104 段(4 commit):`11a0dc5 → b81a770 → 64b45a9 → a532041`
 > - T-1105 段(4 commit):`7b4d071 → a728081 → 91e312b → 09abcfd`
 > - 双验收回执 (1 commit):`5949317 docs(tasks)`
 > - T-1106 段(4 commit):`607b26c → cce6ee3 → 00617cc → 2243e27`
-> - T-1201 段(2 commit · 进行中):`ade1163 chore(spec)` → `79b0496 chore(lock) by Codex`,等待 `feat(chat)` + `chore(progress)`
-> - **T-1301 段(本次起草 1 commit)**:即将落 `chore(spec): T-1301 契约起草` — Phase 13 启动任 spec 落盘
+> - T-1201 段(4 commit):`ade1163 chore(spec)` → `79b0496 chore(lock)` → `d8d55d7 feat(chat)` → 本次 `chore(progress)`
+> - T-1301 段(1 commit):`chore(spec): T-1301 契约起草` — Phase 13 启动任 spec 已落盘
 >
 > **严禁项再确认(BLOCKER 红线)**:
 > - 🚫 严禁 `git push`(等三任全部完工 + 指挥官二次验收 + 用户决定推送时机)
 > - 🚫 严禁 自启 T-1107 / T-1108 / T-1202 / T-1203 / T-1302 / T-1303 / 其他 Phase 11/12/13 backlog 议题
 > - 🚫 严禁 改 T-1104 5 backend 文件 / T-1105 8 src 文件 / T-1106 11 src/test/migration 文件
-> - 🚫 严禁 抢 T-1201 持牌(Codex 在工程中,`79b0496 chore(lock)` 已锁工);仅可起草 T-1301 spec(本任已完成)
-> - 🚫 严禁 自启 T-1301 工程执行(本次仅落 chore(spec) spec 文档;Codex 接手 T-1301 需:① T-1201 chore(progress) 落盘释放牌 + ② 老板/指挥官明示放牌 + ③ 跑 T-1301 spec §3.8 9 项 self-check 探针)
+> - 🚫 严禁 抢 T-1201 持牌(T-1201 已工程完工,等待指挥官二次验收)
+> - 🚫 严禁 自启 T-1301 工程执行(本次仅 T-1201 收口;Codex 接手 T-1301 需:① 老板/指挥官明示放牌 + ② 跑 T-1301 spec §3.8 9 项 self-check 探针 + ③ 以最新 alembic head 二次核验 `down_revision`)
 > - 🚫 严禁 改 T-1301 spec 锁定文件:T-1106 `project_followup.py` 模型 / `services/ai_engine + kr_progress_extractor + notification_service + token_guard` / `routers/wechat.py` / `schemas/report.py` / 共享 4 模型字段(详见 T-1301 spec §2 第 5~11 条)
 > - 🚫 严禁 `git stash` / amend / rebase / `--no-verify` 跳过 hook
 >
@@ -404,6 +405,6 @@ cd frontend && npm run lint && npm run typecheck
 >
 > **二次验收基线**:
 > - **T-1106 验收基线**:`00617cc` + `2243e27 chore(progress)`;验收口径 `docs/T-1106_spec.md` §8 28 项清单
-> - **T-1201 验收基线**(Codex 完工后):严格 9 文件 staged 闭环;验收口径 `docs/T-1201_spec.md` §8 28 项清单
+> - **T-1201 验收基线**:`d8d55d7 feat(chat)` + 本次 `chore(progress)`;严格 9 文件 staged 闭环;验收口径 `docs/T-1201_spec.md` §8 28 项清单
 > - **T-1301 验收基线**(Codex 完工后):严格 9 工程文件 + 1 文档文件 staged 闭环;验收口径 `docs/T-1301_spec.md` §8 28 项清单
 > - **T-1104/T-1105 已验收 PASS**,可作回归背景
