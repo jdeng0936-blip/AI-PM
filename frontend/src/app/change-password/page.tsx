@@ -39,30 +39,39 @@ export default function ChangePasswordPage() {
           <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>修改密码</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>首次登录或密码重置后需要先设置新密码。</p>
         </div>
-        <input
-          type="password"
-          value={form.old_password}
-          onChange={(e) => setForm({ ...form, old_password: e.target.value })}
-          placeholder="临时密码"
-          className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-          style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-        />
-        <input
-          type="password"
-          value={form.new_password}
-          onChange={(e) => setForm({ ...form, new_password: e.target.value })}
-          placeholder="新密码"
-          className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-          style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-        />
-        <input
-          type="password"
-          value={form.confirm_password}
-          onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
-          placeholder="再次输入新密码"
-          className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-          style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-        />
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>旧密码 / 临时密码</label>
+          <input
+            type="password"
+            value={form.old_password}
+            onChange={(e) => setForm({ ...form, old_password: e.target.value })}
+            placeholder="临时密码"
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>新密码</label>
+          <input
+            type="password"
+            value={form.new_password}
+            onChange={(e) => setForm({ ...form, new_password: e.target.value })}
+            placeholder="新密码"
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>确认新密码</label>
+          <input
+            type="password"
+            value={form.confirm_password}
+            onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
+            placeholder="再次输入新密码"
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+          />
+        </div>
         <button
           type="submit"
           disabled={loading}

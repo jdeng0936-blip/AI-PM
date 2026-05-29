@@ -45,7 +45,8 @@ export default function LoginPage() {
       const { access_token, user } = res
       login(access_token, user.name, user.role)
       toast.success(`欢迎回来，${user.name} 👋`)
-      router.push(user.must_change_password ? '/change-password' : '/dashboard')
+      // 开发阶段临时绕过修改密码：router.push(user.must_change_password ? '/change-password' : '/dashboard')
+      router.push('/dashboard')
     } catch (e: any) {
       const detail = e?.response?.data?.detail || '登录失败，请检查用户名和密码'
       toast.error(detail)
