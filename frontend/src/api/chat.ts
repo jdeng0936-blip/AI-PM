@@ -13,6 +13,7 @@ export interface ChatResponse {
   tool_calls: ToolCallTrace[]
   rounds: number
   model: string
+  session_id: string
 }
 
 export interface ToolItem {
@@ -36,8 +37,15 @@ export interface WeeklyReportResponse {
   }
 }
 
-export async function askAI(question: string): Promise<ChatResponse> {
-  return request.post<unknown, ChatResponse>('/chat/ask', { question })
+export async function askAI(
+  question: string,
+  sessionId?: string,
+  allowedTools?: string[],
+): Promise<ChatResponse> {
+  const payload: Record<string, unknown> = { question }
+  if (sessionId) payload.session_id = sessionId
+  if (allowedTools && allowedTools.length > 0) payload.allowed_tools = allowedTools
+  return request.post<unknown, ChatResponse>('/chat/ask', payload)
 }
 
 export async function listChatTools(): Promise<ToolListResponse> {
@@ -50,4 +58,64 @@ export async function triggerWeeklyReport(
   return request.post<unknown, WeeklyReportResponse>('/chat/weekly-report', { scope }, {
     timeout: 180_000, // 周报渲染较慢
   })
+}
+
+// ──────────────────────────────────────
+// T-1201: 会话历史
+// ──────────────────────────────────────
+
+export interface ChatSessionListItem {
+  id: string
+  title: string
+  message_count: number
+  last_message_at: string | null
+  created_at: string
+}
+
+export interface ChatSessionListResponse {
+  items: ChatSessionListItem[]
+  total: number
+}
+
+export type ChatRole = 'user' | 'assistant' | 'tool' | 'system'
+
+export interface ChatMessageOut {
+  id: string
+  role: ChatRole
+  content: string
+  tool_calls?: Array<Record<string, unknown>> | null
+  tool_call_id?: string | null
+  created_at: string
+}
+
+export interface ChatSessionDetail {
+  id: string
+  title: string
+  message_count: number
+  last_message_at: string | null
+  created_at: string
+  messages: ChatMessageOut[]
+}
+
+export async function listChatSessions(params: {
+  page?: number
+  page_size?: number
+  search?: string
+} = {}): Promise<ChatSessionListResponse> {
+  return request.get<unknown, ChatSessionListResponse>('/chat/sessions', { params })
+}
+
+export async function getChatSession(sessionId: string): Promise<ChatSessionDetail> {
+  return request.get<unknown, ChatSessionDetail>(`/chat/sessions/${sessionId}`)
+}
+
+export async function updateChatSession(
+  sessionId: string,
+  title: string,
+): Promise<ChatSessionListItem> {
+  return request.patch<unknown, ChatSessionListItem>(`/chat/sessions/${sessionId}`, { title })
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  return request.delete<unknown, void>(`/chat/sessions/${sessionId}`)
 }

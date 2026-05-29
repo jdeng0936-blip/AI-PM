@@ -7,6 +7,10 @@ from app.models.audit_log import AuditLog
 from app.models.audit_log_archive import AuditLogArchive
 from app.models.base_mixin import BaseMixin
 from app.models.capacity import CapacityLevel, CapacitySnapshot
+
+# --- AI 对话历史模型 (Phase 12 T-1201) ---
+from app.models.chat_message import ChatMessage, ChatRole
+from app.models.chat_session import ChatSession
 from app.models.daily_report import DailyReport
 from app.models.deletion_history import DeletionHistory
 from app.models.department import Department
@@ -97,4 +101,7 @@ __all__ = [
     "KpiScope",
     "KpiMetric",
     "KpiPeriod",
+    "ChatSession",
+    "ChatMessage",
+    "ChatRole",
 ]

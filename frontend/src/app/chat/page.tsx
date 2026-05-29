@@ -9,11 +9,17 @@
  */
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useCallback, useState, useRef, useEffect } from 'react'
 import {
   askAI,
+  deleteChatSession,
+  getChatSession,
+  listChatSessions,
   triggerWeeklyReport,
+  updateChatSession,
   type ChatResponse,
+  type ChatMessageOut,
+  type ChatSessionListItem,
   type ToolCallTrace,
 } from '@/api/chat'
 import { toast } from 'sonner'
@@ -28,6 +34,11 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
@@ -70,11 +81,32 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [reportLoading, setReportLoading] = useState(false)
+  const [sessions, setSessions] = useState<ChatSessionListItem[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  const refreshSessions = useCallback(async () => {
+    setSessionsLoading(true)
+    try {
+      const r = await listChatSessions({ page: 1, page_size: 50 })
+      setSessions(r.items)
+    } catch {
+      toast.error('加载历史会话失败')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshSessions()
+  }, [refreshSessions])
 
   // ── 收到完整 ChatResponse 后,启动「揭示 + 打字机」动画 ──
   function animateAssistantReply(resp: ChatResponse) {
@@ -155,6 +187,78 @@ export default function ChatPage() {
     }
   }
 
+  function formatTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function restoreMessage(m: ChatMessageOut): Message | null {
+    if (m.role === 'user') {
+      return {
+        role: 'user',
+        content: m.content,
+        timestamp: formatTime(m.created_at),
+      }
+    }
+    if (m.role === 'assistant' && m.content) {
+      return {
+        role: 'ai',
+        question: '',
+        answer: m.content,
+        fullAnswer: m.content,
+        toolCalls: [],
+        visibleToolCount: 0,
+        rounds: 0,
+        model: '',
+        done: true,
+        timestamp: formatTime(m.created_at),
+      }
+    }
+    return null
+  }
+
+  async function handleSwitchSession(sessionId: string) {
+    if (sessionId === activeSessionId) return
+    try {
+      const detail = await getChatSession(sessionId)
+      setMessages(detail.messages.map(restoreMessage).filter((m): m is Message => m !== null))
+      setActiveSessionId(sessionId)
+    } catch {
+      toast.error('加载会话内容失败')
+    }
+  }
+
+  function handleNewSession() {
+    setMessages([])
+    setActiveSessionId(null)
+  }
+
+  async function handleDeleteSession(sessionId: string) {
+    if (!confirm('确定删除该会话?消息记录将无法找回。')) return
+    try {
+      await deleteChatSession(sessionId)
+      if (activeSessionId === sessionId) handleNewSession()
+      await refreshSessions()
+      toast.success('已删除')
+    } catch {
+      toast.error('删除失败')
+    }
+  }
+
+  async function handleRename(sessionId: string) {
+    if (!renameDraft.trim()) {
+      setRenamingId(null)
+      return
+    }
+    try {
+      await updateChatSession(sessionId, renameDraft.trim())
+      setRenamingId(null)
+      setRenameDraft('')
+      await refreshSessions()
+    } catch {
+      toast.error('重命名失败')
+    }
+  }
+
   async function handleSend(question?: string) {
     const q = (question || input).trim()
     if (!q || loading) return
@@ -165,8 +269,10 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
-      const data = await askAI(q)
+      const data = await askAI(q, activeSessionId ?? undefined)
       animateAssistantReply(data)
+      if (!activeSessionId) setActiveSessionId(data.session_id)
+      await refreshSessions()
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'AI 回答失败,请稍后重试')
     } finally {
@@ -196,6 +302,7 @@ export default function ChatPage() {
         ],
         rounds: 1,
         model: 'deep_analysis',
+        session_id: activeSessionId ?? '',
       }
       animateAssistantReply(fakeResp)
     } catch (err: any) {
@@ -206,74 +313,125 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="page-container flex flex-col" style={{ height: 'calc(100vh - 60px)' }}>
-      {/* 标题 + 周报按钮 */}
-      <div className="mb-4 shrink-0 flex items-center justify-between animate-in">
-        <div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            AI 战情助手
-          </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            基于业务数据的智能问答 · Function Calling · 13 个 Tool
-          </p>
-        </div>
+    <div className="page-container flex gap-4" style={{ height: 'calc(100vh - 60px)' }}>
+      <aside
+        className="w-64 shrink-0 rounded-xl p-3 flex flex-col"
+        style={{
+          background: 'var(--color-bg-card)',
+          border: '1px solid var(--color-border-subtle)',
+        }}
+      >
         <button
-          onClick={handleGenerateWeeklyReport}
-          disabled={reportLoading || loading}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-all flex items-center gap-2"
-          style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-        >
-          {reportLoading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <FileText size={16} />
-          )}
-          {reportLoading ? '生成中...' : '📑 生成本周周报'}
-        </button>
-      </div>
-
-      {/* 消息区域 */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
-        {messages.length === 0 && (
-          <EmptyState onPick={(q) => handleSend(q)} />
-        )}
-
-        {messages.map((msg, i) =>
-          msg.role === 'user' ? (
-            <UserBubble key={i} msg={msg} />
-          ) : (
-            <AssistantBubble key={i} msg={msg} />
-          ),
-        )}
-
-        {loading && <LoadingBubble />}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* 输入区 */}
-      <div className="shrink-0 flex gap-3">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          placeholder="请输入您的问题(如:本周采购部表现怎么样?)"
-          disabled={loading}
-          className="flex-1 px-4 py-3 rounded-xl text-sm outline-none"
-          style={{
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border-subtle)',
-            color: 'var(--color-text-primary)',
-          }}
-        />
-        <button
-          onClick={() => handleSend()}
-          disabled={loading || !input.trim()}
-          className="px-5 py-3 rounded-xl text-white font-medium text-sm disabled:opacity-50 transition-all"
+          onClick={handleNewSession}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white mb-3"
           style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}
         >
-          <Send size={18} />
+          <Plus size={15} />
+          新建对话
         </button>
-      </div>
+        <div className="text-[11px] font-medium mb-2 px-1" style={{ color: 'var(--color-text-secondary)' }}>
+          历史会话
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-1 pr-1">
+          {sessionsLoading && sessions.length === 0 && (
+            <div className="text-xs px-2 py-3" style={{ color: 'var(--color-text-secondary)' }}>
+              加载中...
+            </div>
+          )}
+          {!sessionsLoading && sessions.length === 0 && (
+            <div className="text-xs px-2 py-3" style={{ color: 'var(--color-text-secondary)' }}>
+              暂无历史会话
+            </div>
+          )}
+          {sessions.map((s) => (
+            <SessionItem
+              key={s.id}
+              session={s}
+              active={s.id === activeSessionId}
+              renaming={s.id === renamingId}
+              renameDraft={renameDraft}
+              onSwitch={() => handleSwitchSession(s.id)}
+              onStartRename={() => {
+                setRenamingId(s.id)
+                setRenameDraft(s.title)
+              }}
+              onChangeRename={setRenameDraft}
+              onFinishRename={() => handleRename(s.id)}
+              onDelete={() => handleDeleteSession(s.id)}
+            />
+          ))}
+        </div>
+      </aside>
+
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* 标题 + 周报按钮 */}
+        <div className="mb-4 shrink-0 flex items-center justify-between animate-in">
+          <div>
+            <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+              AI 战情助手
+            </h1>
+            <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+              基于业务数据的智能问答 · Function Calling · 13 个 Tool
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateWeeklyReport}
+            disabled={reportLoading || loading}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-all flex items-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+          >
+            {reportLoading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <FileText size={16} />
+            )}
+            {reportLoading ? '生成中...' : '📑 生成本周周报'}
+          </button>
+        </div>
+
+        {/* 消息区域 */}
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+          {messages.length === 0 && (
+            <EmptyState onPick={(q) => handleSend(q)} />
+          )}
+
+          {messages.map((msg, i) =>
+            msg.role === 'user' ? (
+              <UserBubble key={i} msg={msg} />
+            ) : (
+              <AssistantBubble key={i} msg={msg} />
+            ),
+          )}
+
+          {loading && <LoadingBubble />}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* 输入区 */}
+        <div className="shrink-0 flex gap-3">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="请输入您的问题(如:本周采购部表现怎么样?)"
+            disabled={loading}
+            className="flex-1 px-4 py-3 rounded-xl text-sm outline-none"
+            style={{
+              background: 'var(--color-bg-card)',
+              border: '1px solid var(--color-border-subtle)',
+              color: 'var(--color-text-primary)',
+            }}
+          />
+          <button
+            onClick={() => handleSend()}
+            disabled={loading || !input.trim()}
+            className="px-5 py-3 rounded-xl text-white font-medium text-sm disabled:opacity-50 transition-all"
+            style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}
+          >
+            <Send size={18} />
+          </button>
+        </div>
+      </main>
     </div>
   )
 }
@@ -282,6 +440,98 @@ export default function ChatPage() {
 // ────────────────────────────────────────────────────────────────
 // 子组件
 // ────────────────────────────────────────────────────────────────
+
+
+function SessionItem({
+  session,
+  active,
+  renaming,
+  renameDraft,
+  onSwitch,
+  onStartRename,
+  onChangeRename,
+  onFinishRename,
+  onDelete,
+}: {
+  session: ChatSessionListItem
+  active: boolean
+  renaming: boolean
+  renameDraft: string
+  onSwitch: () => void
+  onStartRename: () => void
+  onChangeRename: (v: string) => void
+  onFinishRename: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div
+      className="group rounded-lg px-2 py-2 cursor-pointer transition-colors"
+      style={{
+        background: active ? 'rgba(99,102,241,0.14)' : 'transparent',
+        border: active ? '1px solid rgba(99,102,241,0.28)' : '1px solid transparent',
+      }}
+      onClick={onSwitch}
+    >
+      <div className="flex items-start gap-2">
+        <MessageSquare size={14} className="mt-0.5 shrink-0" style={{ color: active ? '#6366f1' : 'var(--color-text-secondary)' }} />
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <input
+              value={renameDraft}
+              onChange={(e) => onChangeRename(e.target.value)}
+              onBlur={onFinishRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onFinishRename()
+              }}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+              className="w-full px-1.5 py-1 rounded text-xs outline-none"
+              style={{
+                background: 'var(--color-bg-secondary)',
+                border: '1px solid var(--color-border-subtle)',
+                color: 'var(--color-text-primary)',
+              }}
+            />
+          ) : (
+            <div className="text-xs font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
+              {session.title}
+            </div>
+          )}
+          <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+            {session.message_count} 条消息
+          </div>
+        </div>
+        {!renaming && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <MoreHorizontal size={13} style={{ color: 'var(--color-text-muted)' }} />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onStartRename()
+              }}
+              className="p-1 rounded hover:opacity-80"
+              title="重命名"
+            >
+              <Pencil size={12} style={{ color: 'var(--color-text-secondary)' }} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete()
+              }}
+              className="p-1 rounded hover:opacity-80"
+              title="删除"
+            >
+              <Trash2 size={12} style={{ color: '#ef4444' }} />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 
 function EmptyState({ onPick }: { onPick: (q: string) => void }) {
