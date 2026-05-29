@@ -45,9 +45,11 @@ import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
 import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
 import ListActionBar from '@/components/list-action-bar'
+import MemberPicker from '@/components/member-picker'
 import { CompareBarChart, TrendLineChart } from '@/components/charts'
 import { KpiAchievementPanel } from '@/components/dashboard/kpi-achievement-panel'
 import { toast } from 'sonner'
+import type { ProjectMemberInit } from '@/api/projects'
 import {
   LayoutDashboard,
   Cpu,
@@ -121,6 +123,7 @@ export default function DashboardPage() {
     planned_launch_date: '',
     budget_total: 100000,
     is_temporary: false, // V2.3 临时工单项目
+    members: [] as ProjectMemberInit[], // T-1105 新增
   })
 
   const healthColor = (status: string) =>
@@ -346,13 +349,24 @@ export default function DashboardPage() {
             planned_launch_date: projectForm.planned_launch_date || undefined,
             is_temporary: true,
             track: projectForm.track,
+            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
           }
-        : projectForm
+        : {
+            name: projectForm.name,
+            code: projectForm.code || undefined,
+            description: projectForm.description || undefined,
+            track: projectForm.track,
+            planned_launch_date: projectForm.planned_launch_date || undefined,
+            budget_total: projectForm.budget_total,
+            is_temporary: false,
+            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+          }
       const created = (await createProject(payload)) as any
+      const membersHint = projectForm.members.length > 0 ? ` · 已指派 ${projectForm.members.length} 名成员` : ''
       toast.success(
         projectForm.is_temporary
-          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功`
-          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功`,
+          ? `🎫 临时工单项目 ${created?.code || projectForm.name} 创建成功${membersHint}`
+          : `项目 ${created?.code || projectForm.code || projectForm.name} 立项成功${membersHint}`,
       )
       setShowCreate(false)
       setProjectForm({
@@ -363,6 +377,7 @@ export default function DashboardPage() {
         planned_launch_date: '',
         budget_total: 100000,
         is_temporary: false,
+        members: [],
       })
       fetchAll()
     } catch (e: any) {
@@ -1278,6 +1293,11 @@ export default function DashboardPage() {
                   </div>
                 </>
               )}
+              {/* T-1105 立项指派成员选择器(可选,主干 + 临时项目共享) */}
+              <MemberPicker
+                value={projectForm.members}
+                onChange={(next) => setProjectForm({ ...projectForm, members: next })}
+              />
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
