@@ -278,6 +278,34 @@ cd frontend && npm run lint && npm run typecheck
   - **完整执行契约见 `docs/T-1105_spec.md`**(必读,~1184 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:10:44]` Auto Mode 下 6 决策签字 — A. 扩 ProjectCreate.members / 否 允许 0 成员 / 是 临时项目共享指派 / 新建 GET /users/picker 弥补 RBAC gap / track 默认 'both' / 现有单加路径完全冻结)。
   - **Codex 完工实绩(`[2026-05-29 11:35:43]`)**:commit `91e312b feat(projects)` 严格 8 文件闭环。后端扩 `ProjectCreate.members` + `ProjectMemberInit`, `create_project` 在 project flush 后统一 dedup / tenant 校验 / 批量插入 ProjectMember,临时 + 主干项目返回体均扩 `members_added`;`users.py` 末尾新增 `GET /api/v1/users/picker`(RBAC admin+manager)。前端新增 `MemberPicker` 可控组件并接入立项 Modal,0 成员时不发送 `members` key 维持向后兼容。新测试 `test_phase11_project_members.py` 12 case 全 PASS。闸门全绿:`ruff check` 4 backend 文件 PASS / `mypy` 3 source PASS / 新测试 `12 passed` / 全量 `205 passed, 2 skipped` / frontend `npm run lint` + `npm run typecheck` PASS。`alembic check` 依 T-1101/T-1102/T-1103 既定 Supervisor 特批跳过(local DB drift 误报)。严禁项遵守:0 models / 0 migration / 0 services / 0 schemas/user.py / 0 routers 除 projects.py+users.py 外 / 0 conftest+_isolation+_db_url / 0 .env+README+DEPLOY / 0 pyproject+requirements+uv.lock / 0 T-1104 5 文件 / 0 项目详情页+dashboard+admin+users+sidebar / 0 push / 0 amend / 0 rebase / 0 T-1106 自启。
 
+### 临时工单跟进追踪闭环(老板追加需求 · Phase 11 第六任 候选)
+- [ ] **Task 6 (T-1106): 临时工单跟进追踪闭环 — 过程时间轴 + 结果强制 + 状态联动(老板 `[2026-05-29 11:25]` 追加)** — pending,**严格依赖 T-1105 二次验收 PASS 后才能 Codex 接手**
+  - **业务三件套**(回应老板 3 项需求):
+    - ① **过程追踪**:轻量级"跟进记录"功能(`ProjectFollowUp` 独立表 + 时间轴 UI,主干 + 临时项目共享,RBAC = 项目可见范围内任何活跃用户)
+    - ② **结果闭环**:临时工单 PATCH `status='completed'` 强制带 `resolution_summary`(1-2048 字符;400 拦截);新增 `Project.resolution_summary: String(2048) nullable=True` 字段(仅临时项目使用,主干永 NULL)
+    - ③ **状态联动**:临时工单"最近 followup 距今天数" stale 检测(`STALE_YELLOW_DAYS=7` / `STALE_RED_DAYS=14`),嵌入 `health_engine.refresh_project_health` 临时分支(原 fixed green/100 改造为 stale 阶梯);已完工临时工单永远 green/100;复用现有 `run_health_refresh_all` 每日 task 自动触发,**零定时任务新增**
+  - **新建** `backend/app/models/project_followup.py`(~75 行)— `ProjectFollowUp(BaseMixin, Base)`:`project_id UUID FK→projects.id ON DELETE CASCADE` + `content Text NOT NULL` + 复合索引 `(project_id, created_at)`;append-only(本任零删除能力,留给 T-1109+)。
+  - **改** `backend/app/models/project.py`(+9 行)— 在 `deleted_at` 字段**之前**插入 `resolution_summary: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True, comment="...")`。**不动**其他字段。
+  - **改** `backend/app/models/__init__.py`(+2 行)— 插入式追加 `ProjectFollowUp` import + `__all__` 项,**零重排**其他。
+  - **新建** `backend/alembic/versions/20260530_HHMM_phase11_project_followups.py`(~120 行)— upgrade:建表 + 加 `projects.resolution_summary` 列 + 2 索引;downgrade:反向 4 步完整;`down_revision` Codex 接手时 `alembic heads` 二次核验。
+  - **改** `backend/app/schemas/project.py`(+~40 行)— 扩 `ProjectUpdate.resolution_summary: Optional[str] = Field(None, max_length=2048, ...)` + 新增 `ProjectComplete` / `ProjectFollowUpCreate` / `ProjectFollowUpOut` 3 schemas。**严禁**改 T-1105 引入的 `ProjectMemberInit` / `ProjectCreate.members`。
+  - **改** `backend/app/routers/projects.py`(+~95 行)— imports 块插入 5 项(`ProjectFollowUp` model + `ProjectComplete` / `ProjectFollowUpCreate` / `ProjectFollowUpOut` schemas)+ `update_project` 函数加临时工单完工守卫(`is_temporary + target_status='completed' + 缺 resolution_summary → 400`)+ 末尾追加健康度刷新触发 + 在 `add_project_member` 之前新增 POST `/{id}/followups` + GET `/{id}/followups` 2 端点(RBAC `get_current_user` + `_get_visible_project` 校验)。**严禁**改 T-1105 改的 `create_project` 函数 + 其他 9 个 router 函数。
+  - **改** `backend/app/services/health_engine.py`(+~50 行)— L24 import 补 `datetime, timezone` + L45 后追加 `STALE_YELLOW_DAYS / STALE_RED_DAYS` 阈值常量 + `refresh_project_health` 临时项目分支(L182-188)**重写**(已 completed → green/100;无 followup → `created_at` baseline;有 followup → `last_followup_at` baseline;走 `_compute_temp_stale_health` 阶梯)+ 在 `_compute_health` 之后新增 `_compute_temp_stale_health` 私有函数(3 阶梯 green/100 < 7 / yellow/60 [7,14) / red/30 ≥ 14)。**严禁**改主干项目分支(`compute_stage_health` / `_compute_health` / `refresh_sprint_health` 三函数完全冻结)。
+  - **改** `frontend/src/api/projects.ts`(+~18 行)— 末尾追加 `ProjectFollowUp` interface + `createFollowup` + `listFollowups` 函数。**严禁**改 T-1105 引入的 `ProjectMemberInit` / `CreateProjectPayload` / `createProject` 类型签名。
+  - **新建** `frontend/src/components/followup-timeline.tsx`(~180 行)— 可控组件(`projectId + onAdded?`),含 textarea 输入区(maxLength=1024 + 字符计数)+ 时间轴卡片(相对时间格式化:刚刚/N 分钟前/N 小时前/N 天前/绝对日期)+ 空状态 + 加载状态。
+  - **改** `frontend/src/app/project/[id]/page.tsx`(+~70 行)— imports 追加 `FollowupTimeline` + `activeTab` Union 扩 `'followups'` + tabs 数组追加 `{key:'followups', label:'跟进'}` + 末尾追加 followups 渲染块 + 临时工单完工 Modal + state 3(`showCompleteModal` / `resolutionDraft` / `completing`)+ `handleComplete` + 临时工单 resolution_summary 回显区块(挂入 overview tab 末尾)。**严禁**改现有 4 tab 渲染块(`overview / sprints / gates / members`)内部 markup。
+  - **新建** `backend/tests/test_phase11_followups.py`(~350 行 ~15 case)— Model 3 + Followup APIs 5 + 完工守卫 3 + Stale 联动 4。私有 helpers `_phase11_followup_*` 前缀,作用域 `wechat_userid like "phase11_followup_%"` + `projects.code like "phase11_followup_%"`,零 mock/skip/print/logger/monkeypatch,stale 时间偏移用 ORM `created_at = datetime.now(timezone.utc) - timedelta(days=N)`(严禁 monkeypatch date.today)。
+  - **零 T-1105 文件踩踏**:严格作用域 — 改 `schemas/project.py` 仅追加 followup/resolution 新 schemas;改 `routers/projects.py` 仅改 update_project + 新增 2 端点;改 `api/projects.ts` 仅末尾追加;**完全冻结** T-1105 引入的 ProjectMemberInit / create_project 成员批插 / `users.py` picker / `tests/test_phase11_project_members.py` / `api/users.ts` / `member-picker.tsx` / `app/projects/page.tsx`。
+  - **零回归承诺**:主干项目健康度逻辑 + scheduled_tasks + T-1104 5 文件 + T-1105 5 文件踩踏面 + .env* + conftest + _isolation + _db_url + README + DEPLOY + pyproject + requirements + uv.lock + 前端 dashboard/admin/users/sidebar/login/change-password/projects/page.tsx 全部零改动。
+  - **测试基线**:T-1105 完工 205 → T-1106 完工预期 `220 passed + 2 skipped`(+15 case)。
+  - **完整执行契约见 `docs/T-1106_spec.md`**(必读,~1515 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:37:28]` Auto Mode 下 6 决策签字 — A. 独立 `project_follow_ups` 表 / 三件套覆盖范围按"主干+临时共享 / 仅临时强制 / 仅临时联动"划分 / health_engine 临时分支重写复用 `run_health_refresh_all` / stale 阈值硬编码 / PATCH update_project 单点守卫 / 跟进记录 append-only 不允许删)。
+  - **📣 T-1106 候选接手指令(预留,等 T-1105 二次验收 PASS 后激活)**:
+    - **依赖前置守卫(BLOCKER)**:Codex 接手前必跑探针 `git log --oneline | grep "chore(progress): close T-1105"` 必须 ≥ 1 hit + `grep "T-1105.*Done by Codex" docs/dev_tasks.md` 必须 ≥ 1 hit + 指挥官二次验收回执已落盘**或**Supervisor 明示放行
+    - **基线 commit**:`<由 T-1105 chore(progress) commit hash 填实>`(当前为 `09abcfd`);**严禁**误以 T-1104 完工 commit 为基线
+    - **接手 8 步**:① 静默 Git 探针(CLAUDE.md #1)② 依赖前置守卫核对 ③ 读 `docs/T-1106_spec.md` + 关键代码段(spec §📣 附录已列点位)④ `alembic heads` 二次核验 + 填实 `down_revision` ⑤ Task 6 `[ ]` → `[/]` + `chore(lock): T-1106 开工` ⑥ 按 spec §3 实施 11 文件改动 ⑦ §6 质量闸门 8+ 项全跑(ruff/mypy/alembic upgrade-downgrade-upgrade 幂等/pytest 15+220/frontend lint+typecheck/§3.9 fail-safe 8 项 grep 全 0/§4.4 零夹带 10 项 grep 全 0)⑧ 双 commit 原子收口(`feat(projects)` 11 文件 + `chore(progress)` 1 文件)
+    - **严禁项再确认 13 项**(对齐 spec §2):0 基线错误 / 0 T-1105 5 文件踩踏 / 0 health_engine 主干分支改动 / 0 scheduled_tasks / 0 routers/projects.py 除 update_project + 新 followup endpoints / 0 Migration 缺索引或 downgrade 留空 / 0 conftest 等闭环议题 / 0 T-1104 5 文件 / 0 前端无关页面 / 0 自启 T-1107/T-1108 / 0 push/stash/amend/rebase/--no-verify / 0 测试 mock/monkeypatch/skip/print/logger/sleep / 0 改 📣 附录位置
+    - **完工汇报话术**:`「T-1106 完工,等待指挥官二次验收 + T-1107/T-1108 候选起草」`
+
 ---
 
 ## 📣 恢复执行指令
@@ -305,9 +333,10 @@ cd frontend && npm run lint && npm run typecheck
 > - 🚫 严禁 改 前端 dashboard / admin / users / sidebar / components/dashboard / components/charts 任何文件
 > - 🚫 严禁 `git stash` / amend / rebase / `--no-verify` 跳过 hook
 >
-> **候选 backlog(顺延,未启动)**:
-> - T-1106 候选(原 T-1105 FK 第二阶段顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
-> - T-1107 候选(原 T-1106 顺延):drop `User.department VARCHAR(64)` + 删除 Resolver fallback
-> - T-1108+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)
+> **候选 backlog(已重排 — 老板 `[2026-05-29 11:25]` 追加需求顶位)**:
+> - **T-1106 候选(老板追加新功能,已起草 spec)**:临时工单跟进追踪闭环 — 过程时间轴 + 结果强制 `resolution_summary` + stale 健康度联动。完整契约见 `docs/T-1106_spec.md`(~1515 行);执行依赖前置 = T-1105 二次验收 PASS。
+> - T-1107 候选(原 T-1106 顺延 = 原 T-1105 FK 第二阶段再顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
+> - T-1108 候选(原 T-1107 顺延 = 原 T-1106 drop column 再顺延):drop `User.department VARCHAR(64)` + 删除 Resolver fallback
+> - T-1109+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)+ T-1106 留作 backlog 的功能(followup 标签/附件/@mention/编辑/删除 + system_settings 阈值配置化 + admin 软删跟进记录)
 >
-> **二次验收基线**:`91e312b` + 本 `chore(progress)` commit(T-1105 工程完工)。验收口径见 `docs/T-1105_spec.md` §8(28 项验收清单),并回补 T-1104 二次验收记录。
+> **二次验收基线**:`91e312b` + `09abcfd`(T-1105 工程完工)。验收口径见 `docs/T-1105_spec.md` §8(28 项验收清单),并回补 T-1104 二次验收记录。T-1106 spec(本次 chore(spec) commit 落盘)在 `09abcfd` 之后,**严禁** Codex 在 T-1105 二次验收 PASS 前激活 T-1106 chore(lock)。
