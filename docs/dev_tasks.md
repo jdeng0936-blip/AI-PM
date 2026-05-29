@@ -263,7 +263,7 @@ cd frontend && npm run lint && npm run typecheck
   - **指挥官二次验收回执**:**Codex 工程完工已接受(commit `a532041`),28 项验收清单逐项核对 follow-up 推迟至 T-1105 完工后批量回补**(用户 `[2026-05-29 临时插队]` 指令打断常规验收流转;基线 `a532041` 工程层面 PASS,无 BLOCKER 风险)。
 
 ### 立项指派成员(临时插队 · 议题 ① backlog 推后,Phase 11 第五任)
-- [ ] **Task 5 (T-1105): 立项时一站式指派成员(项目成员批量初始化 + Manager 端 RBAC gap 修复)** — pending
+- [/] **Task 5 (T-1105): 立项时一站式指派成员(项目成员批量初始化 + Manager 端 RBAC gap 修复)** — in progress by Codex `[2026-05-29 11:25:12]`
   - **改** `backend/app/schemas/project.py`(+22 行)— 新增 `ProjectMemberInit` 类(`user_id: UUID / track: str / role_in_project: Optional[str]`)+ 扩 `ProjectCreate.members: Optional[list[ProjectMemberInit]] = Field(None, max_length=50, ...)`,默认 None 向后兼容。
   - **改** `backend/app/routers/projects.py`(~+70 行)— imports 块插入 `ProjectMemberInit` + `create_project` 函数在 `db.flush()` 之后、临时项目 if 分支之前插入成员批量插入逻辑(payload dedup + 一次性存在性校验 + 单事务批插)+ 临时/主干分支返回体均扩 `members_added: int`。**严禁**改 `create_project` 外的任何 router 函数(`add_project_member / batch_remove_members / list_project_members / update_project / archive_project / batch_soft_delete_projects / batch_restore_projects / get_deleted_projects / projects_overview` 等 9 函数全部冻结)。
   - **改** `backend/app/routers/users.py`(~+50 行)— 末尾**插入式**新增 `UserPickerItem` Pydantic 类 + `GET /api/v1/users/picker` 端点(RBAC = admin + manager,精简字段 id/name/department/role/is_active,默认过滤 is_active=True,弥补 manager 立项时无法列用户的 RBAC gap)。**严禁**改 `list_users / create_user / update_user / delete_user / batch_disable_users / batch_enable_users / reset_password / update_user_status / get_resource_load` 9 个现有端点。
