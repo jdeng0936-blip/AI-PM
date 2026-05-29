@@ -11,7 +11,8 @@ from app.models.capacity import CapacityLevel, CapacitySnapshot
 # --- AI 对话历史模型 (Phase 12 T-1201) ---
 from app.models.chat_message import ChatMessage, ChatRole
 from app.models.chat_session import ChatSession
-from app.models.daily_report import DailyReport
+from app.models.daily_report import DailyReport, PlannedStatus, ReportType
+from app.models.daily_supervised_task import DailySupervisedTask, SupervisedStatus
 from app.models.deletion_history import DeletionHistory
 from app.models.department import Department
 from app.models.gate_review import GateReview
@@ -62,6 +63,10 @@ from app.models.user import User
 __all__ = [
     "User",
     "DailyReport",
+    "DailySupervisedTask",
+    "ReportType",
+    "PlannedStatus",
+    "SupervisedStatus",
     "DeletionHistory",
     "Department",
     "RiskAlert",

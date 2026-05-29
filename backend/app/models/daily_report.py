@@ -15,16 +15,34 @@ parsed_content JSONB 结构（严格对齐原始 Excel 列）：
 }
 """
 
+import enum
 import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 from app.models.base_mixin import BaseMixin
+
+
+class ReportType(str, enum.Enum):
+    """T-1301: 日报类型严格三角."""
+
+    morning_plan = "morning_plan"
+    evening_review = "evening_review"
+    ad_hoc = "ad_hoc"
+
+
+class PlannedStatus(str, enum.Enum):
+    """T-1301: 晚复核状态四角."""
+
+    done = "done"
+    partial = "partial"
+    delayed = "delayed"
+    cancelled = "cancelled"
 
 
 class DailyReport(BaseMixin, Base):
@@ -58,6 +76,35 @@ class DailyReport(BaseMixin, Base):
         ARRAY(String),
         default=list,
         comment="该日报关联的 SprintTask UUID 列表(字符串形式)",
+    )
+
+    # ── T-1301:晨晚闭环 + 督导追踪字段 ─────────────────────────────
+    report_type: Mapped[ReportType] = mapped_column(
+        Enum(ReportType, name="daily_report_type", native_enum=True),
+        default=ReportType.ad_hoc,
+        server_default="ad_hoc",
+        nullable=False,
+        index=True,
+        comment="日报类型(T-1301):晨规划/晚复核/其他",
+    )
+    parent_plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("daily_reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="晚复核引用的晨规划日报 ID(T-1301):仅 report_type=evening_review 填充",
+    )
+    planned_status: Mapped[Optional[PlannedStatus]] = mapped_column(
+        Enum(PlannedStatus, name="daily_report_planned_status", native_enum=True),
+        nullable=True,
+        index=True,
+        comment="复核结果状态(T-1301):仅 report_type=evening_review 填充",
+    )
+    work_tags: Mapped[Optional[list[str]]] = mapped_column(
+        ARRAY(String),
+        nullable=True,
+        default=list,
+        server_default="{}",
+        comment="工作类型固化标签数组(T-1301):前端固化 8 候选,后端零业务校验",
     )
 
     # ── V2.2 结构化关联(主任务 + 项目)──────────────────────────────
