@@ -337,7 +337,7 @@ cd frontend && npm run lint && npm run typecheck
 ## Phase 13 — 日报重构 + 零选择智能铺盘 + 晨晚闭环 + 督导追踪
 
 ### 日报重构 — 零选择 + 多任务标签批量 + 督导闭环(老板追加需求 · Phase 13 启动任)
-- [ ] **Task 8 (T-1301): 日报重构 — 零选择智能铺盘 + 晨晚闭环 + 督导追踪(老板 `[2026-05-29 12:02:00]` 追加,Phase 13 启动任)** — 待 Codex 接手(指挥官 spec 已落盘 `[2026-05-29 12:06:30]`)
+- [/] **Task 8 (T-1301): 日报重构 — 零选择智能铺盘 + 晨晚闭环 + 督导追踪(老板 `[2026-05-29 12:02:00]` 追加,Phase 13 启动任)** — In Progress by Codex `[2026-05-29 13:18:51]`
   - **业务三件套**(回应老板 3 项需求 + 老板蓝图 `implementation_plan.md` 4 段):
     - ① **零选择智能铺盘 + 多任务标签批量**:新增 `GET /api/v1/reports/projects/my-active`(聚合 ProjectMember + Project + SprintTask)→ 前端废下拉改卡片打勾 → 工作类型标签固化 8 候选 + 备注 → 新增 `POST /api/v1/reports/morning-batch`(单事务批量 INSERT report_type=morning_plan)
     - ② **晚复核自动对账**:重构 `GET /api/v1/reports/today-plan` 改用 `report_type='morning_plan'` ENUM(向后兼容 plan + 新增 items 数组)→ 新增 `POST /api/v1/reports/evening-batch`(parent_plan_id 精确对账 + 自主新增 extras 走 ad_hoc)
