@@ -307,40 +307,79 @@ cd frontend && npm run lint && npm run typecheck
 
 ---
 
+## Phase 12 — AI 助手多轮对话 + 历史持久化
+
+### AI 多轮对话上下文 + 历史记录持久化(老板追加需求 · Phase 12 第一任)
+- [ ] **Task 7 (T-1201): AI 助手多轮对话上下文 + 历史持久化(老板 `[2026-05-29 11:56:00]` 追加,Phase 12 启动任)** — 待 Codex 接手(指挥官 spec 已落盘 `[2026-05-29 11:58:30]`)
+  - **业务三件套**(回应老板 3 项需求):
+    - ① **多轮上下文**:新建 `ChatSession` + `ChatMessage` 2 表;`ChatRequest.session_id: Optional[UUID]`;`admin_ai_chat` 在 SYSTEM_PROMPT 之后、当前 user question 之前注入历史 messages(`MAX_HISTORY_MESSAGES=20 + MAX_HISTORY_CHARS=20000` 双闸门防 LLM context overflow)
+    - ② **历史列表查询**:新增 `GET /api/v1/chat/sessions`(分页 + 标题 ilike 搜索)+ `GET /sessions/{id}`(含 messages,按 created_at ASC)
+    - ③ **会话生命周期管理**:`PATCH /sessions/{id}` 改 title + `DELETE /sessions/{id}` 软删(deleted_at);Message append-only 永不删
+  - **新建** `backend/app/models/chat_session.py`(~85 行)— `ChatSession(BaseMixin, Base)`:`user_id UUID FK→users.id ON DELETE CASCADE` + `title String(120)` + `message_count Integer default=0` + `last_message_at` + `deleted_at` + 2 复合索引(`ix_chat_sessions_user_active` / `ix_chat_sessions_tenant_user_active`)。
+  - **新建** `backend/app/models/chat_message.py`(~95 行)— `ChatRole` enum(`user / assistant / tool / system`,严格对齐 OpenAI 四角)+ `ChatMessage(BaseMixin, Base)`:`session_id FK CASCADE` + `role ENUM native_enum=True` + `content Text default=""` + `tool_calls JSONB nullable` + `tool_call_id String(128) nullable` + `token_count Integer nullable` + 复合索引 `(session_id, created_at)`。
+  - **改** `backend/app/models/__init__.py`(+4 行)— 严格插入式追加 `ChatSession + ChatMessage + ChatRole` import 段 + 3 项 `__all__`,**零** 重排现有顺序。
+  - **新建** `backend/alembic/versions/20260530_HHMM_phase12_chat_history.py`(~145 行)— upgrade:建 `chat_role` PG ENUM + chat_sessions 表 + chat_messages 表 + 5 索引 + 4 FK 命名(`fk_chat_sessions_user_id / fk_chat_sessions_created_by / fk_chat_messages_session_id / fk_chat_messages_created_by`);downgrade:反向 3 段;**条件分支防重**(对齐 T-1106 体例);`down_revision = "e6f7a8b9c0d1"`(T-1106 head;Codex 接手时 `alembic heads` 二次核验)。
+  - **新建** `backend/app/schemas/chat_session.py`(~110 行)— Pydantic V2 5 schemas:`ChatSessionListItem` / `ChatSessionListResponse` / `ChatMessageOut` / `ChatSessionDetail` / `ChatSessionUpdate`(`title min_length=1 max_length=120`),`ConfigDict(from_attributes=True)` 全配齐。**零** ChatSessionCreate(session 隐式由首次 /ask 创建)。
+  - **改** `backend/app/routers/chat.py`(+~150 行)— imports 块插入 6 项(`uuid + datetime/timezone + sqlalchemy func/select + ChatSession + ChatMessage + ChatRole + 5 schemas`)+ `ChatRequest.session_id: Optional[uuid.UUID] = None` + `ChatResponse.session_id: uuid.UUID` + `admin_ai_chat` 改造 6 类(入口建/校验 session + 历史加载双闸 + user msg 落盘 + tool round 落盘 + 最终 assistant 落盘 + session 维护字段)+ 末尾追加 4 端点(GET 列表 / GET 详情 / PATCH 改名 / DELETE 软删)+ `_load_owned_session` helper(`user_id == user.id + tenant_id == user.tenant_id + deleted_at IS NULL` RBAC + 隔离闸门)。**严禁**改 SYSTEM_PROMPT 字面量 / weekly-report 端点 / tools 端点 / `_call_llm` helper 内部。
+  - **新建** `backend/tests/test_phase12_chat_sessions.py`(~370 行 ~15 case)— Model 3 + 主干 6 + RBAC 3 + 会话管理 3。私有 helpers `_phase12_chat_*` 前缀,作用域 `wechat_userid like "phase12_chat_%"` + `chat_sessions.title like "phase12_chat_%"`,LLM mock 仅替换 `_call_llm` 模块级 async helper,零 mock ORM,零 monkeypatch DB session。
+  - **改** `frontend/src/api/chat.ts`(+~70 行)— 改 `ChatResponse.session_id: string`(扩字段)+ 改 `askAI(question, sessionId?, allowedTools?)`(3 参数签名,向后兼容)+ 末尾追加 4 interface(`ChatSessionListItem` / `ChatSessionListResponse` / `ChatRole` / `ChatMessageOut` / `ChatSessionDetail`)+ 4 函数(`listChatSessions` / `getChatSession` / `updateChatSession` / `deleteChatSession`)。
+  - **改** `frontend/src/app/chat/page.tsx`(+~180 行)— imports 扩 4 函数 + 4 type + 5 icons + 5 state(`sessions / activeSessionId / sessionsLoading / renamingId / renameDraft`)+ 5 helper(`refreshSessions / handleSwitchSession / handleNewSession / handleDeleteSession / handleRename + formatTime`)+ `handleSend` 改造(askAI 带 activeSessionId + 首次后 setActiveSessionId)+ JSX 改造为左右分栏(左侧 sessions 侧栏 + 新建/⋯ 菜单 + 行内重命名 / 右侧保留对话区)+ `SessionItem` 内联子组件(~50 行)。**严禁**改 6 个现有子组件(`EmptyState / UserBubble / AssistantBubble / ToolTraceList / ToolTraceItem / LoadingBubble`)内部 markup / 严禁改 `animateAssistantReply` typewriter 时序 / 严禁删 `handleGenerateWeeklyReport`。
+  - **零依赖新增**:复用 `sqlalchemy.dialects.postgresql.JSONB + ENUM`(已在项目使用)+ 复用 `lucide-react`(Plus / MessageSquare / MoreHorizontal / Pencil / Trash2 已存在);**严禁**改 `pyproject.toml / requirements.txt / uv.lock / package.json / package-lock.json`。
+  - **零 T-1104/T-1105/T-1106 文件踩踏**:14 条 BLOCKER 红线见 spec §2;Codex 接手前必跑 §3.9 8 项 grep self-check(全 PASS 才能开工)。
+  - **零回归承诺**:`backend/conftest.py / tests/_isolation.py / tests/_db_url.py / .env* / README / DEPLOY` 0 改动(T-1102/T-1103 闭环);`backend/app/services/llm_selector.py / backend/app/services/chat_tools/`(11 文件)+ `backend/app/main.py / backend/app/database.py / backend/app/middleware/` 全冻结;前端 `dashboard / admin / users / sidebar / login / change-password / project / projects/page.tsx / api/projects.ts / api/users.ts` 全冻结。
+  - **测试基线**:T-1106 完工 220 → T-1201 完工预期 `235 passed + 2 skipped`(+15 case)。
+  - **完整执行契约见 `docs/T-1201_spec.md`**(必读,~1080 行 10 章 + 📣 附录;指挥官 `[2026-05-29 11:58:30]` Auto Mode 下 6 决策签字 — A. 2 表独立 module / 隐式 /ask 建 session / 严格 4 role enum / 双闸门 20 msg + 20000 chars / 首句截 30 字符 title / Session 软删 + Message append-only)。
+  - **Codex 接手前置守卫(物理交接单 §📣)**:8 步执行指令(chore(lock) → 数据层 → schema → router → 前端 → 测试 → 8 闸门 → feat + chore(progress))+ 8 项 self-check 探针(基线 `2243e27 chore(progress): close T-1106` 必须命中 / T-1104~T-1106 锁定文件零改动 / conftest 等基础设施零改动 / 工作区遗留仍 5 项 / alembic heads 单头 `e6f7a8b9c0d1`)。
+
+---
+
 ## 📣 恢复执行指令
 
-> **更新时间戳(T-1106 工程完工 / 等待指挥官二次验收 + T-1107/T-1108 候选起草 / push 决策待用户)**:`[2026-05-29 12:24:33]`
+> **更新时间戳(T-1201 spec 已落盘 / T-1106 等指挥官二次验收 / T-1201 等 Codex 接手 / push 决策待用户)**:`[2026-05-29 11:58:30]`
 >
-> **当前持牌任务**:无。T-1106 工程完工(`cce6ee3 chore(lock)` + `00617cc feat(projects)` + 本 `chore(progress)` 文档收口),等待指挥官二次验收。T-1104 + T-1105 双验收已 PASS。**严禁** `git push`(等用户决定何时推 13 commit)。**严禁** 自启 T-1107 / T-1108 / 其他 Phase 11 候选议题。
+> **当前持牌任务**:无。指挥官 Claude 起草完成 T-1201 契约(`docs/T-1201_spec.md` ~1080 行 10 章 + 📣 附录),等待:① 老板 / 指挥官放牌 Codex 接手 T-1201;② 指挥官二次验收 T-1106 工程完工(`cce6ee3 chore(lock)` + `00617cc feat(projects)` + `2243e27 chore(progress)`);③ 用户决策何时 push 14 commit(13 旧 + 本 chore(spec))。**严禁** `git push` / 自启 T-1107 / T-1108 / T-1202 / 自启任何 Phase 11 / Phase 12 backlog 议题。
 >
 > **T-1104 验收摘要(`[2026-05-29 11:53:33]` 回补)**:✅ **28/28 PASS 零减分**。基线 `2baaaed`,双 commit `64b45a9 feat(models)` + `a532041 chore(progress)`,5 backend 文件严格 + 15 case 全 PASS + Migration upgrade-downgrade-upgrade 来回幂等(stdout `[T-1104 backfill]` 命中)+ Worker timestamp 双带。亮点 3 项:ORM↔Migration FK 名 1:1 / Backfill dry-run 报告 / 双轨 OR 反查保证 hot upgrade 期间零业务感知。详见 L262-263 完整回执。
 >
 > **T-1105 验收摘要(`[2026-05-29 11:53:33]`)**:✅ **28/28 PASS 零减分(1 项加分)**。基线 `a532041`,三 commit `a728081 chore(lock)` + `91e312b feat(projects)` + `09abcfd chore(progress)`,8 src 文件严格 + 12 case 全 PASS + 全量 `205 passed, 2 skipped`(零回归)+ Worker timestamp 三带 + 零夹带 9 项闸门完全空。亮点 4 项:测试详细度 +73% 超预期(详细 client fixture / 非 BLOCKER 加分)/ create_project 一次性 `User.id.in_(list)` 批量校验避免 N+1 / `members_added` 返回字段双扩 / MemberPicker 可控属性 + maxMembers/track/role 严格对齐。详见 L279-280 完整回执。
 >
-> **T-1106 工程完工摘要(`[2026-05-29 12:24:33]`)**:✅ Codex 完工,等待指挥官二次验收。基线 `09abcfd`,三 commit `cce6ee3 chore(lock)` + `00617cc feat(projects)` + 本 `chore(progress)`,严格 11 src/test/migration 文件 + 15 case 全 PASS + 全量 `220 passed, 2 skipped` + Alembic upgrade/downgrade/upgrade PASS + frontend lint/typecheck PASS。业务三件套闭环:过程追踪(ProjectFollowUp + POST/GET followups + FollowupTimeline) / 结果闭环(临时工单 completed 强制 resolution_summary) / 状态联动(临时工单 stale 7/14 天健康度阶梯)。严禁项:0 push / 0 自启 T-1107/T-1108 / 0 T-1104 文件 / 0 T-1105 非本任文件 / 0 scheduled_tasks / 0 conftest/_isolation/_db_url / 0 frontend 无关页 staged。
+> **T-1106 工程完工摘要(`[2026-05-29 12:24:33]`)**:✅ Codex 完工,等待指挥官二次验收。基线 `09abcfd`,三 commit `cce6ee3 chore(lock)` + `00617cc feat(projects)` + `2243e27 chore(progress)`,严格 11 src/test/migration 文件 + 15 case 全 PASS + 全量 `220 passed, 2 skipped` + Alembic upgrade/downgrade/upgrade PASS + frontend lint/typecheck PASS。业务三件套闭环:过程追踪(ProjectFollowUp + POST/GET followups + FollowupTimeline) / 结果闭环(临时工单 completed 强制 resolution_summary) / 状态联动(临时工单 stale 7/14 天健康度阶梯)。
 >
-> **当前 ahead 远端 commit 链(13 commit)**:
+> **T-1201 spec 起草摘要(`[2026-05-29 11:58:30]`)**:✅ 指挥官落盘。`docs/T-1201_spec.md` ~1080 行 / 10 章 + 📣 物理交接单 / 28 验收清单 / 14 严禁项 BLOCKER 红线 / 6 决策签字 / 9 文件改动面锁定(2 新建 model + 1 改 __init__ + 1 新建 migration + 1 新建 schema + 1 改 router + 1 新建 test + 1 改 api + 1 改 page)/ 8 self-check 探针 + 4 边界 grep + 8 质量闸门。Phase 12 启动任(纯新增 + 后端独立模块 + 前端纯增量),与 Phase 11 backlog(T-1107/T-1108)**正交无依赖**。
+>
+> **当前 ahead 远端 commit 链(13 commit + 即将 +1)**:
 > - T-1104 段(4 commit):`11a0dc5 chore(spec)` → `b81a770 chore(lock)` → `64b45a9 feat(models)` → `a532041 chore(progress)`
 > - T-1105 段(4 commit):`7b4d071 chore(spec)` → `a728081 chore(lock)` → `91e312b feat(projects)` → `09abcfd chore(progress)`
 > - 双验收回执段(1 commit):`5949317 docs(tasks)` — T-1104 + T-1105 双验收 PASS
-> - T-1106 段(4 commit):`607b26c chore(spec)` → `cce6ee3 chore(lock)` → `00617cc feat(projects)` → 本 `chore(progress)`
+> - T-1106 段(4 commit):`607b26c chore(spec)` → `cce6ee3 chore(lock)` → `00617cc feat(projects)` → `2243e27 chore(progress)`
+> - **T-1201 段(本次起草 1 commit)**:即将落 `chore(spec): T-1201 契约起草` — Phase 12 启动任 spec 落盘
 >
 > **严禁项再确认(BLOCKER 红线)**:
-> - 🚫 严禁 `git push`(等指挥官二次验收 + 用户决定何时推送)
-> - 🚫 严禁 自启 T-1107 / T-1108 / 其他 Phase 11 候选议题(原 FK 第二阶段 / drop column / 物化视图 / KPI 钻取 / 前端看板)
+> - 🚫 严禁 `git push`(等指挥官二次验收 T-1106 + 用户决定何时推送 14 commit)
+> - 🚫 严禁 自启 T-1107 / T-1108 / T-1202 / T-1203 / 其他 Phase 11/12 backlog 议题
 > - 🚫 严禁 改 T-1104 5 backend 文件(双轨期 freeze 至 T-1107 推进)
-> - 🚫 严禁 改 T-1105 锁定 8 src 文件**除本任 T-1106 已完成增量段**
-> - 🚫 严禁 继续扩展 T-1106 backlog 功能(tags/attachments/@mention/编辑/删除/system_settings 配置化/admin 软删)
+> - 🚫 严禁 改 T-1105 锁定 8 src 文件
+> - 🚫 严禁 改 T-1106 11 src/test/migration 文件(已 Codex 工程完工,等指挥官验收)
+> - 🚫 严禁 改 T-1201 spec 锁定的 conftest / _isolation / _db_url / .env / README / DEPLOY / llm_selector / chat_tools(详见 T-1201 spec §2 第 5~11 条)
+> - 🚫 严禁 自启 T-1201 工程执行(本次仅落 chore(spec) spec 文档;Codex 接手需等老板/指挥官明示放牌 + 跑 T-1201 spec §3.9 8 项 self-check 探针)
 > - 🚫 严禁 `git stash` / amend / rebase / `--no-verify` 跳过 hook
 >
-> **候选 backlog(已确认)**:
-> - T-1107 候选(原 T-1106 顺延 = 原 T-1105 FK 第二阶段再顺延):切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
-> - T-1108 候选(原 T-1107 顺延 = 原 T-1106 drop column 再顺延):drop `User.department VARCHAR(64)` + 删除 Resolver fallback
-> - T-1109+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)+ T-1106 留作 backlog 的功能(followup 标签/附件/@mention/编辑/删除 + system_settings 阈值配置化 + admin 软删跟进记录)
+> **候选 backlog(已确认 — Phase 11 + Phase 12 双线并行)**:
+> - **Phase 11 残留**:
+>   - T-1107 候选:切剩余后端读路径用 Resolver + schemas/frontend 扩 `department_id` output + 写路径接入 `resolve_department_id_by_name`
+>   - T-1108 候选:drop `User.department VARCHAR(64)` + 删除 Resolver fallback
+>   - T-1109+ 候选:Phase 11 候选议题 ②③④(物化视图增量 / KPI 钻取 / 前端 Tabs 加权重柱状图)+ T-1106 留作 backlog 的功能(followup 标签/附件/@mention/编辑/删除 + system_settings 阈值配置化 + admin 软删跟进记录)
+> - **Phase 12 后续(T-1201 完工后)**:
+>   - T-1202 候选:LLM-based title 摘要(替代前 30 字符截取)+ tiktoken 精确 token 预算 + summary role 压缩老消息
+>   - T-1203 候选:对话出口(Markdown / JSON 导出)+ 全局搜索(跨 sessions content ilike)+ 分享只读 link(临时 token)
+>   - T-1204 候选:对话评分 / 反馈(踩 / 赞)+ admin 分析看板(高频问题 / 热门 tool)
 >
-> **工作区遗留(非 T-1104/1105/1106 引入,建议用户决策)**:
+> **工作区遗留(非 T-1104/1105/1106/1201 引入,建议用户决策)**:
 > - 2 项 modified:`frontend/src/app/{change-password,login}/page.tsx`(疑似 ericdv111 远端 fix 残留或本机调试)
-> - 3 项 untracked:`backend/check_project.py` / `backend/check_users.py` / `backend/reset_admin.py`(用户本机 debug 脚本,与三任 spec 均无关)
-> - 建议:用户决策 commit / discard / 留待 T-1106 二次验收后统一回收
+> - 3 项 untracked:`backend/check_project.py` / `backend/check_users.py` / `backend/reset_admin.py`(用户本机 debug 脚本,与四任 spec 均无关)
+> - 建议:用户决策 commit / discard / 留待 T-1106 + T-1201 双验收后统一回收
 >
-> **二次验收基线**:`00617cc`(T-1106 工程完工 feat)+ 本 `chore(progress)` 文档收口 commit。验收口径见 `docs/T-1106_spec.md` §8 28 项清单;T-1104/T-1105 已验收 PASS 可作回归背景。
+> **二次验收基线**:
+> - **T-1106 验收基线**:`00617cc` + `2243e27 chore(progress)`;验收口径 `docs/T-1106_spec.md` §8 28 项清单
+> - **T-1201 验收基线**(Codex 完工后):严格 9 文件 staged 闭环;验收口径 `docs/T-1201_spec.md` §8 28 项清单
+> - **T-1104/T-1105 已验收 PASS**,可作回归背景
