@@ -11,7 +11,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -51,6 +51,12 @@ class User(Base):
         String(128), unique=True, index=True, nullable=True, comment="员工邮箱，用于邮件通知"
     )
     department: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    department_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL", name="fk_users_department_id_departments"),
+        index=True,
+        nullable=True,
+        comment="部门外键(T-1104 引入,与 department:VARCHAR(64) 双轨;T-1106 drop column 后成为单一真理源)",
+    )
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False, default=UserRole.employee)
     # ── 认证字段 ───────────────────────────────────────────────
     hashed_password: Mapped[Optional[str]] = mapped_column(

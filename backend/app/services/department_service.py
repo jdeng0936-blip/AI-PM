@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from app.schemas.department import (
     DepartmentUpdate,
     DepartmentWithMembers,
 )
+
 
 async def _get_department_or_raise(db: AsyncSession, dept_id: uuid.UUID, tenant_id: str) -> Department:
     stmt = select(Department).where(
@@ -132,7 +133,10 @@ async def get_department_with_members(db: AsyncSession, dept_id: uuid.UUID, *, t
     member_stmt = (
         select(User)
         .where(
-            User.department == dept.name,
+            or_(
+                User.department_id == dept.id,
+                and_(User.department_id.is_(None), User.department == dept.name),
+            ),
             User.is_active.is_(True),
             User.tenant_id == tenant_id,
         )
