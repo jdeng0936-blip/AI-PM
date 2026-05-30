@@ -21,6 +21,8 @@ Create Date: 2026-05-27 17:22:00.000000+08:00
 
 from typing import Sequence, Union
 
+import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -31,8 +33,36 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'")
+    bind = op.get_bind()
+    labels = set(
+        bind.execute(
+            sa.text(
+                """
+                SELECT enumlabel
+                FROM pg_enum
+                JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+                WHERE pg_type.typname = 'kpi_metric'
+                """
+            )
+        ).scalars()
+    )
+    if "sprint_completion" in labels and "objective_completion" not in labels:
+        op.execute("ALTER TYPE kpi_metric RENAME VALUE 'sprint_completion' TO 'objective_completion'")
 
 
 def downgrade() -> None:
-    op.execute("ALTER TYPE kpi_metric RENAME VALUE 'objective_completion' TO 'sprint_completion'")
+    bind = op.get_bind()
+    labels = set(
+        bind.execute(
+            sa.text(
+                """
+                SELECT enumlabel
+                FROM pg_enum
+                JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+                WHERE pg_type.typname = 'kpi_metric'
+                """
+            )
+        ).scalars()
+    )
+    if "objective_completion" in labels and "sprint_completion" not in labels:
+        op.execute("ALTER TYPE kpi_metric RENAME VALUE 'objective_completion' TO 'sprint_completion'")

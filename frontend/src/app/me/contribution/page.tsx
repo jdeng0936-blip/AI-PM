@@ -77,7 +77,7 @@ export default function MyContributionPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>我的贡献积分</h1>
-            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>里程碑终批后的个人积分账户</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>记录真实贡献,用于激励和复盘</p>
           </div>
           <div className="flex gap-2">
             {PERIODS.map((item) => (
@@ -103,7 +103,7 @@ export default function MyContributionPage() {
             <div>
               <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                 <Trophy size={16} />
-                当前周期总积分
+                可用于激励的积分
               </div>
               <div className="mt-3 text-4xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 {loading && !summary ? '...' : summary?.total_points ?? 0}
@@ -113,7 +113,7 @@ export default function MyContributionPage() {
               <span className="rounded-lg px-3 py-2" style={{ background: 'rgba(22,163,74,0.12)', color: '#16a34a' }}>入账 {summary?.income_points ?? 0}</span>
               <span className="rounded-lg px-3 py-2" style={{ background: 'rgba(220,38,38,0.12)', color: '#dc2626' }}>冲销 {summary?.refund_points ?? 0}</span>
               <span className="rounded-lg px-3 py-2" style={{ background: 'rgba(107,114,128,0.12)', color: '#6b7280' }}>调整 {summary?.adjustment_points ?? 0}</span>
-              <span className="rounded-lg px-3 py-2" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>节点 {summary?.milestone_count ?? 0}</span>
+              <span className="rounded-lg px-3 py-2" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>贡献节点 {summary?.milestone_count ?? 0}</span>
             </div>
           </div>
         </section>

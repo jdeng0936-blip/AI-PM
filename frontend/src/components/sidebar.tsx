@@ -32,21 +32,23 @@ import {
   Trash2,
   History,
   Building2,
+  Trophy,
   type LucideIcon,
 } from 'lucide-react'
 
 type NavItem = { href: string; label: string; icon: LucideIcon }
 
 const CORE_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: '监控台', icon: LayoutDashboard },
-  { href: '/submit-report', label: '提交日报', icon: PenLine },
-  { href: '/reports', label: 'AI 日报流', icon: FileText },
-  { href: '/projects', label: '项目列表', icon: FolderKanban },
-  { href: '/trends', label: '评分趋势', icon: TrendingUp },
-  { href: '/me/deletions', label: '最近删除', icon: History },
+  { href: '/dashboard', label: '今日总览', icon: LayoutDashboard },
+  { href: '/submit-report', label: '写日报', icon: PenLine },
+  { href: '/reports', label: '日报记录', icon: FileText },
+  { href: '/projects', label: '项目', icon: FolderKanban },
+  { href: '/me/contribution', label: '积分激励', icon: Trophy },
 ]
 
 const ADVANCED_ITEMS: NavItem[] = [
+  { href: '/trends', label: '趋势分析', icon: TrendingUp },
+  { href: '/me/deletions', label: '最近删除', icon: History },
   { href: '/project/default', label: 'IPD 看板', icon: Kanban },
   { href: '/sprints', label: 'Sprint 燃尽', icon: Flame },
   { href: '/capacity', label: '资源水位', icon: ThermometerSun },
@@ -169,7 +171,7 @@ export function Sidebar() {
           aria-expanded={advancedExpanded}
         >
           {advancedExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <span>高级功能</span>
+          <span>更多</span>
         </button>
         {advancedExpanded && ADVANCED_ITEMS.map(renderNavLink)}
 

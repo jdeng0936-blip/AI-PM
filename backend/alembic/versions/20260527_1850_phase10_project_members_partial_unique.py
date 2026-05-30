@@ -24,7 +24,6 @@ Create Date: 2026-05-27 18:50:00.000000+08:00
 
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -35,17 +34,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_index(
-        "ix_project_members_project_user_active",
-        "project_members",
-        ["project_id", "user_id"],
-        unique=True,
-        postgresql_where=sa.text("left_at IS NULL"),
+    op.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_project_members_project_user_active
+        ON project_members (project_id, user_id)
+        WHERE left_at IS NULL
+        """
     )
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_project_members_project_user_active",
-        table_name="project_members",
-    )
+    op.execute("DROP INDEX IF EXISTS ix_project_members_project_user_active")

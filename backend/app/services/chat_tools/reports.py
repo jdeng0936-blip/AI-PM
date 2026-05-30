@@ -291,6 +291,7 @@ async def avg_score_by_department(
     db: AsyncSession,
     date_range: str = "last_7_days",
     days: int = 0,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -306,7 +307,15 @@ async def avg_score_by_department(
             func.count(DailyReport.id).label("report_count"),
         )
         .join(User, DailyReport.user_id == User.id)
-        .where(and_(DailyReport.report_date >= start, DailyReport.report_date <= end))
+        .where(
+            and_(
+                DailyReport.report_date >= start,
+                DailyReport.report_date <= end,
+                DailyReport.deleted_at.is_(None),
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
+            )
+        )
         .group_by(User.department)
         .order_by(desc("avg_score"))
     )
@@ -325,7 +334,7 @@ async def avg_score_by_department(
 
 
 @tool(description="今日未提交日报的员工名单(管理层关心『谁没交』)")
-async def list_missing_today(db: AsyncSession) -> dict:
+async def list_missing_today(db: AsyncSession, tenant_id: str = "default") -> dict:
     """
     Args:
         (no args)
@@ -334,10 +343,11 @@ async def list_missing_today(db: AsyncSession) -> dict:
     submitted_stmt = select(DailyReport.user_id).where(
         DailyReport.report_date == today,
         DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+        DailyReport.tenant_id == tenant_id,
     )
     submitted_ids = {row[0] for row in (await db.execute(submitted_stmt)).all()}
 
-    users_stmt = select(User).where(User.is_active.is_(True))
+    users_stmt = select(User).where(User.is_active.is_(True), User.tenant_id == tenant_id)
     users = (await db.execute(users_stmt)).scalars().all()
 
     missing = [

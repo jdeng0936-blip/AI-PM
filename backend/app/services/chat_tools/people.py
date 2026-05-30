@@ -26,6 +26,7 @@ async def top_performers(
     days: int = 7,
     limit: int = 5,
     department: str = "",
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -51,6 +52,8 @@ async def top_performers(
                 DailyReport.report_date <= end,
                 DailyReport.ai_score.isnot(None),
                 DailyReport.deleted_at.is_(None),  # V2.4 Stage 3 C1
+                DailyReport.tenant_id == tenant_id,
+                User.tenant_id == tenant_id,
             )
         )
         .group_by(User.id, User.name, User.department)
@@ -88,6 +91,7 @@ async def bottom_performers(
     days: int = 7,
     limit: int = 5,
     department: str = "",
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -112,9 +116,11 @@ async def bottom_performers(
                 DailyReport.user_id == User.id,
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.tenant_id == tenant_id,
+                DailyReport.deleted_at.is_(None),
             ),
         )
-        .where(User.is_active.is_(True))
+        .where(User.is_active.is_(True), User.tenant_id == tenant_id)
         .group_by(User.id, User.name, User.department)
     )
     if department:
@@ -152,6 +158,7 @@ async def user_snapshot(
     db: AsyncSession,
     user_name: str,
     days: int = 14,
+    tenant_id: str = "default",
 ) -> dict:
     """
     Args:
@@ -161,7 +168,9 @@ async def user_snapshot(
     if not user_name:
         return {"error": "user_name 不能为空"}
 
-    user = (await db.execute(select(User).where(User.name == user_name).limit(1))).scalar_one_or_none()
+    user = (
+        await db.execute(select(User).where(User.name == user_name, User.tenant_id == tenant_id).limit(1))
+    ).scalar_one_or_none()
     if not user:
         return {"error": f"未找到员工『{user_name}』"}
 
@@ -178,6 +187,8 @@ async def user_snapshot(
                 DailyReport.user_id == user.id,
                 DailyReport.report_date >= start,
                 DailyReport.report_date <= end,
+                DailyReport.tenant_id == tenant_id,
+                DailyReport.deleted_at.is_(None),
             )
         )
         .order_by(DailyReport.report_date)

@@ -35,6 +35,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     kpi_scope = postgresql.ENUM("global", "department", "job_title", name="kpi_scope", create_type=False)
     kpi_metric = postgresql.ENUM(
         "submit_rate",
@@ -45,92 +48,97 @@ def upgrade() -> None:
         create_type=False,
     )
     kpi_period = postgresql.ENUM("weekly", "monthly", "quarterly", name="kpi_period", create_type=False)
-    kpi_scope.create(op.get_bind(), checkfirst=True)
-    kpi_metric.create(op.get_bind(), checkfirst=True)
-    kpi_period.create(op.get_bind(), checkfirst=True)
+    kpi_scope.create(bind, checkfirst=True)
+    kpi_metric.create(bind, checkfirst=True)
+    kpi_period.create(bind, checkfirst=True)
 
-    op.create_table(
-        "kpi_targets",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("scope", kpi_scope, nullable=False),
-        sa.Column("scope_value", sa.String(50), nullable=True),
-        sa.Column("metric", kpi_metric, nullable=False),
-        sa.Column("target_value", sa.Float(), nullable=False),
-        sa.Column("period", kpi_period, nullable=False, server_default="monthly"),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-            comment="记录创建时间",
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=True,
-            comment="记录最后更新时间",
-        ),
-        sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True, comment="创建者 user.id"),
-        sa.Column("tenant_id", sa.String(64), nullable=False, server_default="default", comment="租户隔离标识"),
-        sa.ForeignKeyConstraint(["created_by"], ["users.id"], ondelete="SET NULL"),
-        sa.UniqueConstraint(
-            "scope",
-            "scope_value",
-            "metric",
-            "period",
-            name="uq_kpi_targets_scope_metric_period",
-        ),
-    )
-
-    op.create_index("ix_kpi_targets_scope_metric", "kpi_targets", ["scope", "metric"])
-    op.create_index("ix_kpi_targets_tenant_id", "kpi_targets", ["tenant_id"])
-
-    op.bulk_insert(
-        sa.table(
+    if not inspector.has_table("kpi_targets"):
+        op.create_table(
             "kpi_targets",
-            sa.column("scope", kpi_scope),
-            sa.column("scope_value", sa.String),
-            sa.column("metric", kpi_metric),
-            sa.column("target_value", sa.Float),
-            sa.column("period", kpi_period),
-            sa.column("tenant_id", sa.String),
-        ),
-        [
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("scope", kpi_scope, nullable=False),
+            sa.Column("scope_value", sa.String(50), nullable=True),
+            sa.Column("metric", kpi_metric, nullable=False),
+            sa.Column("target_value", sa.Float(), nullable=False),
+            sa.Column("period", kpi_period, nullable=False, server_default="monthly"),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+                comment="记录创建时间",
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=True,
+                comment="记录最后更新时间",
+            ),
+            sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True, comment="创建者 user.id"),
+            sa.Column("tenant_id", sa.String(64), nullable=False, server_default="default", comment="租户隔离标识"),
+            sa.ForeignKeyConstraint(["created_by"], ["users.id"], ondelete="SET NULL"),
+            sa.UniqueConstraint(
+                "scope",
+                "scope_value",
+                "metric",
+                "period",
+                name="uq_kpi_targets_scope_metric_period",
+            ),
+        )
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_kpi_targets_scope_metric ON kpi_targets (scope, metric)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_kpi_targets_tenant_id ON kpi_targets (tenant_id)")
+
+    metric_rows = bind.execute(
+        sa.text(
+            """
+            SELECT enumlabel
+            FROM pg_enum
+            JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+            WHERE pg_type.typname = 'kpi_metric'
+            """
+        )
+    ).scalars()
+    metric_labels = set(metric_rows)
+    completion_metric = "objective_completion" if "objective_completion" in metric_labels else "sprint_completion"
+
+    seed_rows = [
+        ("global", None, "submit_rate", 95.0),
+        ("global", None, "avg_score", 75.0),
+        ("global", None, "blocker_resolve_days", 3.0),
+        ("department", "技术部", completion_metric, 80.0),
+    ]
+    for scope, scope_value, metric, target_value in seed_rows:
+        bind.execute(
+            sa.text(
+                """
+                INSERT INTO kpi_targets (scope, scope_value, metric, target_value, period, tenant_id)
+                SELECT
+                    CAST(:scope AS kpi_scope),
+                    CAST(:scope_value AS varchar),
+                    CAST(:metric AS kpi_metric),
+                    :target_value,
+                    'monthly'::kpi_period,
+                    'default'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM kpi_targets
+                    WHERE scope = CAST(:scope AS kpi_scope)
+                      AND scope_value IS NOT DISTINCT FROM CAST(:scope_value AS varchar)
+                      AND metric = CAST(:metric AS kpi_metric)
+                      AND period = 'monthly'
+                      AND tenant_id = 'default'
+                )
+                """
+            ),
             {
-                "scope": "global",
-                "scope_value": None,
-                "metric": "submit_rate",
-                "target_value": 95.0,
-                "period": "monthly",
-                "tenant_id": "default",
+                "scope": scope,
+                "scope_value": scope_value,
+                "metric": metric,
+                "target_value": target_value,
             },
-            {
-                "scope": "global",
-                "scope_value": None,
-                "metric": "avg_score",
-                "target_value": 75.0,
-                "period": "monthly",
-                "tenant_id": "default",
-            },
-            {
-                "scope": "global",
-                "scope_value": None,
-                "metric": "blocker_resolve_days",
-                "target_value": 3.0,
-                "period": "monthly",
-                "tenant_id": "default",
-            },
-            {
-                "scope": "department",
-                "scope_value": "技术部",
-                "metric": "sprint_completion",
-                "target_value": 80.0,
-                "period": "monthly",
-                "tenant_id": "default",
-            },
-        ],
-    )
+        )
 
 
 def downgrade() -> None:

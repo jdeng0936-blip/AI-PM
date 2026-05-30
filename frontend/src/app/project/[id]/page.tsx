@@ -32,6 +32,7 @@ const GATE_NAMES = ['立项评审 (G0)', '需求评审 (G1)', '设计评审 (G2)
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [project, setProject] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
   const [stages, setStages] = useState<any[]>([])
@@ -58,6 +59,7 @@ export default function ProjectDetailPage() {
   const fetchAll = useCallback(async () => {
     if (!id || id === 'default') return
     setLoading(true)
+    setLoadError('')
     try {
       const [p, m, s, g] = await Promise.allSettled([
         getProject(id), getProjectMembers(id), getProjectSprints(id), getGateReviews(id),
@@ -66,6 +68,18 @@ export default function ProjectDetailPage() {
         const resp = p.value as any
         setProject(resp?.project ?? resp)
         if (resp?.stages) setStages(resp.stages)
+      } else {
+        const status = p.reason?.response?.status
+        const detail = p.reason?.response?.data?.detail
+        setProject(null)
+        setStages([])
+        if (status === 404) {
+          setLoadError('项目不存在或已被删除')
+        } else if (status === 401 || status === 403) {
+          setLoadError('无权访问该项目')
+        } else {
+          setLoadError(typeof detail === 'string' ? detail : '项目加载失败，请稍后重试')
+        }
       }
       if (m.status === 'fulfilled') setMembers((m.value as any) || [])
       if (s.status === 'fulfilled') setSprints(Array.isArray(s.value) ? s.value as any[] : [])
@@ -169,6 +183,31 @@ export default function ProjectDetailPage() {
         <div className="text-center py-20" style={{ color: 'var(--color-text-secondary)' }}>
           <Shield size={48} className="mx-auto mb-3 opacity-30" />
           <p>请先从监控台选择一个项目进入 IPD 看板</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loadError && !project) {
+    return (
+      <div className="page-container">
+        <div className="stat-card text-center py-12">
+          <Shield size={44} className="mx-auto mb-3 opacity-40" />
+          <h1 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
+            无法打开项目
+          </h1>
+          <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+            {loadError}
+          </p>
+          <button
+            onClick={fetchAll}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+            style={{ border: '1px solid var(--color-brand-blue)', color: 'var(--color-brand-blue)' }}
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            重试
+          </button>
         </div>
       </div>
     )

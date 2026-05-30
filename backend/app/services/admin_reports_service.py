@@ -32,6 +32,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.admin_reports import GroupedReportsResponse, ReportGroupRow
 
+
 def _validate_date_range(start_date: date, end_date: date) -> None:
     if start_date > end_date:
         raise ValueError("date_range_invalid")

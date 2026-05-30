@@ -35,6 +35,7 @@ import uuid as _uuid
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -56,77 +57,75 @@ SEED_DEPARTMENTS: list[str] = [
 
 
 def upgrade() -> None:
-    op.create_table(
-        "departments",
-        sa.Column("id", sa.UUID(), primary_key=True),
-        sa.Column(
-            "name",
-            sa.String(length=64),
-            nullable=False,
-            comment="部门名称,与 User.department 字符串字段对齐;UNIQUE 防重",
-        ),
-        sa.Column(
-            "manager_id",
-            sa.UUID(),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-            comment="部门负责人,FK→users.id;经理离职时置 NULL,部门不连带删除",
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-            comment="记录创建时间",
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            onupdate=sa.func.now(),
-            nullable=True,
-            comment="记录最后更新时间",
-        ),
-        sa.Column(
-            "created_by",
-            sa.UUID(),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-            comment="创建者 user.id",
-        ),
-        sa.Column(
-            "tenant_id",
-            sa.String(length=64),
-            nullable=False,
-            server_default="default",
-            comment="租户隔离标识",
-        ),
-        sa.UniqueConstraint("name", name="uq_departments_name"),
-    )
-    op.create_index("ix_departments_manager_id", "departments", ["manager_id"])
-    op.create_index("ix_departments_tenant_id", "departments", ["tenant_id"])
-
-    op.bulk_insert(
-        sa.table(
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("departments"):
+        op.create_table(
             "departments",
-            sa.column("id", sa.UUID()),
-            sa.column("name", sa.String()),
-            sa.column("manager_id", sa.UUID()),
-            sa.column("tenant_id", sa.String()),
-        ),
-        [
-            {
-                "id": _uuid.uuid4(),
-                "name": dept_name,
-                "manager_id": None,
-                "tenant_id": "default",
-            }
-            for dept_name in SEED_DEPARTMENTS
-        ],
-    )
+            sa.Column("id", sa.UUID(), primary_key=True),
+            sa.Column(
+                "name",
+                sa.String(length=64),
+                nullable=False,
+                comment="部门名称,与 User.department 字符串字段对齐;UNIQUE 防重",
+            ),
+            sa.Column(
+                "manager_id",
+                sa.UUID(),
+                sa.ForeignKey("users.id", ondelete="SET NULL"),
+                nullable=True,
+                comment="部门负责人,FK→users.id;经理离职时置 NULL,部门不连带删除",
+            ),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+                comment="记录创建时间",
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                onupdate=sa.func.now(),
+                nullable=True,
+                comment="记录最后更新时间",
+            ),
+            sa.Column(
+                "created_by",
+                sa.UUID(),
+                sa.ForeignKey("users.id", ondelete="SET NULL"),
+                nullable=True,
+                comment="创建者 user.id",
+            ),
+            sa.Column(
+                "tenant_id",
+                sa.String(length=64),
+                nullable=False,
+                server_default="default",
+                comment="租户隔离标识",
+            ),
+            sa.UniqueConstraint("name", name="uq_departments_name"),
+        )
+    op.execute("CREATE INDEX IF NOT EXISTS ix_departments_manager_id ON departments (manager_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_departments_tenant_id ON departments (tenant_id)")
+
+    for dept_name in SEED_DEPARTMENTS:
+        bind.execute(
+            sa.text(
+                """
+                INSERT INTO departments (id, name, manager_id, tenant_id)
+                SELECT :id, CAST(:name AS varchar), NULL, 'default'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM departments WHERE name = CAST(:name AS varchar) AND tenant_id = 'default'
+                )
+                """
+            ),
+            {"id": _uuid.uuid4(), "name": dept_name},
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_departments_tenant_id", table_name="departments")
-    op.drop_index("ix_departments_manager_id", table_name="departments")
+    op.execute("DROP INDEX IF EXISTS ix_departments_tenant_id")
+    op.execute("DROP INDEX IF EXISTS ix_departments_manager_id")
     op.drop_table("departments")

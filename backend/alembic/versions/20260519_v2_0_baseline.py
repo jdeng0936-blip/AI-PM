@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # ── revision identifiers ──
@@ -34,11 +35,12 @@ def upgrade() -> None:
     2) 对 Week 1-8 新增的字段单独做 ALTER ADD COLUMN(检测列存在再加)
     """
     # ── Step 1: 建表(checkfirst 模式) ──
-    from app.database import Base
     # 触发所有 model import,把 metadata 填满
     import app.models  # noqa: F401
+    from app.database import Base
 
     bind = op.get_bind()
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     Base.metadata.create_all(bind=bind, checkfirst=True)
 
     # ── Step 2: 已有表的字段补丁 ──

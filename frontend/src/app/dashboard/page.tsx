@@ -33,7 +33,16 @@ import {
   type AnalyticsUserTrend,
 } from '@/api/analytics'
 import { getProjectsOverview, createProject } from '@/api/projects'
-import { batchSoftDeleteReports, batchRestoreReports } from '@/api/reports'
+import {
+  batchSoftDeleteReports,
+  batchRestoreReports,
+  getMyActiveProjects,
+  getPendingFollowUps,
+  type MyActiveProjectItem,
+  type MyActiveTaskItem,
+  type PendingFollowUpItem,
+} from '@/api/reports'
+import { listProjectMilestones, type MilestoneOut } from '@/api/milestones'
 import { getGroupedReports, type ReportGroupRow } from '@/api/admin'
 import {
   MAIN_TRACK_OPTIONS,
@@ -83,11 +92,63 @@ function shortDate(value?: string) {
   return value.slice(5).replace('-', '/')
 }
 
+function daysUntil(value?: string | null) {
+  if (!value) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const target = new Date(value)
+  target.setHours(0, 0, 0, 0)
+  return Math.ceil((target.getTime() - today.getTime()) / 86400000)
+}
+
+function dueLabel(value?: string | null) {
+  const days = daysUntil(value)
+  if (days === null) return '未设截止'
+  if (days < 0) return `已超 ${Math.abs(days)} 天`
+  if (days === 0) return '今天到期'
+  return `还剩 ${days} 天`
+}
+
+const taskStatusLabel: Record<string, string> = {
+  todo: '待开始',
+  in_progress: '进行中',
+  blocked: '受阻',
+  done: '已完成',
+  pending: '待完成',
+  in_review: '验收中',
+  approved: '已验收',
+  void: '已作废',
+}
+
+const priorityLabel: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  urgent: '紧急',
+}
+
+type DashboardTask = (MyActiveTaskItem & { source: 'sprint' }) | {
+  id: string
+  title: string
+  status: string
+  story_points: number
+  planned_end: string | null
+  is_on_critical_path: boolean
+  source: 'milestone'
+}
+
+type ProjectMilestoneTasks = {
+  project: MyActiveProjectItem
+  milestones: MilestoneOut[]
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const { isAdmin, userRole } = useAuthStore()
-  const canManageAlerts = userRole === 'admin' || userRole === 'manager'
-  const canSeeTabs = userRole === 'admin' || userRole === 'manager'
+  const isManager = userRole === 'manager'
+  const canSeeTabs = isAdmin
+  const showHeavySections = isAdmin
+  const showLightManagerView = isManager && !isAdmin
   const [loading, setLoading] = useState(false)
   const today = new Date().toLocaleDateString('zh-CN', {
     month: 'long',
@@ -102,6 +163,9 @@ export default function DashboardPage() {
   const [morningReports, setMorningReports] = useState<any[]>([])
   const [missingMembers, setMissingMembers] = useState<any[]>([])
   const [morningBriefingDate, setMorningBriefingDate] = useState('')
+  const [myActiveProjects, setMyActiveProjects] = useState<MyActiveProjectItem[]>([])
+  const [myProjectMilestones, setMyProjectMilestones] = useState<ProjectMilestoneTasks[]>([])
+  const [pendingFollowUps, setPendingFollowUps] = useState<PendingFollowUpItem[]>([])
   // V2.3 临时工单看板数据
   const [tempSummary, setTempSummary] = useState<any>(null)
 
@@ -144,12 +208,14 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       let nextProjects: any[] = []
-      const [ov, br, ra, tt, gov] = await Promise.allSettled([
+      const [ov, br, ra, tt, gov, activeWork, followUps] = await Promise.allSettled([
         getProjectsOverview(),
         getMorningBriefing(),
         getRiskAlerts(),
         getTempTicketSummary({ top_n: 5 }),
-        canManageAlerts ? getDeletionGovernance() : Promise.resolve(null),
+        isAdmin ? getDeletionGovernance() : Promise.resolve(null),
+        showLightManagerView ? getMyActiveProjects() : Promise.resolve(null),
+        showLightManagerView ? getPendingFollowUps() : Promise.resolve(null),
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
@@ -173,8 +239,33 @@ export default function DashboardPage() {
       if (gov.status === 'fulfilled' && gov.value) {
         setDeletionStats(gov.value as any)
       }
+      if (activeWork.status === 'fulfilled' && activeWork.value) {
+        const activeProjects = ((activeWork.value as any).projects || []) as MyActiveProjectItem[]
+        setMyActiveProjects(activeProjects)
+        const milestoneResults = await Promise.allSettled(
+          activeProjects.map(async (project) => ({
+            project,
+            milestones: (await listProjectMilestones(project.id)).items.filter((item) =>
+              item.status === 'pending' || item.status === 'in_review'
+            ),
+          })),
+        )
+        setMyProjectMilestones(
+          milestoneResults
+            .filter((result): result is PromiseFulfilledResult<ProjectMilestoneTasks> => result.status === 'fulfilled')
+            .map((result) => result.value),
+        )
+      } else if (!showLightManagerView) {
+        setMyActiveProjects([])
+        setMyProjectMilestones([])
+      }
+      if (followUps.status === 'fulfilled' && followUps.value) {
+        setPendingFollowUps((followUps.value as any).items || [])
+      } else if (!showLightManagerView) {
+        setPendingFollowUps([])
+      }
 
-      if (canManageAlerts) {
+      if (showHeavySections) {
         const targetProjectId = nextProjects[0]?.project_id as string | undefined
         const [userTrend, departmentCompare, projectHealth, sprintEfficiency] = await Promise.allSettled([
           getAnalyticsUserTrend({ days: 30 }),
@@ -195,7 +286,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [canManageAlerts])
+  }, [isAdmin, showHeavySections, showLightManagerView])
 
   useEffect(() => {
     fetchAll()
@@ -455,16 +546,60 @@ export default function DashboardPage() {
     [analytics?.sprintEfficiency],
   )
 
+  const managerProjects = useMemo(() => {
+    if (!showLightManagerView) return projects
+    const attention = projects.filter((p: any) => p.health_status === 'red' || p.health_status === 'yellow')
+    return (attention.length > 0 ? attention : projects).slice(0, 5)
+  }, [projects, showLightManagerView])
+
+  const managerRiskAlerts = useMemo(
+    () => (showLightManagerView ? riskAlerts.slice(0, 5) : riskAlerts),
+    [riskAlerts, showLightManagerView],
+  )
+
+  const myTaskRows = useMemo(() => {
+    const sprintRows = myActiveProjects.flatMap((project) =>
+      project.tasks.map((task): { project: MyActiveProjectItem; task: DashboardTask; days_left: number | null } => ({
+        project,
+        task: { ...task, source: 'sprint' },
+        days_left: daysUntil(task.planned_end),
+      })),
+    )
+    const milestoneRows = myProjectMilestones.flatMap(({ project, milestones }) =>
+      milestones.map((milestone): { project: MyActiveProjectItem; task: DashboardTask; days_left: number | null } => ({
+        project,
+        task: {
+          id: milestone.id,
+          title: milestone.title,
+          status: milestone.status,
+          story_points: milestone.initial_points,
+          planned_end: milestone.target_date ?? null,
+          is_on_critical_path: false,
+          source: 'milestone',
+        },
+        days_left: daysUntil(milestone.target_date),
+      })),
+    )
+    return [...sprintRows, ...milestoneRows].sort((a, b) => {
+      const aDays = a.days_left ?? 9999
+      const bDays = b.days_left ?? 9999
+      if (aDays !== bDays) return aDays - bDays
+      return a.task.title.localeCompare(b.task.title)
+    })
+  }, [myActiveProjects, myProjectMilestones])
+
+  const urgentTaskCount = myTaskRows.filter((row) => row.days_left !== null && row.days_left <= 2).length
+
   return (
     <div className="page-container">
       {/* 页面标题 */}
       <div className="flex items-center justify-between mb-6 animate-in">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            监控台
+            {showLightManagerView ? '今日总览' : '监控台'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            项目健康度实时总览 · {today}
+            {showLightManagerView ? '只看今天需要跟进的事' : '项目健康度实时总览'} · {today}
           </p>
         </div>
         <div className="flex gap-2">
@@ -523,15 +658,23 @@ export default function DashboardPage() {
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.15)' }}>
               <LayoutDashboard size={20} color="#3b82f6" />
             </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>活跃项目</span>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              {showLightManagerView ? '我的任务' : '活跃项目'}
+            </span>
           </div>
           <div className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {overview.total ?? '-'}
+            {showLightManagerView ? myTaskRows.length : (overview.total ?? '-')}
           </div>
           <div className="flex gap-3 mt-2 text-xs">
-            <span style={{ color: '#22c55e' }}>🟢 {overview.green_count ?? 0}</span>
-            <span style={{ color: '#eab308' }}>🟡 {overview.yellow_count ?? 0}</span>
-            <span style={{ color: '#ef4444' }}>🔴 {overview.red_count ?? 0}</span>
+            {showLightManagerView ? (
+              <span style={{ color: 'var(--color-text-secondary)' }}>{myActiveProjects.length} 个相关项目</span>
+            ) : (
+              <>
+                <span style={{ color: '#22c55e' }}>绿 {overview.green_count ?? 0}</span>
+                <span style={{ color: '#eab308' }}>黄 {overview.yellow_count ?? 0}</span>
+                <span style={{ color: '#ef4444' }}>红 {overview.red_count ?? 0}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -541,15 +684,25 @@ export default function DashboardPage() {
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,85,247,0.15)' }}>
               <Cpu size={20} color="#a855f7" />
             </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>今日 AI 日报</span>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              {showLightManagerView ? '临期/逾期' : '今日 AI 日报'}
+            </span>
           </div>
           <div className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {morningStats.total_reports ?? '-'}
+            {showLightManagerView ? urgentTaskCount : (morningStats.total_reports ?? '-')}
           </div>
           <div className="flex gap-3 mt-2 text-xs">
-            <span style={{ color: '#22c55e' }}>✅ {morningStats.pass_count ?? 0}</span>
-            <span style={{ color: '#ef4444' }}>❌ {morningStats.fail_count ?? 0}</span>
-            <span style={{ color: 'var(--color-text-secondary)' }}>均分 {morningStats.avg_score ?? '-'}</span>
+            {showLightManagerView ? (
+              <span style={{ color: urgentTaskCount > 0 ? '#ef4444' : '#22c55e' }}>
+                {urgentTaskCount > 0 ? '需要优先处理' : '暂无紧急任务'}
+              </span>
+            ) : (
+              <>
+                <span style={{ color: '#22c55e' }}>合格 {morningStats.pass_count ?? 0}</span>
+                <span style={{ color: '#ef4444' }}>退回 {morningStats.fail_count ?? 0}</span>
+                <span style={{ color: 'var(--color-text-secondary)' }}>均分 {morningStats.avg_score ?? '-'}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -559,22 +712,126 @@ export default function DashboardPage() {
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }}>
               <AlertTriangle size={20} color="#ef4444" />
             </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>未汇报 / 卡点</span>
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              {showLightManagerView ? '待跟进' : '未汇报 / 卡点'}
+            </span>
           </div>
           <div
             className="text-2xl font-bold"
-            style={{ color: (missingMembers.length + riskAlerts.length) > 0 ? '#ef4444' : 'var(--color-text-primary)' }}
+            style={{
+              color: showLightManagerView
+                ? (pendingFollowUps.length > 0 ? '#ef4444' : 'var(--color-text-primary)')
+                : ((missingMembers.length + riskAlerts.length) > 0 ? '#ef4444' : 'var(--color-text-primary)'),
+            }}
           >
-            {missingMembers.length} / {riskAlerts.length}
+            {showLightManagerView ? pendingFollowUps.length : `${missingMembers.length} / ${riskAlerts.length}`}
           </div>
           <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>
-            需管理层关注介入
+            {showLightManagerView ? '昨天未完成或延期的事项' : '需管理层关注介入'}
           </div>
         </div>
       </div>
 
+      {showLightManagerView && (
+        <div className="mb-8 animate-in" style={{ animationDelay: '0.32s' }}>
+          <div className="section-title flex items-center gap-2">
+            我的任务
+            <button
+              type="button"
+              onClick={() => router.push('/submit-report')}
+              className="ml-auto text-[11px] px-2 py-0.5 rounded"
+              style={{ color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
+            >
+              写今日计划
+            </button>
+          </div>
+          {myTaskRows.length === 0 && pendingFollowUps.length === 0 ? (
+            <div className="stat-card py-8 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              暂无指派给你的进行中任务。可以从项目页查看参与项目,或在写日报时补充计划外事项。
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {pendingFollowUps.map((item) => (
+                <div key={item.supervised_id} className="stat-card flex items-start gap-4" style={{ borderColor: '#ef4444' }}>
+                  <AlertTriangle size={18} color="#ef4444" className="mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                      {item.sprint_task_title || item.project_name || '继续跟进事项'}
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                      来自昨日未完成/延期 · {item.project_name || '未关联项目'}
+                    </div>
+                    {item.source_note && (
+                      <div className="text-xs mt-2 line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        {item.source_note}
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded px-2 py-1 text-xs" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                    待跟进
+                  </span>
+                </div>
+              ))}
+              {myTaskRows.map(({ project, task }) => {
+                const days = daysUntil(task.planned_end)
+                const dueColor = days === null ? 'var(--color-text-secondary)' : days < 0 ? '#ef4444' : days <= 2 ? '#eab308' : '#22c55e'
+                return (
+                  <div
+                    key={task.id}
+                    className="stat-card cursor-pointer flex items-start gap-4"
+                    onClick={() => router.push(`/project/${project.id}`)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                          {task.title}
+                        </span>
+                        {task.is_on_critical_path && (
+                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                            关键路径
+                          </span>
+                        )}
+                        {task.source === 'milestone' && (
+                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }}>
+                            贡献节点
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {project.code} · {project.name}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 text-[11px] flex-wrap">
+                        <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
+                          {taskStatusLabel[task.status] || task.status}
+                        </span>
+                        {task.source === 'sprint' && (
+                          <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
+                            优先级 {priorityLabel[task.priority] || task.priority}
+                          </span>
+                        )}
+                        <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
+                          {task.story_points} {task.source === 'milestone' ? '积分' : 'pt'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="text-sm font-semibold" style={{ color: dueColor }}>
+                        {dueLabel(task.planned_end)}
+                      </div>
+                      <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {task.planned_end || '无日期'}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Phase 7 历史趋势看板 */}
-      {canManageAlerts && (
+      {showHeavySections && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.32s' }}>
           <div className="section-title flex items-center gap-2">
             <TrendingUp size={16} color="#3b82f6" />
@@ -681,11 +938,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {canManageAlerts && <KpiAchievementPanel />}
+      {showHeavySections && <KpiAchievementPanel />}
 
       {/* AI 日报明细 */}
       {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
-      {morningReports.length > 0 && (
+      {showHeavySections && morningReports.length > 0 && (
         <div className="mb-8 animate-in relative z-50" style={{ animationDelay: '0.35s' }}>
           <div className="section-title flex items-center gap-2">
             📋 AI 日报明细（{morningBriefingDate}）
@@ -796,7 +1053,7 @@ export default function DashboardPage() {
       )}
 
       {/* 未汇报名单 */}
-      {missingMembers.length > 0 && (
+      {showHeavySections && missingMembers.length > 0 && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.4s' }}>
           <div className="section-title">
             🔕 未汇报名单
@@ -823,7 +1080,7 @@ export default function DashboardPage() {
       )}
 
       {/* V2.3 临时工单看板(两张卡片:TOP5 + 占比) */}
-      {tempSummary && (
+      {showHeavySections && tempSummary && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.42s' }}>
           <div className="section-title flex items-center gap-2">
             <Ticket size={16} color="#a855f7" />
@@ -972,7 +1229,7 @@ export default function DashboardPage() {
       )}
 
       {/* V2.6 数据生命周期治理 (仅 Admin/Manager 可见) */}
-      {deletionStats && canManageAlerts && (
+      {showHeavySections && deletionStats && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.43s' }}>
           <div className="section-title flex items-center gap-2">
             <Database size={16} color="#06b6d4" />
@@ -1060,9 +1317,21 @@ export default function DashboardPage() {
 
       {/* 项目健康矩阵 */}
       <div className="mb-8 animate-in" style={{ animationDelay: '0.45s' }}>
-        <div className="section-title">项目健康矩阵</div>
+        <div className="section-title">
+          {showLightManagerView ? '需要关注的项目' : '项目健康矩阵'}
+          {showLightManagerView && projects.length > managerProjects.length && (
+            <button
+              type="button"
+              onClick={() => router.push('/projects')}
+              className="ml-auto text-[11px] px-2 py-0.5 rounded"
+              style={{ color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
+            >
+              查看全部
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-4">
-          {projects.map((p: any) => (
+          {managerProjects.map((p: any) => (
             <div
               key={p.project_id}
               className="stat-card cursor-pointer flex items-center gap-5"
@@ -1090,7 +1359,7 @@ export default function DashboardPage() {
       {/* 风险阻碍池 */}
       <div className="animate-in" style={{ animationDelay: '0.5s' }}>
         <div className="section-title">
-          风险阻碍池
+          {showLightManagerView ? '待处理风险' : '风险阻碍池'}
           {riskAlerts.length > 0 && (
             <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
               {riskAlerts.length}
@@ -1099,7 +1368,7 @@ export default function DashboardPage() {
         </div>
 
         {/* V2.5 Stage 3:风险预警批量操作栏(manager+) */}
-        {canManageAlerts && (
+        {showHeavySections && (
           <ListActionBar
             selectedCount={alertMs.selectedCount}
             onClear={alertMs.clearAll}
@@ -1124,16 +1393,16 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {riskAlerts.map((alert: any) => {
+            {managerRiskAlerts.map((alert: any) => {
               const aid = String(alert.alert_id)
-              const selected = canManageAlerts && alertMs.isSelected(aid)
+              const selected = showHeavySections && alertMs.isSelected(aid)
               return (
                 <div
                   key={aid}
                   className="stat-card flex items-start gap-4"
                   style={selected ? { border: '1px solid #a855f7', background: 'rgba(168,85,247,0.06)' } : undefined}
                 >
-                  {canManageAlerts && (
+                  {showHeavySections && (
                     <input
                       type="checkbox"
                       checked={alertMs.isSelected(aid)}
@@ -1165,6 +1434,18 @@ export default function DashboardPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+        {showLightManagerView && riskAlerts.length > managerRiskAlerts.length && (
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={() => router.push('/reports')}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ border: '1px solid var(--color-brand-blue)', color: 'var(--color-brand-blue)' }}
+            >
+              查看更多风险线索
+            </button>
           </div>
         )}
       </div>

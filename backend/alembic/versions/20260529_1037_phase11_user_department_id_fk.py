@@ -14,8 +14,9 @@ T-1104 双轨纯增量:
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers
 revision = "d4f7a8b9c1e2"
@@ -25,28 +26,36 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("department_id", postgresql.UUID(as_uuid=True), nullable=True),
-    )
-
-    op.create_foreign_key(
-        "fk_users_department_id_departments",
-        "users",
-        "departments",
-        ["department_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-
-    op.create_index("ix_users_department_id", "users", ["department_id"])
-
     bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    user_columns = {col["name"] for col in inspector.get_columns("users")}
+    if "department_id" not in user_columns:
+        op.add_column(
+            "users",
+            sa.Column("department_id", postgresql.UUID(as_uuid=True), nullable=True),
+        )
+
+    fk_names = {fk["name"] for fk in inspector.get_foreign_keys("users")}
+    if "fk_users_department_id_departments" not in fk_names:
+        op.create_foreign_key(
+            "fk_users_department_id_departments",
+            "users",
+            "departments",
+            ["department_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
+
+    op.execute("CREATE INDEX IF NOT EXISTS ix_users_department_id ON users (department_id)")
+
     result = bind.execute(
         sa.text(
             "UPDATE users SET department_id = d.id "
             "FROM departments d "
-            "WHERE users.department = d.name AND users.department != ''"
+            "WHERE users.department = d.name "
+            "AND users.tenant_id = d.tenant_id "
+            "AND users.department != '' "
+            "AND users.department_id IS NULL"
         )
     )
     backfilled_count = result.rowcount
@@ -55,7 +64,7 @@ def upgrade() -> None:
         sa.text(
             "SELECT users.department AS dept_name, COUNT(*) AS user_count "
             "FROM users "
-            "LEFT JOIN departments d ON users.department = d.name "
+            "LEFT JOIN departments d ON users.department = d.name AND users.tenant_id = d.tenant_id "
             "WHERE users.department != '' AND d.id IS NULL "
             "GROUP BY users.department "
             "ORDER BY user_count DESC"
@@ -72,6 +81,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_users_department_id", table_name="users")
+    op.execute("DROP INDEX IF EXISTS ix_users_department_id")
     op.drop_constraint("fk_users_department_id_departments", "users", type_="foreignkey")
     op.drop_column("users", "department_id")

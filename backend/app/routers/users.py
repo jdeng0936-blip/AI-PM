@@ -47,7 +47,7 @@ async def list_users(
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
     """用户列表，分页 + 搜索 + 多维筛选(V2.4 Stage 3 C2)"""
-    base_query = select(User)
+    base_query = select(User).where(User.tenant_id == _admin.tenant_id)
     if search:
         like_pat = f"%{search}%"
         base_query = base_query.where(
@@ -143,6 +143,7 @@ async def create_user(
         hashed_password=hash_password(initial_password),
         must_change_password=True,
         is_active=True,
+        tenant_id=_admin.tenant_id,
     )
     db.add(user)
     await db.commit()
@@ -175,7 +176,7 @@ async def update_user(
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
     """修改用户信息"""
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id, User.tenant_id == _admin.tenant_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -221,7 +222,7 @@ async def deactivate_user(
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
     """停用用户（软删除）"""
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id, User.tenant_id == _admin.tenant_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -240,7 +241,10 @@ async def batch_disable_users(
 ):
     """批量停用用户(SET is_active=false);historical daily_reports 不受影响。"""
     result = await db.execute(
-        update(User).where(User.id.in_(body.ids), User.is_active.is_(True)).values(is_active=False).returning(User.id)
+        update(User)
+        .where(User.id.in_(body.ids), User.tenant_id == _admin.tenant_id, User.is_active.is_(True))
+        .values(is_active=False)
+        .returning(User.id)
     )
     disabled_ids = [r[0] for r in result.all()]
     await db.commit()
@@ -259,7 +263,10 @@ async def batch_enable_users(
 ):
     """批量启用用户(SET is_active=true)。仅 admin。"""
     result = await db.execute(
-        update(User).where(User.id.in_(body.ids), User.is_active.is_(False)).values(is_active=True).returning(User.id)
+        update(User)
+        .where(User.id.in_(body.ids), User.tenant_id == _admin.tenant_id, User.is_active.is_(False))
+        .values(is_active=True)
+        .returning(User.id)
     )
     enabled_ids = [r[0] for r in result.all()]
     await db.commit()
@@ -277,7 +284,7 @@ async def reset_password(
     _admin: User = Depends(require_role(UserRole.admin)),
 ):
     """管理员重置用户密码为随机临时密码，并要求用户下次登录后改密。"""
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id, User.tenant_id == _admin.tenant_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -311,7 +318,7 @@ async def update_user_status(
 
     from app.models.user import UserStatus
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id, User.tenant_id == _admin.tenant_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -348,7 +355,9 @@ async def get_resource_load(
 
     from app.models.project_member import ProjectMember
 
-    users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.department))
+    users_result = await db.execute(
+        select(User).where(User.tenant_id == _admin.tenant_id, User.is_active.is_(True)).order_by(User.department)
+    )
     users = users_result.scalars().all()
 
     load_data = []
@@ -358,6 +367,7 @@ async def get_resource_load(
         member_result = await db.execute(
             select(func.count(ProjectMember.id)).where(
                 ProjectMember.user_id == u.id,
+                ProjectMember.tenant_id == _admin.tenant_id,
                 ProjectMember.left_at.is_(None),
             )
         )
