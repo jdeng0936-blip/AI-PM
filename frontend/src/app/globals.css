@@ -35,6 +35,17 @@
   /* Shadows */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-glow-blue: 0 8px 32px rgba(59, 130, 246, 0.15);
+
+  /* ── 静默战台 Quiet Deck — 工程师作战台（manager 轻量视图）专用 token ── */
+  --color-deck-gold: #d4a24e;                          /* 贡献/认可暖金，比 status-yellow 更克制 */
+  --color-deck-gold-soft: rgba(212, 162, 78, 0.1);     /* 贡献药丸底；药丸文字仍用实色金保证对比 */
+  --text-deck-hero: clamp(3.25rem, 2rem + 5vw, 5rem);  /* 待解锁贡献 居中巨号 */
+  --text-deck-figure: clamp(2.25rem, 1.6rem + 2.4vw, 2.75rem); /* 今日战力 / 临期节点 */
+  --text-deck-eyebrow: 0.6875rem;                      /* 11px 列标签，配 0.06em 字距 */
+  --deck-rule: 1px solid var(--color-border-strong);   /* deck band 竖向发丝分隔 */
+  --deck-spine: linear-gradient(180deg, var(--color-deck-gold), rgba(212, 162, 78, 0.18)); /* 金脊线 */
+  --deck-spine-origin: linear-gradient(90deg, var(--color-deck-gold), transparent); /* 巨号下方 88px 起点条 */
+  --ledger-rail-faint: var(--color-border-subtle);     /* 任务列表段脊线续接（1px 淡） */
 }
 
 /* ── Reset & Body defaults ───────────────────────────── */
@@ -54,7 +65,7 @@ body {
   background-color: #0f1117 !important;
   color: var(--color-text-primary);
   font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, sans-serif;
+    "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -102,6 +113,13 @@ body {
 }
 .animate-in {
   animation: animate-in-keyframe 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 尊重系统"减少动态效果"：仅淡入、去除位移 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in {
+    animation: none;
+  }
 }
 
 /* ── Gradient hero background ────────────────────────── */

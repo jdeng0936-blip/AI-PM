@@ -33,6 +33,8 @@ export interface ProjectMemberInit {
   user_id: string  // UUID
   track: 'hardware' | 'software' | 'both'
   role_in_project?: string
+  name?: string
+  department?: string
 }
 
 export interface CreateProjectPayload {
@@ -42,6 +44,7 @@ export interface CreateProjectPayload {
   track?: string
   planned_launch_date?: string  // ISO date
   budget_total?: number
+  contribution_total_points?: number
   budget_alert_threshold?: number
   is_temporary?: boolean
   members?: ProjectMemberInit[]  // T-1105 新增

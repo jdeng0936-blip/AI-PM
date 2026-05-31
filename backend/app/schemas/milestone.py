@@ -29,6 +29,11 @@ class MilestoneTemplateResponse(BaseModel):
     nodes: list[MilestoneTemplateNode]
 
 
+class AllocationItem(BaseModel):
+    user_id: uuid.UUID
+    contribution_ratio: Decimal = Field(..., ge=0, le=1, max_digits=5, decimal_places=4)
+
+
 class MilestoneNodeIn(BaseModel):
     node_type: MilestoneNodeType
     title: str = Field(..., max_length=128)
@@ -36,6 +41,23 @@ class MilestoneNodeIn(BaseModel):
     node_order: int = Field(default=0, ge=0)
     initial_points: int = Field(default=0, ge=0)
     target_date: Optional[date] = None
+    planned_allocations: Optional[list[AllocationItem]] = Field(
+        default=None,
+        max_length=20,
+        description="立项时预分配到该贡献节点的成员与比例；用于把工作内容和人员绑定",
+    )
+
+    @model_validator(mode="after")
+    def check_planned_allocation_sum(self) -> "MilestoneNodeIn":
+        if not self.planned_allocations:
+            return self
+        total = sum(item.contribution_ratio for item in self.planned_allocations)
+        if abs(total - Decimal("1")) > Decimal("0.0001"):
+            raise ValueError(f"planned_allocations contribution_ratio 总和必须等于 1.0(实际:{total})")
+        user_ids = [item.user_id for item in self.planned_allocations]
+        if len(set(user_ids)) != len(user_ids):
+            raise ValueError("同一 user_id 不可在 planned_allocations 中重复出现")
+        return self
 
 
 class MilestoneSeedRequest(BaseModel):
@@ -80,11 +102,6 @@ class MilestonePatchRequest(BaseModel):
 class MilestoneListResponse(BaseModel):
     project_id: uuid.UUID
     items: list[MilestoneOut]
-
-
-class AllocationItem(BaseModel):
-    user_id: uuid.UUID
-    contribution_ratio: Decimal = Field(..., ge=0, le=1, max_digits=5, decimal_places=4)
 
 
 class AllocationProposalRequest(BaseModel):

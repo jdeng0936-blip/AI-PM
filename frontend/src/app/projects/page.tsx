@@ -175,6 +175,10 @@ export default function ProjectsPage() {
       toast.error('项目名称必填')
       return
     }
+    if (!projectForm.planned_launch_date) {
+      toast.error('项目截止时间必填')
+      return
+    }
     if (projectForm.seed_milestones) {
       if (projectForm.milestone_nodes.length === 0) {
         toast.error('里程碑模板尚未加载完成')
@@ -188,13 +192,13 @@ export default function ProjectsPage() {
     }
     setSubmitting(true)
     try {
-      // 临时工单项目只传精简字段,避免后端强校验 budget/launch_date
+      // 临时工单项目只传精简字段；项目截止时间仍为必填
       const payload: any = projectForm.is_temporary
         ? {
             name: projectForm.name,
             code: projectForm.code || undefined,
             description: projectForm.description || undefined,
-            planned_launch_date: projectForm.planned_launch_date || undefined,
+            planned_launch_date: projectForm.planned_launch_date,
             is_temporary: true,
             track: projectForm.track, // 临时项目也允许选择轨道 (如日常支撑)
             seed_milestones: false,
@@ -207,7 +211,7 @@ export default function ProjectsPage() {
             code: projectForm.code || undefined,
             description: projectForm.description || undefined,
             track: projectForm.track,
-            planned_launch_date: projectForm.planned_launch_date || undefined,
+            planned_launch_date: projectForm.planned_launch_date,
             budget_total: projectForm.budget_total,
             is_temporary: false,
             seed_milestones: false,
@@ -890,9 +894,10 @@ export default function ProjectsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付时间</label>
+                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>项目截止时间 *</label>
                 <input
                   type="date"
+                  required
                   value={projectForm.planned_launch_date}
                   min={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setProjectForm({ ...projectForm, planned_launch_date: e.target.value })}

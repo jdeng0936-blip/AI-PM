@@ -47,8 +47,6 @@ export default function LoginPage() {
       toast.success(`欢迎回来，${user.name} 👋`)
       if (user.must_change_password) {
         router.push('/change-password')
-      } else if (user.role === 'employee') {
-        router.push('/submit-report')
       } else {
         router.push('/dashboard')
       }

@@ -8,6 +8,45 @@ export const getRiskAlerts = () => request.get('/dashboard/risk-alerts')
 export const getTokenUsage = () => request.get('/dashboard/token-usage')
 export const getWeeklyStats = () => request.get('/dashboard/weekly-stats')
 
+export type ProbeStatus = 'normal' | 'watch' | 'needs_talk' | 'risk'
+
+export interface PersonnelProbeItem {
+  user_id: string
+  name: string
+  department: string
+  role: string
+  job_title: string
+  work_status: string
+  status_until: string | null
+  probe_status: ProbeStatus
+  note: string
+  submitted_days: number
+  missing_days: number
+  report_count: number
+  pass_rate: number | null
+  avg_score: number | null
+  fail_count: number
+  blocker_count: number
+  open_risk_count: number
+  max_risk_days: number
+  overdue_task_count: number
+  max_overdue_days: number
+  points_income: number
+  points_adjustment: number
+  latest_report_at: string | null
+}
+
+export interface PersonnelProbesResponse {
+  window_days: number
+  start_date: string
+  end_date: string
+  summary: Record<ProbeStatus, number>
+  items: PersonnelProbeItem[]
+}
+
+export const getPersonnelProbes = (days: number) =>
+  request.get<unknown, PersonnelProbesResponse>('/dashboard/personnel-probes', { params: { days } })
+
 // V2.3 临时工单看板:本月 TOP N 员工工时 + 临时 vs 主干占比
 export const getTempTicketSummary = (params?: { month_start?: string; month_end?: string; top_n?: number }) =>
   request.get('/dashboard/temp-ticket-summary', { params })

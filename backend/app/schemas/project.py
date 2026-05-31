@@ -28,8 +28,13 @@ class ProjectCreate(BaseModel):
     code: Optional[str] = Field(None, max_length=16, description="项目编号，如'P2026-001'，如果不填则自动生成")
     description: Optional[str] = Field(None, max_length=512)
     track: str = Field("dual", description="dual / software / hardware / support / other")
-    planned_launch_date: Optional[date] = None
+    planned_launch_date: Optional[date] = Field(None, description="项目截止/计划交付时间；创建项目时必填")
     budget_total: Optional[Decimal] = Field(None, description="总预算（元）")
+    contribution_total_points: int = Field(
+        0,
+        ge=0,
+        description="贡献积分总额；激励口径，独立于预算，不按预算自动换算",
+    )
     budget_alert_threshold: float = Field(0.8, ge=0.0, le=1.0, description="预算预警阈值")
     # V2.3 临时工单项目：勾上后跳过 5 阶段初始化，自动建一个 Backlog 虚拟 Sprint
     is_temporary: bool = Field(False, description="是否为临时工单项目(V2.3)：跳过 IPD 5 阶段初始化")
@@ -54,6 +59,7 @@ class ProjectUpdate(BaseModel):
     track: Optional[str] = Field(None, description="dual / software / hardware / support / other")
     planned_launch_date: Optional[date] = None
     budget_total: Optional[Decimal] = None
+    contribution_total_points: Optional[int] = Field(None, ge=0)
     budget_alert_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
     status: Optional[str] = Field(None, description="active / paused / completed / cancelled")
     # T-1106 临时工单处理结果(仅 is_temporary=True 完工时强制,主干项目永远 NULL)
@@ -159,6 +165,7 @@ class ProjectOverviewItem(BaseModel):
     planned_launch_date: Optional[date]
     days_to_deadline: Optional[int]
     budget_usage_pct: Optional[float]
+    contribution_total_points: int
     status: str
 
     model_config = {"from_attributes": True}

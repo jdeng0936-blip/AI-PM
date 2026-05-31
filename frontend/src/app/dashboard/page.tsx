@@ -15,12 +15,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/use-auth-store'
 import {
+  getPersonnelProbes,
   getMorningBriefing,
   getRiskAlerts,
   getTempTicketSummary,
   getDeletionGovernance,
   batchDeleteRiskAlerts,
   batchRestoreRiskAlerts,
+  type PersonnelProbesResponse,
 } from '@/api/dashboard'
 import {
   getAnalyticsDepartmentCompare,
@@ -42,7 +44,7 @@ import {
   type MyActiveTaskItem,
   type PendingFollowUpItem,
 } from '@/api/reports'
-import { listProjectMilestones, type MilestoneOut } from '@/api/milestones'
+import { getMyContribution, listProjectMilestones, type MilestoneOut } from '@/api/milestones'
 import { getGroupedReports, type ReportGroupRow } from '@/api/admin'
 import {
   MAIN_TRACK_OPTIONS,
@@ -50,6 +52,19 @@ import {
   TRACK_LABELS,
   trackLabel,
 } from '@/lib/project-track'
+import {
+  CONTRIBUTION_COLLABORATION_OPTIONS,
+  CONTRIBUTION_COMPLEXITY_OPTIONS,
+  CONTRIBUTION_KIND_OPTIONS,
+  CONTRIBUTION_URGENCY_OPTIONS,
+  applyContributionRecommendation,
+  nodesPointTotal,
+  recommendContributionTotal,
+  type ContributionCollaboration,
+  type ContributionComplexity,
+  type ContributionProjectKind,
+  type ContributionUrgency,
+} from '@/lib/contribution-planner'
 import { useListFilters, type FilterSpec } from '@/lib/hooks/use-list-filters'
 import { useMultiSelect } from '@/lib/hooks/use-multi-select'
 import FilterBar from '@/components/filter-bar'
@@ -58,12 +73,20 @@ import MemberPicker from '@/components/member-picker'
 import MilestoneTemplateEditor from '@/components/milestone-template-editor'
 import { CompareBarChart, TrendLineChart } from '@/components/charts'
 import { KpiAchievementPanel } from '@/components/dashboard/kpi-achievement-panel'
+import { ExecutiveCommandCenter } from '@/components/dashboard/executive-command-center'
+import { ManagerWorkbenchTop } from '@/components/dashboard/manager-workbench-top'
+import {
+  daysUntil,
+  dueLabel,
+  milestoneState,
+  recTier,
+  type LedgerTaskRow,
+  type RecRow,
+} from '@/components/dashboard/workbench-utils'
 import { toast } from 'sonner'
 import type { ProjectMemberInit } from '@/api/projects'
 import { seedProjectMilestones, type MilestoneNodeIn } from '@/api/milestones'
 import {
-  LayoutDashboard,
-  Cpu,
   AlertTriangle,
   ArrowRight,
   CheckCircle,
@@ -92,41 +115,6 @@ function shortDate(value?: string) {
   return value.slice(5).replace('-', '/')
 }
 
-function daysUntil(value?: string | null) {
-  if (!value) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const target = new Date(value)
-  target.setHours(0, 0, 0, 0)
-  return Math.ceil((target.getTime() - today.getTime()) / 86400000)
-}
-
-function dueLabel(value?: string | null) {
-  const days = daysUntil(value)
-  if (days === null) return '未设截止'
-  if (days < 0) return `已超 ${Math.abs(days)} 天`
-  if (days === 0) return '今天到期'
-  return `还剩 ${days} 天`
-}
-
-const taskStatusLabel: Record<string, string> = {
-  todo: '待开始',
-  in_progress: '进行中',
-  blocked: '受阻',
-  done: '已完成',
-  pending: '待完成',
-  in_review: '验收中',
-  approved: '已验收',
-  void: '已作废',
-}
-
-const priorityLabel: Record<string, string> = {
-  low: '低',
-  medium: '中',
-  high: '高',
-  urgent: '紧急',
-}
-
 type DashboardTask = (MyActiveTaskItem & { source: 'sprint' }) | {
   id: string
   title: string
@@ -145,10 +133,10 @@ type ProjectMilestoneTasks = {
 export default function DashboardPage() {
   const router = useRouter()
   const { isAdmin, userRole } = useAuthStore()
-  const isManager = userRole === 'manager'
-  const canSeeTabs = isAdmin
   const showHeavySections = isAdmin
-  const showLightManagerView = isManager && !isAdmin
+  const showLightManagerView = Boolean(userRole) && !isAdmin
+  const [showAdminAdvanced, setShowAdminAdvanced] = useState(false)
+  const canSeeTabs = isAdmin && showAdminAdvanced
   const [loading, setLoading] = useState(false)
   const today = new Date().toLocaleDateString('zh-CN', {
     month: 'long',
@@ -166,6 +154,9 @@ export default function DashboardPage() {
   const [myActiveProjects, setMyActiveProjects] = useState<MyActiveProjectItem[]>([])
   const [myProjectMilestones, setMyProjectMilestones] = useState<ProjectMilestoneTasks[]>([])
   const [pendingFollowUps, setPendingFollowUps] = useState<PendingFollowUpItem[]>([])
+  const [myTotalPoints, setMyTotalPoints] = useState<number | null>(null)
+  const [probeDays, setProbeDays] = useState(7)
+  const [personnelProbes, setPersonnelProbes] = useState<PersonnelProbesResponse | null>(null)
   // V2.3 临时工单看板数据
   const [tempSummary, setTempSummary] = useState<any>(null)
 
@@ -188,6 +179,11 @@ export default function DashboardPage() {
     track: 'dual',
     planned_launch_date: '',
     budget_total: 100000,
+    contribution_total_points: 200,
+    contribution_project_kind: 'software' as ContributionProjectKind,
+    contribution_complexity: 'standard' as ContributionComplexity,
+    contribution_urgency: 'normal' as ContributionUrgency,
+    contribution_collaboration: 'medium' as ContributionCollaboration,
     is_temporary: false, // V2.3 临时工单项目
     members: [] as ProjectMemberInit[], // T-1105 新增
     seed_milestones: true,
@@ -208,14 +204,16 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       let nextProjects: any[] = []
-      const [ov, br, ra, tt, gov, activeWork, followUps] = await Promise.allSettled([
+      const [ov, br, ra, tt, gov, activeWork, followUps, myContribution, probes] = await Promise.allSettled([
         getProjectsOverview(),
-        getMorningBriefing(),
-        getRiskAlerts(),
-        getTempTicketSummary({ top_n: 5 }),
+        isAdmin ? getMorningBriefing() : Promise.resolve(null),
+        isAdmin ? getRiskAlerts() : Promise.resolve([]),
+        isAdmin ? getTempTicketSummary({ top_n: 5 }) : Promise.resolve(null),
         isAdmin ? getDeletionGovernance() : Promise.resolve(null),
         showLightManagerView ? getMyActiveProjects() : Promise.resolve(null),
         showLightManagerView ? getPendingFollowUps() : Promise.resolve(null),
+        showLightManagerView ? getMyContribution('all') : Promise.resolve(null),
+        isAdmin ? getPersonnelProbes(probeDays) : Promise.resolve(null),
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
@@ -225,10 +223,17 @@ export default function DashboardPage() {
       }
       if (br.status === 'fulfilled') {
         const data = br.value as any
-        setMorningStats(data.stats || {})
-        setMorningReports(data.reports || [])
-        setMissingMembers(data.missing_members || [])
-        setMorningBriefingDate(data.report_date || '')
+        if (data) {
+          setMorningStats(data.stats || {})
+          setMorningReports(data.reports || [])
+          setMissingMembers(data.missing_members || [])
+          setMorningBriefingDate(data.report_date || '')
+        } else {
+          setMorningStats({})
+          setMorningReports([])
+          setMissingMembers([])
+          setMorningBriefingDate('')
+        }
       }
       if (ra.status === 'fulfilled') {
         setRiskAlerts((ra.value as unknown as any[]).filter((a: any) => a.status === 'unresolved'))
@@ -245,7 +250,7 @@ export default function DashboardPage() {
         const milestoneResults = await Promise.allSettled(
           activeProjects.map(async (project) => ({
             project,
-            milestones: (await listProjectMilestones(project.id)).items.filter((item) =>
+            milestones: (await listProjectMilestones(project.id, { mineOnly: true })).items.filter((item) =>
               item.status === 'pending' || item.status === 'in_review'
             ),
           })),
@@ -263,6 +268,17 @@ export default function DashboardPage() {
         setPendingFollowUps((followUps.value as any).items || [])
       } else if (!showLightManagerView) {
         setPendingFollowUps([])
+      }
+      // 待解锁贡献对照：已入账累计积分（取数失败 fail-closed → null，绝不造假）
+      if (myContribution.status === 'fulfilled' && myContribution.value) {
+        setMyTotalPoints((myContribution.value as any).summary?.total_points ?? null)
+      } else {
+        setMyTotalPoints(null)
+      }
+      if (probes.status === 'fulfilled' && probes.value) {
+        setPersonnelProbes(probes.value as PersonnelProbesResponse)
+      } else if (!isAdmin) {
+        setPersonnelProbes(null)
       }
 
       if (showHeavySections) {
@@ -286,7 +302,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, showHeavySections, showLightManagerView])
+  }, [isAdmin, probeDays, showHeavySections, showLightManagerView])
 
   useEffect(() => {
     fetchAll()
@@ -433,6 +449,10 @@ export default function DashboardPage() {
       toast.error('项目名称必填')
       return
     }
+    if (!projectForm.planned_launch_date) {
+      toast.error('项目截止时间必填')
+      return
+    }
     if (projectForm.seed_milestones) {
       if (projectForm.milestone_nodes.length === 0) {
         toast.error('里程碑模板尚未加载完成')
@@ -443,40 +463,58 @@ export default function DashboardPage() {
         toast.error('里程碑节点名称必填,积分不可为负数')
         return
       }
+      const unassignedNode = projectForm.members.length > 0 && projectForm.milestone_nodes.some((node) =>
+        node.initial_points > 0 && !(node.planned_allocations && node.planned_allocations.length > 0)
+      )
+      if (unassignedNode) {
+        toast.error('请为有积分的贡献节点指定负责人')
+        return
+      }
     }
     setSubmitting(true)
     try {
-      // V2.3:临时工单项目只传精简字段,避免后端强校验 budget/launch_date
+      const apiMembers = projectForm.members.map((member) => ({
+        user_id: member.user_id,
+        track: member.track,
+        role_in_project: member.role_in_project?.trim() || undefined,
+      }))
+      // V2.3:临时工单项目只传精简字段；项目截止时间仍为必填
       const payload: any = projectForm.is_temporary
         ? {
             name: projectForm.name,
             code: projectForm.code || undefined,
             description: projectForm.description || undefined,
-            planned_launch_date: projectForm.planned_launch_date || undefined,
+            planned_launch_date: projectForm.planned_launch_date,
             is_temporary: true,
             track: projectForm.track,
+            contribution_total_points: projectForm.contribution_total_points,
             seed_milestones: false,
-            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+            ...(apiMembers.length > 0 ? { members: apiMembers } : {}),
           }
         : {
             name: projectForm.name,
             code: projectForm.code || undefined,
             description: projectForm.description || undefined,
             track: projectForm.track,
-            planned_launch_date: projectForm.planned_launch_date || undefined,
+            planned_launch_date: projectForm.planned_launch_date,
             budget_total: projectForm.budget_total,
+            contribution_total_points: projectForm.contribution_total_points,
             is_temporary: false,
             seed_milestones: false,
-            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+            ...(apiMembers.length > 0 ? { members: apiMembers } : {}),
           }
       const created = (await createProject(payload)) as any
       if (projectForm.seed_milestones && created?.project_id) {
         await seedProjectMilestones(created.project_id, {
-          nodes: projectForm.milestone_nodes.map((node) => ({
-            ...node,
-            description: node.description || undefined,
-            target_date: node.target_date || undefined,
-          })),
+          nodes: projectForm.milestone_nodes.map((node) => {
+            const { planned_allocations, ...seedNode } = node
+            return {
+              ...seedNode,
+              description: node.description || undefined,
+              target_date: node.target_date || undefined,
+              planned_allocations: planned_allocations?.length ? planned_allocations : undefined,
+            }
+          }),
         })
       }
       const membersHint = projectForm.members.length > 0 ? ` · 已指派 ${projectForm.members.length} 名成员` : ''
@@ -494,6 +532,11 @@ export default function DashboardPage() {
         track: 'dual',
         planned_launch_date: '',
         budget_total: 100000,
+        contribution_total_points: 200,
+        contribution_project_kind: 'software',
+        contribution_complexity: 'standard',
+        contribution_urgency: 'normal',
+        contribution_collaboration: 'medium',
         is_temporary: false,
         members: [],
         seed_milestones: true,
@@ -546,14 +589,67 @@ export default function DashboardPage() {
     [analytics?.sprintEfficiency],
   )
 
+  const milestonePointTotal = useMemo(
+    () => nodesPointTotal(projectForm.milestone_nodes),
+    [projectForm.milestone_nodes],
+  )
+
+  function applyContributionPlan() {
+    const total = recommendContributionTotal(
+      projectForm.contribution_complexity,
+      projectForm.contribution_urgency,
+      projectForm.contribution_collaboration,
+    )
+    setProjectForm((current) => ({
+      ...current,
+      contribution_total_points: total,
+      milestone_nodes: applyContributionRecommendation(
+        current.milestone_nodes,
+        total,
+        current.contribution_project_kind,
+      ),
+    }))
+  }
+
+  function handleProjectMembersChange(next: ProjectMemberInit[]) {
+    const memberIds = new Set(next.map((member) => member.user_id))
+    setProjectForm((current) => ({
+      ...current,
+      members: next,
+      milestone_nodes: current.milestone_nodes.map((node) => {
+        const plannedAllocations = node.planned_allocations?.filter((allocation) =>
+          memberIds.has(allocation.user_id),
+        )
+        return {
+          ...node,
+          planned_allocations: plannedAllocations?.length ? plannedAllocations : null,
+        }
+      }),
+    }))
+  }
+
   const managerProjects = useMemo(() => {
     if (!showLightManagerView) return projects
-    const attention = projects.filter((p: any) => p.health_status === 'red' || p.health_status === 'yellow')
-    return (attention.length > 0 ? attention : projects).slice(0, 5)
-  }, [projects, showLightManagerView])
+    const myProjectIds = new Set(myActiveProjects.map((project) => project.id))
+    const relatedProjects = projects.filter((p: any) => myProjectIds.has(p.project_id))
+    const fallbackProjects = myActiveProjects.map((project) => ({
+      project_id: project.id,
+      code: project.code,
+      name: project.name,
+      health_status: project.health_status,
+      health_score: '-',
+      current_stage: '-',
+      stage_name: '我的参与项目',
+      track: 'dual',
+      days_to_deadline: '-',
+    }))
+    const scopedProjects = relatedProjects.length > 0 ? relatedProjects : fallbackProjects
+    const attention = scopedProjects.filter((p: any) => p.health_status === 'red' || p.health_status === 'yellow')
+    return (attention.length > 0 ? attention : scopedProjects).slice(0, 5)
+  }, [myActiveProjects, projects, showLightManagerView])
 
   const managerRiskAlerts = useMemo(
-    () => (showLightManagerView ? riskAlerts.slice(0, 5) : riskAlerts),
+    () => (showLightManagerView ? [] : riskAlerts),
     [riskAlerts, showLightManagerView],
   )
 
@@ -590,16 +686,131 @@ export default function DashboardPage() {
 
   const urgentTaskCount = myTaskRows.filter((row) => row.days_left !== null && row.days_left <= 2).length
 
+  // 待解锁贡献：仅里程碑节点 initial_points（Sprint story_points 是工作量估点，不进贡献账本）
+  const pendingContribution = useMemo(
+    () =>
+      myProjectMilestones.reduce(
+        (sum, { milestones }) => sum + milestones.reduce((acc, m) => acc + (m.initial_points || 0), 0),
+        0,
+      ),
+    [myProjectMilestones],
+  )
+
+  const pendingNodeCount = useMemo(
+    () => myProjectMilestones.reduce((count, { milestones }) => count + milestones.length, 0),
+    [myProjectMilestones],
+  )
+
+  const hasOverdue = useMemo(
+    () => myTaskRows.some((row) => row.days_left !== null && row.days_left < 0),
+    [myTaskRows],
+  )
+
+  const ledgerRows = useMemo<LedgerTaskRow[]>(
+    () =>
+      myTaskRows.map(({ project, task, days_left }) => ({
+        id: task.id,
+        title: task.title,
+        projectId: project.id,
+        projectCode: project.code,
+        projectName: project.name,
+        status: task.status,
+        source: task.source,
+        points: task.story_points,
+        priority: task.source === 'sprint' ? task.priority : undefined,
+        isOnCriticalPath: task.is_on_critical_path,
+        plannedEnd: task.planned_end,
+        daysLeft: days_left,
+        milestoneState:
+          task.source === 'milestone' ? milestoneState(task.status, days_left) : undefined,
+      })),
+    [myTaskRows],
+  )
+
+  // 推荐排序：待跟进(置顶) > 逾期 > 今天 > ≤2天 > 精确截止日 > 关键路径 > 高分值；未设截止不进推荐
+  const recommendedTasks = useMemo<RecRow[]>(() => {
+    type SortableRec = Omit<RecRow, 'rank'> & { tier: number; sortPoints: number }
+
+    const followUpRows: SortableRec[] = pendingFollowUps.map((item) => ({
+      key: `fu-${item.supervised_id}`,
+      title: item.sprint_task_title || item.project_name || '继续跟进事项',
+      projectCode: null,
+      projectName: item.project_name,
+      status: null,
+      source: 'followup',
+      points: null,
+      milestoneState: undefined,
+      isOnCriticalPath: false,
+      daysLeft: null,
+      dueText: '昨日延期',
+      actionLabel: '写今日计划',
+      route: '/submit-report',
+      tier: -1,
+      sortPoints: 0,
+    }))
+
+    const datedRows: SortableRec[] = myTaskRows
+      .filter((row) => row.days_left !== null)
+      .map(({ project, task, days_left }) => {
+        const isMilestone = task.source === 'milestone'
+        return {
+          key: `task-${task.id}`,
+          title: task.title,
+          projectCode: project.code,
+          projectName: project.name,
+          status: task.status,
+          source: task.source,
+          points: task.story_points,
+          milestoneState: isMilestone ? milestoneState(task.status, days_left) : undefined,
+          isOnCriticalPath: task.is_on_critical_path,
+          daysLeft: days_left,
+          dueText: dueLabel(days_left),
+          actionLabel: isMilestone ? '写今日计划' : '进入项目',
+          route: isMilestone ? '/submit-report' : `/project/${project.id}`,
+          tier: recTier(days_left as number),
+          sortPoints: task.story_points,
+        }
+      })
+
+    return [...followUpRows, ...datedRows]
+      .sort((a, b) => {
+        if (a.tier !== b.tier) return a.tier - b.tier
+        const aDays = a.daysLeft ?? 9999
+        const bDays = b.daysLeft ?? 9999
+        if (aDays !== bDays) return aDays - bDays
+        if (a.isOnCriticalPath !== b.isOnCriticalPath) return a.isOnCriticalPath ? -1 : 1
+        if (a.sortPoints !== b.sortPoints) return b.sortPoints - a.sortPoints
+        return a.title.localeCompare(b.title)
+      })
+      .slice(0, 3)
+      .map((row, index): RecRow => ({
+        key: row.key,
+        rank: index + 1,
+        title: row.title,
+        projectCode: row.projectCode,
+        projectName: row.projectName,
+        status: row.status,
+        source: row.source,
+        points: row.points,
+        milestoneState: row.milestoneState,
+        isOnCriticalPath: row.isOnCriticalPath,
+        daysLeft: row.daysLeft,
+        dueText: row.dueText,
+        actionLabel: row.actionLabel,
+        route: row.route,
+      }))
+  }, [pendingFollowUps, myTaskRows])
+
   return (
     <div className="page-container">
       {/* 页面标题 */}
       <div className="flex items-center justify-between mb-6 animate-in">
         <div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {showLightManagerView ? '今日总览' : '监控台'}
+            {showLightManagerView ? '今日总览' : '总经理驾驶舱'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-            {showLightManagerView ? '只看今天需要跟进的事' : '项目健康度实时总览'} · {today}
+            {showLightManagerView ? '只看今天需要跟进的事' : '今天优先，及时发现人员与项目异常'} · {today}
           </p>
         </div>
         <div className="flex gap-2">
@@ -650,188 +861,47 @@ export default function DashboardPage() {
 
       {viewMode === 'all' && (
         <>
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        {/* 活跃项目 */}
-        <div className="stat-card animate-in" style={{ animationDelay: '0.1s' }}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.15)' }}>
-              <LayoutDashboard size={20} color="#3b82f6" />
-            </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-              {showLightManagerView ? '我的任务' : '活跃项目'}
-            </span>
-          </div>
-          <div className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {showLightManagerView ? myTaskRows.length : (overview.total ?? '-')}
-          </div>
-          <div className="flex gap-3 mt-2 text-xs">
-            {showLightManagerView ? (
-              <span style={{ color: 'var(--color-text-secondary)' }}>{myActiveProjects.length} 个相关项目</span>
-            ) : (
-              <>
-                <span style={{ color: '#22c55e' }}>绿 {overview.green_count ?? 0}</span>
-                <span style={{ color: '#eab308' }}>黄 {overview.yellow_count ?? 0}</span>
-                <span style={{ color: '#ef4444' }}>红 {overview.red_count ?? 0}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* AI 日报 */}
-        <div className="stat-card animate-in" style={{ animationDelay: '0.2s' }}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,85,247,0.15)' }}>
-              <Cpu size={20} color="#a855f7" />
-            </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-              {showLightManagerView ? '临期/逾期' : '今日 AI 日报'}
-            </span>
-          </div>
-          <div className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            {showLightManagerView ? urgentTaskCount : (morningStats.total_reports ?? '-')}
-          </div>
-          <div className="flex gap-3 mt-2 text-xs">
-            {showLightManagerView ? (
-              <span style={{ color: urgentTaskCount > 0 ? '#ef4444' : '#22c55e' }}>
-                {urgentTaskCount > 0 ? '需要优先处理' : '暂无紧急任务'}
-              </span>
-            ) : (
-              <>
-                <span style={{ color: '#22c55e' }}>合格 {morningStats.pass_count ?? 0}</span>
-                <span style={{ color: '#ef4444' }}>退回 {morningStats.fail_count ?? 0}</span>
-                <span style={{ color: 'var(--color-text-secondary)' }}>均分 {morningStats.avg_score ?? '-'}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* 未汇报 / 卡点 */}
-        <div className="stat-card animate-in" style={{ animationDelay: '0.3s' }}>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }}>
-              <AlertTriangle size={20} color="#ef4444" />
-            </div>
-            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-              {showLightManagerView ? '待跟进' : '未汇报 / 卡点'}
-            </span>
-          </div>
-          <div
-            className="text-2xl font-bold"
-            style={{
-              color: showLightManagerView
-                ? (pendingFollowUps.length > 0 ? '#ef4444' : 'var(--color-text-primary)')
-                : ((missingMembers.length + riskAlerts.length) > 0 ? '#ef4444' : 'var(--color-text-primary)'),
-            }}
-          >
-            {showLightManagerView ? pendingFollowUps.length : `${missingMembers.length} / ${riskAlerts.length}`}
-          </div>
-          <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>
-            {showLightManagerView ? '昨天未完成或延期的事项' : '需管理层关注介入'}
-          </div>
-        </div>
+      {showLightManagerView ? (
+        <ManagerWorkbenchTop
+          taskRows={ledgerRows}
+          recommendedTasks={recommendedTasks}
+          activeProjectCount={myActiveProjects.length}
+          pendingContribution={pendingContribution}
+          pendingNodeCount={pendingNodeCount}
+          urgentCount={urgentTaskCount}
+          hasOverdue={hasOverdue}
+          totalPoints={myTotalPoints}
+        />
+      ) : (
+      <>
+      <div className="mb-8 animate-in" style={{ animationDelay: '0.08s' }}>
+        <ExecutiveCommandCenter
+          overview={overview}
+          morningStats={morningStats}
+          missingMembers={missingMembers}
+          morningReports={morningReports}
+          riskAlerts={riskAlerts}
+          projects={projects}
+          probes={personnelProbes}
+          probeDays={probeDays}
+          onProbeDaysChange={setProbeDays}
+        />
       </div>
-
-      {showLightManagerView && (
-        <div className="mb-8 animate-in" style={{ animationDelay: '0.32s' }}>
-          <div className="section-title flex items-center gap-2">
-            我的任务
-            <button
-              type="button"
-              onClick={() => router.push('/submit-report')}
-              className="ml-auto text-[11px] px-2 py-0.5 rounded"
-              style={{ color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
-            >
-              写今日计划
-            </button>
-          </div>
-          {myTaskRows.length === 0 && pendingFollowUps.length === 0 ? (
-            <div className="stat-card py-8 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              暂无指派给你的进行中任务。可以从项目页查看参与项目,或在写日报时补充计划外事项。
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {pendingFollowUps.map((item) => (
-                <div key={item.supervised_id} className="stat-card flex items-start gap-4" style={{ borderColor: '#ef4444' }}>
-                  <AlertTriangle size={18} color="#ef4444" className="mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                      {item.sprint_task_title || item.project_name || '继续跟进事项'}
-                    </div>
-                    <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                      来自昨日未完成/延期 · {item.project_name || '未关联项目'}
-                    </div>
-                    {item.source_note && (
-                      <div className="text-xs mt-2 line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>
-                        {item.source_note}
-                      </div>
-                    )}
-                  </div>
-                  <span className="shrink-0 rounded px-2 py-1 text-xs" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
-                    待跟进
-                  </span>
-                </div>
-              ))}
-              {myTaskRows.map(({ project, task }) => {
-                const days = daysUntil(task.planned_end)
-                const dueColor = days === null ? 'var(--color-text-secondary)' : days < 0 ? '#ef4444' : days <= 2 ? '#eab308' : '#22c55e'
-                return (
-                  <div
-                    key={task.id}
-                    className="stat-card cursor-pointer flex items-start gap-4"
-                    onClick={() => router.push(`/project/${project.id}`)}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                          {task.title}
-                        </span>
-                        {task.is_on_critical_path && (
-                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
-                            关键路径
-                          </span>
-                        )}
-                        {task.source === 'milestone' && (
-                          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }}>
-                            贡献节点
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        {project.code} · {project.name}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2 text-[11px] flex-wrap">
-                        <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
-                          {taskStatusLabel[task.status] || task.status}
-                        </span>
-                        {task.source === 'sprint' && (
-                          <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
-                            优先级 {priorityLabel[task.priority] || task.priority}
-                          </span>
-                        )}
-                        <span className="rounded px-2 py-0.5" style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}>
-                          {task.story_points} {task.source === 'milestone' ? '积分' : 'pt'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm font-semibold" style={{ color: dueColor }}>
-                        {dueLabel(task.planned_end)}
-                      </div>
-                      <div className="text-[11px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        {task.planned_end || '无日期'}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+      <div className="mb-8 flex justify-center">
+        <button
+          type="button"
+          onClick={() => setShowAdminAdvanced((value) => !value)}
+          className="rounded-md px-3 py-1.5 text-xs transition-colors"
+          style={{ border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}
+        >
+          {showAdminAdvanced ? '收起高级分析' : '展开高级分析'}
+        </button>
+      </div>
+      </>
       )}
 
       {/* Phase 7 历史趋势看板 */}
-      {showHeavySections && (
+      {showHeavySections && showAdminAdvanced && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.32s' }}>
           <div className="section-title flex items-center gap-2">
             <TrendingUp size={16} color="#3b82f6" />
@@ -938,11 +1008,11 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {showHeavySections && <KpiAchievementPanel />}
+      {showHeavySections && showAdminAdvanced && <KpiAchievementPanel />}
 
       {/* AI 日报明细 */}
       {/* relative z-50 — 打破 animate-in 创建的层叠上下文,让 FilterBar 下拉能盖住下方日报卡片 */}
-      {showHeavySections && morningReports.length > 0 && (
+      {showHeavySections && showAdminAdvanced && morningReports.length > 0 && (
         <div className="mb-8 animate-in relative z-50" style={{ animationDelay: '0.35s' }}>
           <div className="section-title flex items-center gap-2">
             📋 AI 日报明细（{morningBriefingDate}）
@@ -1053,7 +1123,7 @@ export default function DashboardPage() {
       )}
 
       {/* 未汇报名单 */}
-      {showHeavySections && missingMembers.length > 0 && (
+      {showHeavySections && showAdminAdvanced && missingMembers.length > 0 && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.4s' }}>
           <div className="section-title">
             🔕 未汇报名单
@@ -1080,7 +1150,7 @@ export default function DashboardPage() {
       )}
 
       {/* V2.3 临时工单看板(两张卡片:TOP5 + 占比) */}
-      {showHeavySections && tempSummary && (
+      {showHeavySections && showAdminAdvanced && tempSummary && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.42s' }}>
           <div className="section-title flex items-center gap-2">
             <Ticket size={16} color="#a855f7" />
@@ -1229,7 +1299,7 @@ export default function DashboardPage() {
       )}
 
       {/* V2.6 数据生命周期治理 (仅 Admin/Manager 可见) */}
-      {showHeavySections && deletionStats && (
+      {showHeavySections && showAdminAdvanced && deletionStats && (
         <div className="mb-8 animate-in" style={{ animationDelay: '0.43s' }}>
           <div className="section-title flex items-center gap-2">
             <Database size={16} color="#06b6d4" />
@@ -1315,140 +1385,137 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 项目健康矩阵 */}
-      <div className="mb-8 animate-in" style={{ animationDelay: '0.45s' }}>
-        <div className="section-title">
-          {showLightManagerView ? '需要关注的项目' : '项目健康矩阵'}
-          {showLightManagerView && projects.length > managerProjects.length && (
-            <button
-              type="button"
-              onClick={() => router.push('/projects')}
-              className="ml-auto text-[11px] px-2 py-0.5 rounded"
-              style={{ color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
-            >
-              查看全部
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 gap-4">
-          {managerProjects.map((p: any) => (
-            <div
-              key={p.project_id}
-              className="stat-card cursor-pointer flex items-center gap-5"
-              onClick={() => router.push(`/project/${p.project_id}`)}
-            >
-              <div className="w-3 h-3 rounded-full shrink-0" style={{ background: healthColor(p.health_status) }} />
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
-                  {p.code} · {p.name}
-                </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                  第{p.current_stage}阶段「{p.stage_name}」 · {trackLabel(p.track)}
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-lg font-bold" style={{ color: healthColor(p.health_status) }}>{p.health_score}</div>
-                <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>距交付 {p.days_to_deadline}天</div>
-              </div>
-              <ArrowRight size={16} color="#4b5563" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 风险阻碍池 */}
-      <div className="animate-in" style={{ animationDelay: '0.5s' }}>
-        <div className="section-title">
-          {showLightManagerView ? '待处理风险' : '风险阻碍池'}
-          {riskAlerts.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
-              {riskAlerts.length}
-            </span>
-          )}
-        </div>
-
-        {/* V2.5 Stage 3:风险预警批量操作栏(manager+) */}
-        {showHeavySections && (
-          <ListActionBar
-            selectedCount={alertMs.selectedCount}
-            onClear={alertMs.clearAll}
-            hint="软删后历史关联保留,可在回收站恢复"
-          >
-            <button
-              onClick={handleAlertBatchDelete}
-              disabled={alertDeleting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
-              style={{ background: '#ef4444', color: '#fff' }}
-            >
-              <Trash2 size={14} />
-              {alertDeleting ? '处理中…' : `批量删除 (${alertMs.selectedCount})`}
-            </button>
-          </ListActionBar>
-        )}
-
-        {riskAlerts.length === 0 ? (
-          <div className="text-center py-12" style={{ color: 'var(--color-text-secondary)' }}>
-            <CheckCircle size={48} className="mx-auto mb-3 opacity-50" />
-            <p>暂无未解除的风险卡点 🎉</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {managerRiskAlerts.map((alert: any) => {
-              const aid = String(alert.alert_id)
-              const selected = showHeavySections && alertMs.isSelected(aid)
-              return (
-                <div
-                  key={aid}
-                  className="stat-card flex items-start gap-4"
-                  style={selected ? { border: '1px solid #a855f7', background: 'rgba(168,85,247,0.06)' } : undefined}
+      {(!showHeavySections || showAdminAdvanced) && (
+        <>
+          {/* 项目健康矩阵 */}
+          <div className="mb-8 animate-in" style={{ animationDelay: '0.45s' }}>
+            <div className="section-title">
+              {showLightManagerView ? '需要关注的项目' : '项目健康矩阵'}
+              {showLightManagerView && myActiveProjects.length > managerProjects.length && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/projects')}
+                  className="ml-auto text-[11px] px-2 py-0.5 rounded"
+                  style={{ color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
                 >
-                  {showHeavySections && (
-                    <input
-                      type="checkbox"
-                      checked={alertMs.isSelected(aid)}
-                      onChange={() => alertMs.toggle(aid)}
-                      className="mt-1 cursor-pointer shrink-0"
-                      title="选中以批量操作"
-                    />
-                  )}
-                  <AlertTriangle size={20} color="#ef4444" className="mt-0.5 shrink-0" />
+                  查看全部
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              {managerProjects.length === 0 && (
+                <div className="stat-card py-8 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  暂无与你相关的进行中项目。
+                </div>
+              )}
+              {managerProjects.map((p: any) => (
+                <div
+                  key={p.project_id}
+                  className="stat-card cursor-pointer flex items-center gap-5"
+                  onClick={() => router.push(`/project/${p.project_id}`)}
+                >
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ background: healthColor(p.health_status) }} />
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
-                      {alert.type?.toUpperCase()} · {alert.member}
+                      {p.code} · {p.name}
                     </div>
                     <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-                      {alert.department} · 未解 {alert.days_unresolved} 天 · {alert.created_at}
+                      第{p.current_stage}阶段「{p.stage_name}」 · {trackLabel(p.track)}
                     </div>
-                    <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>{alert.description}</div>
                   </div>
-                  <button
-                    onClick={() => {
-                      toast.success('已标记为已解决')
-                      setRiskAlerts((prev) => prev.filter((a) => String(a.alert_id) !== aid))
-                    }}
-                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium"
-                    style={{ border: '1px solid var(--color-status-green)', color: 'var(--color-status-green)' }}
-                  >
-                    标记解决
-                  </button>
+                  <div className="text-right shrink-0">
+                    <div className="text-lg font-bold" style={{ color: healthColor(p.health_status) }}>{p.health_score}</div>
+                    <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>距交付 {p.days_to_deadline}天</div>
+                  </div>
+                  <ArrowRight size={16} color="#4b5563" />
                 </div>
-              )
-            })}
+              ))}
+            </div>
           </div>
-        )}
-        {showLightManagerView && riskAlerts.length > managerRiskAlerts.length && (
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={() => router.push('/reports')}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium"
-              style={{ border: '1px solid var(--color-brand-blue)', color: 'var(--color-brand-blue)' }}
-            >
-              查看更多风险线索
-            </button>
+
+          {/* 风险阻碍池 */}
+          <div className="animate-in" style={{ animationDelay: '0.5s' }}>
+            <div className="section-title">
+              {showLightManagerView ? '待处理风险' : '风险阻碍池'}
+              {managerRiskAlerts.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                  {managerRiskAlerts.length}
+                </span>
+              )}
+            </div>
+
+            {/* V2.5 Stage 3:风险预警批量操作栏(manager+) */}
+            {showHeavySections && (
+              <ListActionBar
+                selectedCount={alertMs.selectedCount}
+                onClear={alertMs.clearAll}
+                hint="软删后历史关联保留,可在回收站恢复"
+              >
+                <button
+                  onClick={handleAlertBatchDelete}
+                  disabled={alertDeleting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
+                  style={{ background: '#ef4444', color: '#fff' }}
+                >
+                  <Trash2 size={14} />
+                  {alertDeleting ? '处理中…' : `批量删除 (${alertMs.selectedCount})`}
+                </button>
+              </ListActionBar>
+            )}
+
+            {managerRiskAlerts.length === 0 ? (
+              <div className="text-center py-12" style={{ color: 'var(--color-text-secondary)' }}>
+                <CheckCircle size={48} className="mx-auto mb-3 opacity-50" />
+                <p>{showLightManagerView ? '暂无与你相关的风险卡点' : '暂无未解除的风险卡点 🎉'}</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {managerRiskAlerts.map((alert: any) => {
+                  const aid = String(alert.alert_id)
+                  const selected = showHeavySections && alertMs.isSelected(aid)
+                  return (
+                    <div
+                      key={aid}
+                      className="stat-card flex items-start gap-4"
+                      style={selected ? { border: '1px solid #a855f7', background: 'rgba(168,85,247,0.06)' } : undefined}
+                    >
+                      {showHeavySections && (
+                        <input
+                          type="checkbox"
+                          checked={alertMs.isSelected(aid)}
+                          onChange={() => alertMs.toggle(aid)}
+                          className="mt-1 cursor-pointer shrink-0"
+                          title="选中以批量操作"
+                        />
+                      )}
+                      <AlertTriangle size={20} color="#ef4444" className="mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm" style={{ color: 'var(--color-text-primary)' }}>
+                          {alert.type?.toUpperCase()} · {alert.member}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                          {alert.department} · 未解 {alert.days_unresolved} 天 · {alert.created_at}
+                        </div>
+                        <div className="text-xs mt-2" style={{ color: 'var(--color-text-secondary)' }}>{alert.description}</div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          toast.success('已标记为已解决')
+                          setRiskAlerts((prev) => prev.filter((a) => String(a.alert_id) !== aid))
+                        }}
+                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ border: '1px solid var(--color-status-green)', color: 'var(--color-status-green)' }}
+                      >
+                        标记解决
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
         </>
       )}
 
@@ -1579,9 +1646,11 @@ export default function DashboardPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>计划交付时间</label>
+                <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>项目截止时间 *</label>
                 <input
                   type="date"
+                  required
+                  min={new Date().toISOString().split('T')[0]}
                   value={projectForm.planned_launch_date}
                   onChange={(e) => setProjectForm({ ...projectForm, planned_launch_date: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none"
@@ -1600,33 +1669,102 @@ export default function DashboardPage() {
                       className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                       style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
                     />
+                    <div className="mt-1 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                      预算用于成本管理，不参与贡献积分计算。
+                    </div>
                   </div>
                 </>
               )}
+              <div className="rounded-lg p-3 space-y-3" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    项目积分建议
+                  </div>
+                  <span className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                    只负责估算项目总积分，具体派工在下方工作节点分工中确定
+                  </span>
+                  <button
+                    type="button"
+                    onClick={applyContributionPlan}
+                    className="ml-auto rounded px-2 py-1 text-xs"
+                    style={{ border: '1px solid rgba(59,130,246,0.35)', color: 'var(--color-brand-blue)' }}
+                  >
+                    自动推荐
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                  <div>
+                    <label className="block text-[11px] mb-1" style={{ color: 'var(--color-text-secondary)' }}>积分总额</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={projectForm.contribution_total_points}
+                      onChange={(e) => setProjectForm({ ...projectForm, contribution_total_points: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                      style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                    />
+                  </div>
+                  {[
+                    { label: '项目类型', key: 'contribution_project_kind', options: CONTRIBUTION_KIND_OPTIONS },
+                    { label: '复杂度', key: 'contribution_complexity', options: CONTRIBUTION_COMPLEXITY_OPTIONS },
+                    { label: '紧迫度', key: 'contribution_urgency', options: CONTRIBUTION_URGENCY_OPTIONS },
+                    { label: '协作范围', key: 'contribution_collaboration', options: CONTRIBUTION_COLLABORATION_OPTIONS },
+                  ].map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-[11px] mb-1" style={{ color: 'var(--color-text-secondary)' }}>{field.label}</label>
+                      <select
+                        value={(projectForm as any)[field.key]}
+                        onChange={(e) => setProjectForm({ ...projectForm, [field.key]: e.target.value })}
+                        className="w-full rounded-md px-2 py-1.5 text-xs outline-none"
+                        style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                      >
+                        {field.options.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 text-[11px] md:grid-cols-2">
+                  <div style={{ color: 'var(--color-text-secondary)' }}>
+                    预算不参与换算；点击自动推荐后会同步更新下方节点积分。
+                  </div>
+                  <div style={{ color: milestonePointTotal === projectForm.contribution_total_points ? 'var(--color-text-secondary)' : '#d4a24e' }}>
+                    节点积分合计：{milestonePointTotal} / 项目积分总额 {projectForm.contribution_total_points}
+                  </div>
+                  <div className="md:col-span-2" style={{ color: 'var(--color-status-red)' }}>
+                    负激励规则：节点超出目标完成时间后，验收时不得贡献积分；连续超时会进入人员状态探针，用于绩效判断。
+                  </div>
+                </div>
+              </div>
               {/* T-1105 立项指派成员选择器(可选,主干 + 临时项目共享) */}
               <MemberPicker
                 value={projectForm.members}
-                onChange={(next) => setProjectForm({ ...projectForm, members: next })}
-              />
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                  <input
-                    type="checkbox"
-                    checked={projectForm.seed_milestones}
-                    onChange={(e) => setProjectForm({ ...projectForm, seed_milestones: e.target.checked })}
-                  />
-                  立项时种入贡献节点
-                </label>
-                {projectForm.seed_milestones && (
-                  <MilestoneTemplateEditor
-                    track={projectForm.track}
-                    isTemporary={projectForm.is_temporary}
-                    value={projectForm.milestone_nodes}
-                    onChange={(nodes) => setProjectForm((current) => ({ ...current, milestone_nodes: nodes }))}
-                    disabled={submitting}
-                  />
-                )}
-              </div>
+                onChange={handleProjectMembersChange}
+              >
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={projectForm.seed_milestones}
+                      onChange={(e) => setProjectForm({ ...projectForm, seed_milestones: e.target.checked })}
+                    />
+                    立项时生成工作节点
+                  </label>
+                  {projectForm.seed_milestones && (
+                    <MilestoneTemplateEditor
+                      track={projectForm.track}
+                      isTemporary={projectForm.is_temporary}
+                      value={projectForm.milestone_nodes}
+                      onChange={(nodes) => setProjectForm((current) => ({ ...current, milestone_nodes: nodes }))}
+                      members={projectForm.members}
+                      disabled={submitting}
+                    />
+                  )}
+                </div>
+              </MemberPicker>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button

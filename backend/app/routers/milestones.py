@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
-from app.models.milestone_allocation import MilestoneAllocation
+from app.models.milestone_allocation import AllocationStatus, MilestoneAllocation
 from app.models.project import Project, ProjectTrack
 from app.models.project_member import MemberProjectRole, ProjectMember
 from app.models.project_milestone import MilestoneStatus, ProjectMilestone
@@ -126,7 +126,7 @@ async def _require_project_member(db: AsyncSession, project_id: uuid.UUID, user:
 
 async def _require_tech_lead(db: AsyncSession, project_id: uuid.UUID, user: User) -> None:
     await _load_project(db, project_id, user)
-    if user.role == UserRole.admin:
+    if user.role in (UserRole.admin, UserRole.manager):
         return
 
     member = (
@@ -207,11 +207,25 @@ async def seed_milestones(
 @project_router.get("/{project_id}/milestones", response_model=MilestoneListResponse)
 async def get_project_milestones(
     project_id: uuid.UUID,
+    mine_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> MilestoneListResponse:
     await _require_project_member(db, project_id, user)
     milestones = await list_project_milestones(db, project_id)
+    if mine_only and user.role != UserRole.admin and milestones:
+        milestone_ids = [milestone.id for milestone in milestones]
+        allocation_rows = (
+            await db.execute(
+                select(MilestoneAllocation.milestone_id, MilestoneAllocation.user_id)
+                .where(MilestoneAllocation.milestone_id.in_(milestone_ids))
+                .where(MilestoneAllocation.status != AllocationStatus.reverted)
+            )
+        ).all()
+        allocated_milestone_ids = {row[0] for row in allocation_rows}
+        my_milestone_ids = {row[0] for row in allocation_rows if row[1] == user.id}
+        if allocated_milestone_ids:
+            milestones = [milestone for milestone in milestones if milestone.id in my_milestone_ids]
     return MilestoneListResponse(
         project_id=project_id,
         items=[MilestoneOut.model_validate(milestone) for milestone in milestones],
@@ -239,6 +253,17 @@ async def create_project_milestone(
         tenant_id=user.tenant_id,
     )
     db.add(milestone)
+    await db.flush()
+    if payload.planned_allocations:
+        try:
+            await propose_allocations(
+                db,
+                milestone.id,
+                AllocationProposalRequest(allocations=payload.planned_allocations),
+                proposer=user,
+            )
+        except ValueError as exc:
+            raise _service_error(exc) from exc
     await db.commit()
     await db.refresh(milestone)
     return milestone

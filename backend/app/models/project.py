@@ -80,6 +80,15 @@ class Project(BaseMixin, Base):
     budget_spent: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), default=0)
     budget_alert_threshold: Mapped[float] = mapped_column(default=0.8)  # 超过80%触发预警
 
+    # 贡献积分总额（激励口径，独立于预算；由复杂度/紧迫度/协作范围推荐，可手动修改）
+    contribution_total_points: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="项目贡献积分总额，独立于预算，不按预算自动换算",
+    )
+
     # ── T-1106 临时工单处理结果归集 ─────────────────────────────────
     # 仅 is_temporary=True 流转到 status='completed' 时强制要求填写
     # 主干项目走 IPD G4 关卡评审,resolution_summary 永远 NULL

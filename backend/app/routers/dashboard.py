@@ -20,13 +20,55 @@ from app.models.audit_log import AuditLog
 from app.models.daily_report import DailyReport
 from app.models.project import Project
 from app.models.risk_alert import RiskAlert
+from app.models.sprint_task import SprintTask, TaskStatus
 from app.models.user import User, UserRole
+from app.models.user_points_ledger import LedgerDirection, UserPointsLedger
 from app.services.deletion_history import mark_soft_delete_restored, record_soft_delete
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
 # 管理层才能访问的端点依然用这个
 _mgr_or_admin = require_role(UserRole.manager, UserRole.admin)
+
+
+def _probe_status(
+    missing_days: int,
+    fail_count: int,
+    blocker_count: int,
+    open_risk_count: int,
+    overdue_task_count: int,
+) -> str:
+    if open_risk_count > 0 or blocker_count > 0 or overdue_task_count >= 3 or missing_days >= 3:
+        return "risk"
+    if overdue_task_count >= 2 or missing_days >= 2 or fail_count >= 2:
+        return "needs_talk"
+    if overdue_task_count >= 1 or missing_days >= 1 or fail_count >= 1:
+        return "watch"
+    return "normal"
+
+
+def _probe_note(
+    status: str,
+    missing_days: int,
+    fail_count: int,
+    blocker_count: int,
+    open_risk_count: int,
+    overdue_task_count: int,
+    max_overdue_days: int,
+) -> str:
+    if open_risk_count > 0:
+        return f"{open_risk_count} 个未解决卡点"
+    if overdue_task_count > 0:
+        return f"{overdue_task_count} 个超时任务，最长 {max_overdue_days} 天"
+    if blocker_count > 0:
+        return f"{blocker_count} 次日报提到卡点"
+    if missing_days > 0:
+        return f"{missing_days} 天未汇报"
+    if fail_count > 0:
+        return f"{fail_count} 次日报退回"
+    if status == "normal":
+        return "节奏正常"
+    return "建议关注"
 
 
 @router.get("/morning-briefing")
@@ -50,6 +92,7 @@ async def get_morning_briefing(
             DailyReport.report_date == report_date,
             DailyReport.tenant_id == current_user.tenant_id,
             User.tenant_id == current_user.tenant_id,
+            User.role != UserRole.admin,
             DailyReport.deleted_at.is_(None),  # V2.4 Stage 2
         )
         .order_by(DailyReport.ai_score.desc().nulls_last())
@@ -58,7 +101,11 @@ async def get_morning_briefing(
 
     # 所有员工（用于识别未汇报人员）
     all_users_result = await db.execute(
-        select(User).where(User.tenant_id == current_user.tenant_id, User.is_active.is_(True))
+        select(User).where(
+            User.tenant_id == current_user.tenant_id,
+            User.is_active.is_(True),
+            User.role != UserRole.admin,
+        )
     )
     all_users = all_users_result.scalars().all()
     reported_user_ids = {str(r.DailyReport.user_id) for r in rows}
@@ -110,6 +157,221 @@ async def get_morning_briefing(
             }
             for r in rows
         ],
+    }
+
+
+@router.get("/personnel-probes")
+async def get_personnel_probes(
+    days: int = Query(default=7, ge=1, le=365, description="统计窗口天数"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(_mgr_or_admin),
+):
+    """
+    总经理人员状态探针：
+    - 按窗口聚合日报连续性、质量、卡点与贡献入账
+    - 只返回管理需要的异常信号，不做排行榜
+    """
+    today = date.today()
+    start_date = today - timedelta(days=days - 1)
+    start_at = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+
+    users = (
+        (
+            await db.execute(
+                select(User)
+                .where(
+                    User.tenant_id == current_user.tenant_id,
+                    User.is_active.is_(True),
+                    User.role != UserRole.admin,
+                )
+                .order_by(User.department.asc(), User.name.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    user_map = {u.id: u for u in users}
+    stats: dict[uuid.UUID, dict] = {
+        u.id: {
+            "report_dates": set(),
+            "report_count": 0,
+            "pass_count": 0,
+            "fail_count": 0,
+            "score_sum": 0,
+            "score_count": 0,
+            "blocker_count": 0,
+            "latest_report_at": None,
+            "points_income": 0,
+            "points_pending_adjustment": 0,
+            "open_risk_count": 0,
+            "max_risk_days": 0,
+            "overdue_task_count": 0,
+            "max_overdue_days": 0,
+        }
+        for u in users
+    }
+
+    report_rows = (
+        await db.execute(
+            select(DailyReport)
+            .where(
+                DailyReport.tenant_id == current_user.tenant_id,
+                DailyReport.deleted_at.is_(None),
+                DailyReport.report_date >= start_date,
+                DailyReport.report_date <= today,
+                DailyReport.user_id.in_(list(user_map.keys())) if user_map else False,
+            )
+        )
+    ).scalars()
+    for report in report_rows:
+        item = stats.get(report.user_id)
+        if item is None:
+            continue
+        item["report_dates"].add(report.report_date)
+        item["report_count"] += 1
+        if report.pass_check:
+            item["pass_count"] += 1
+        else:
+            item["fail_count"] += 1
+        if report.ai_score is not None:
+            item["score_sum"] += report.ai_score
+            item["score_count"] += 1
+        blocker = (report.parsed_content or {}).get("blocker")
+        if blocker:
+            item["blocker_count"] += 1
+        if report.created_at and (item["latest_report_at"] is None or report.created_at > item["latest_report_at"]):
+            item["latest_report_at"] = report.created_at
+
+    risk_rows = (
+        await db.execute(
+            select(RiskAlert)
+            .where(
+                RiskAlert.tenant_id == current_user.tenant_id,
+                RiskAlert.deleted_at.is_(None),
+                RiskAlert.status == "unresolved",
+                RiskAlert.user_id.in_(list(user_map.keys())) if user_map else False,
+            )
+        )
+    ).scalars()
+    for alert in risk_rows:
+        item = stats.get(alert.user_id)
+        if item is None:
+            continue
+        item["open_risk_count"] += 1
+        item["max_risk_days"] = max(item["max_risk_days"], alert.days_unresolved or 0)
+
+    ledger_rows = (
+        await db.execute(
+            select(UserPointsLedger)
+            .where(
+                UserPointsLedger.tenant_id == current_user.tenant_id,
+                UserPointsLedger.occurred_at >= start_at,
+                UserPointsLedger.user_id.in_(list(user_map.keys())) if user_map else False,
+            )
+        )
+    ).scalars()
+    for row in ledger_rows:
+        item = stats.get(row.user_id)
+        if item is None:
+            continue
+        if row.direction == LedgerDirection.income:
+            item["points_income"] += row.amount
+        else:
+            item["points_pending_adjustment"] += row.amount
+
+    overdue_rows = (
+        await db.execute(
+            select(SprintTask)
+            .where(
+                SprintTask.tenant_id == current_user.tenant_id,
+                SprintTask.deleted_at.is_(None),
+                SprintTask.assignee_id.in_(list(user_map.keys())) if user_map else False,
+                SprintTask.planned_end.is_not(None),
+                SprintTask.planned_end < today,
+                SprintTask.status.notin_([TaskStatus.done, TaskStatus.cancelled]),
+            )
+        )
+    ).scalars()
+    for task in overdue_rows:
+        if task.assignee_id is None:
+            continue
+        item = stats.get(task.assignee_id)
+        if item is None:
+            continue
+        overdue_days = (today - task.planned_end).days if task.planned_end else 0
+        item["overdue_task_count"] += 1
+        item["max_overdue_days"] = max(item["max_overdue_days"], overdue_days)
+
+    probes = []
+    summary = {"normal": 0, "watch": 0, "needs_talk": 0, "risk": 0}
+    for user in users:
+        item = stats[user.id]
+        submitted_days = len(item["report_dates"])
+        missing_days = max(days - submitted_days, 0)
+        avg_score = round(item["score_sum"] / item["score_count"], 1) if item["score_count"] else None
+        pass_rate = round(item["pass_count"] / item["report_count"] * 100, 1) if item["report_count"] else None
+        status = _probe_status(
+            missing_days,
+            item["fail_count"],
+            item["blocker_count"],
+            item["open_risk_count"],
+            item["overdue_task_count"],
+        )
+        summary[status] += 1
+        probes.append(
+            {
+                "user_id": str(user.id),
+                "name": user.name,
+                "department": user.department,
+                "role": user.role,
+                "job_title": user.job_title,
+                "work_status": user.status,
+                "status_until": user.status_until,
+                "probe_status": status,
+                "note": _probe_note(
+                    status,
+                    missing_days,
+                    item["fail_count"],
+                    item["blocker_count"],
+                    item["open_risk_count"],
+                    item["overdue_task_count"],
+                    item["max_overdue_days"],
+                ),
+                "submitted_days": submitted_days,
+                "missing_days": missing_days,
+                "report_count": item["report_count"],
+                "pass_rate": pass_rate,
+                "avg_score": avg_score,
+                "fail_count": item["fail_count"],
+                "blocker_count": item["blocker_count"],
+                "open_risk_count": item["open_risk_count"],
+                "max_risk_days": item["max_risk_days"],
+                "overdue_task_count": item["overdue_task_count"],
+                "max_overdue_days": item["max_overdue_days"],
+                "points_income": item["points_income"],
+                "points_adjustment": item["points_pending_adjustment"],
+                "latest_report_at": item["latest_report_at"],
+            }
+        )
+
+    order = {"risk": 0, "needs_talk": 1, "watch": 2, "normal": 3}
+    probes.sort(
+        key=lambda p: (
+            order[p["probe_status"]],
+            -p["overdue_task_count"],
+            -p["missing_days"],
+            -p["open_risk_count"],
+            p["department"],
+            p["name"],
+        )
+    )
+
+    return {
+        "window_days": days,
+        "start_date": start_date,
+        "end_date": today,
+        "summary": summary,
+        "items": probes,
     }
 
 

@@ -36,6 +36,10 @@ export interface MilestoneNodeIn {
   node_order: number
   initial_points: number
   target_date?: string | null
+  planned_allocations?: Array<{
+    user_id: string
+    contribution_ratio: number
+  }> | null
 }
 
 export interface MilestoneOut extends MilestoneNodeIn {
@@ -154,8 +158,10 @@ export const listAdminMilestones = (status?: MilestoneStatus) =>
 export const seedProjectMilestones = (projectId: string, payload: MilestoneSeedRequest) =>
   request.post<unknown, MilestoneSeedResponse>(`/projects/${projectId}/milestones/seed`, payload)
 
-export const listProjectMilestones = (projectId: string) =>
-  request.get<unknown, MilestoneListResponse>(`/projects/${projectId}/milestones`)
+export const listProjectMilestones = (projectId: string, options: { mineOnly?: boolean } = {}) =>
+  request.get<unknown, MilestoneListResponse>(`/projects/${projectId}/milestones`, {
+    params: options.mineOnly ? { mine_only: true } : {},
+  })
 
 export const createMilestone = (projectId: string, payload: MilestoneNodeIn) =>
   request.post<unknown, MilestoneOut>(`/projects/${projectId}/milestones`, payload)

@@ -6,7 +6,7 @@
  */
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Plus, Search, UserPlus, X } from 'lucide-react'
 import { getUserPicker, type UserPickerItem } from '@/api/users'
 import type { ProjectMemberInit } from '@/api/projects'
@@ -14,16 +14,30 @@ import type { ProjectMemberInit } from '@/api/projects'
 interface MemberPickerProps {
   value: ProjectMemberInit[]
   onChange: (next: ProjectMemberInit[]) => void
+  children?: ReactNode
   maxMembers?: number
 }
 
 const TRACK_OPTIONS: Array<{ value: 'hardware' | 'software' | 'both'; label: string }> = [
-  { value: 'both', label: '双轨' },
-  { value: 'hardware', label: '硬件轨' },
-  { value: 'software', label: '软件轨' },
+  { value: 'both', label: '全项目' },
+  { value: 'hardware', label: '硬件相关' },
+  { value: 'software', label: '软件相关' },
 ]
 
-export default function MemberPicker({ value, onChange, maxMembers = 50 }: MemberPickerProps) {
+const PROJECT_ROLE_OPTIONS = [
+  '项目负责人',
+  '软件',
+  '硬件',
+  '结构',
+  '测试',
+  '调试',
+  '文档/验收',
+  '采购支持',
+  '生产支持',
+  '仓储支持',
+]
+
+export default function MemberPicker({ value, onChange, children, maxMembers = 50 }: MemberPickerProps) {
   const [users, setUsers] = useState<UserPickerItem[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -70,7 +84,16 @@ export default function MemberPicker({ value, onChange, maxMembers = 50 }: Membe
 
   function handleAdd(user: UserPickerItem) {
     if (value.length >= maxMembers || selectedUserIds.has(user.id)) return
-    onChange([...value, { user_id: user.id, track: 'both', role_in_project: '' }])
+    onChange([
+      ...value,
+      {
+        user_id: user.id,
+        track: 'both',
+        role_in_project: '',
+        name: user.name,
+        department: user.department,
+      },
+    ])
   }
 
   function handleRemove(userId: string) {
@@ -105,6 +128,12 @@ export default function MemberPicker({ value, onChange, maxMembers = 50 }: Membe
           className="max-h-56 space-y-2 overflow-y-auto rounded-lg p-2"
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}
         >
+          <div className="grid grid-cols-[minmax(96px,1fr)_92px_minmax(120px,1.2fr)_28px] items-center gap-2 px-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+            <span>成员</span>
+            <span>参与范围</span>
+            <span>项目职责</span>
+            <span />
+          </div>
           {selectedRows.map((row) => (
             <div
               key={row.user_id}
@@ -112,10 +141,10 @@ export default function MemberPicker({ value, onChange, maxMembers = 50 }: Membe
             >
               <div className="min-w-0">
                 <div className="truncate font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                  {row.user?.name || '未知用户'}
+                  {row.user?.name || row.name || '未知用户'}
                 </div>
                 <div className="truncate text-[10px]" style={{ color: 'var(--color-text-secondary)' }}>
-                  {row.user?.department || '未填部门'}
+                  {row.user?.department || row.department || '未填部门'}
                 </div>
               </div>
               <select
@@ -137,6 +166,7 @@ export default function MemberPicker({ value, onChange, maxMembers = 50 }: Membe
                 ))}
               </select>
               <input
+                list="project-role-options"
                 type="text"
                 value={row.role_in_project || ''}
                 onChange={(e) => handleUpdate(row.user_id, { role_in_project: e.target.value })}
@@ -161,6 +191,14 @@ export default function MemberPicker({ value, onChange, maxMembers = 50 }: Membe
           ))}
         </div>
       )}
+
+      {children}
+
+      <datalist id="project-role-options">
+        {PROJECT_ROLE_OPTIONS.map((role) => (
+          <option key={role} value={role} />
+        ))}
+      </datalist>
 
       {showPicker && (
         <div

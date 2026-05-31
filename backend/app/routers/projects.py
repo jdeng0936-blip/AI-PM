@@ -261,6 +261,11 @@ async def create_project(
     立项并自动展开5个 IPD 阶段节点。
     每个阶段的计划时间从 planned_launch_date 倒推分配。
     """
+    if data.planned_launch_date is None:
+        raise HTTPException(400, "项目截止时间必填")
+    if data.planned_launch_date < date.today():
+        raise HTTPException(400, "项目截止时间不能早于今天")
+
     if not data.code:
         # 自动生成项目编号:
         #   主干项目: P{YYYY}-001 / P{YYYY}-002 ...
@@ -318,6 +323,7 @@ async def create_project(
         track=data.track,
         planned_launch_date=data.planned_launch_date,
         budget_total=data.budget_total,
+        contribution_total_points=data.contribution_total_points,
         budget_alert_threshold=data.budget_alert_threshold,
         is_temporary=data.is_temporary,
         # 健康度默认 green(主干项目首日就是 green;临时项目永远 green)
@@ -419,6 +425,7 @@ async def create_project(
             "is_temporary": True,
             "backlog_sprint_id": str(backlog_sprint.id),
             "members_added": len(data.members) if data.members else 0,  # T-1105 新增
+            "contribution_total_points": project.contribution_total_points,
         }
 
     # ── 各阶段默认里程碑模板（按轨道区分）──────────────────
@@ -493,6 +500,7 @@ async def create_project(
         "project_id": str(project.id),
         "code": project.code,
         "members_added": len(data.members) if data.members else 0,  # T-1105 新增
+        "contribution_total_points": project.contribution_total_points,
     }
 
 
@@ -607,6 +615,7 @@ async def projects_overview(
                     if budget_pct and current_user.role in (UserRole.admin, UserRole.manager)
                     else None
                 ),
+                "contribution_total_points": p.contribution_total_points,
                 "status": p.status,
                 "is_temporary": p.is_temporary,
             }
@@ -660,6 +669,7 @@ async def get_project(
                 if project.budget_spent and current_user.role in (UserRole.admin, UserRole.manager)
                 else None
             ),
+            "contribution_total_points": project.contribution_total_points,
             "status": project.status,
             "is_temporary": project.is_temporary,
         },

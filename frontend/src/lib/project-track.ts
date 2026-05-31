@@ -11,7 +11,7 @@
  */
 
 export const TRACK_LABELS: Record<string, string> = {
-  dual: '软硬双轨',
+  dual: '软硬协同',
   software: '纯软件',
   hardware: '纯硬件',
   support: '日常支撑',

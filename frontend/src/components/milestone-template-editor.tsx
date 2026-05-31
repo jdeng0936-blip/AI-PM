@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Wand2 } from 'lucide-react'
 import {
   getMilestoneTemplates,
   type MilestoneNodeIn,
 } from '@/api/milestones'
+import type { ProjectMemberInit } from '@/api/projects'
 
 type Props = {
   track: string
   isTemporary: boolean
   value: MilestoneNodeIn[]
   onChange: (nodes: MilestoneNodeIn[]) => void
+  members?: ProjectMemberInit[]
   disabled?: boolean
 }
 
@@ -23,11 +25,72 @@ const emptyNode = (order: number): MilestoneNodeIn => ({
   target_date: null,
 })
 
+const memberTrackLabel: Record<ProjectMemberInit['track'], string> = {
+  hardware: '硬件',
+  software: '软件',
+  both: '全项目',
+}
+
+const nodeRoleHints: Partial<Record<MilestoneNodeIn['node_type'], string[]>> = {
+  software_req: ['文档/验收', '项目负责人', '软件'],
+  software_mvp: ['软件', '项目负责人'],
+  software_validate: ['测试', '调试', '软件'],
+  software_launch: ['文档/验收', '调试', '项目负责人'],
+  hardware_review: ['硬件', '结构', '项目负责人'],
+  hardware_proto: ['硬件', '结构'],
+  hardware_finalize: ['测试', '调试', '生产支持', '硬件'],
+  temporary_done: ['项目负责人', '软件', '硬件', '测试', '调试'],
+}
+
+function memberLabel(member: ProjectMemberInit) {
+  const name = member.name || member.user_id.slice(0, 8)
+  const role = member.role_in_project?.trim()
+  return role ? `${name} · ${role}` : `${name} · ${memberTrackLabel[member.track]}`
+}
+
+function memberMatchText(member: ProjectMemberInit) {
+  return [
+    member.name,
+    member.department,
+    member.role_in_project,
+    member.track === 'both' ? '全项目 软件 硬件 测试 调试 项目负责人' : memberTrackLabel[member.track],
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+function nodeKeywords(node: MilestoneNodeIn) {
+  const hints = [...(nodeRoleHints[node.node_type] || [])]
+  const text = `${node.title} ${node.description || ''}`
+  if (text.includes('文档') || text.includes('需求')) hints.unshift('文档/验收')
+  if (text.includes('测试') || text.includes('验证')) hints.unshift('测试')
+  if (text.includes('调试') || text.includes('联调')) hints.unshift('调试')
+  if (text.includes('硬件') || text.includes('PCB') || text.includes('BOM')) hints.unshift('硬件')
+  if (text.includes('结构')) hints.unshift('结构')
+  if (text.includes('软件') || text.includes('MVP') || text.includes('功能')) hints.unshift('软件')
+  return Array.from(new Set(hints))
+}
+
+function pickBestMember(node: MilestoneNodeIn, members: ProjectMemberInit[], fallbackIndex: number) {
+  const keywords = nodeKeywords(node)
+  const scores = members.map((member) => {
+    const text = memberMatchText(member)
+    const score = keywords.reduce((sum, keyword, index) => (
+      text.includes(keyword) ? sum + Math.max(20 - index, 1) : sum
+    ), 0)
+    return { member, score }
+  })
+  const bestScore = Math.max(...scores.map((item) => item.score))
+  const tied = scores.filter((item) => item.score === bestScore)
+  return tied[fallbackIndex % tied.length]?.member || members[fallbackIndex % members.length]
+}
+
 export default function MilestoneTemplateEditor({
   track,
   isTemporary,
   value,
   onChange,
+  members = [],
   disabled = false,
 }: Props) {
   const [loading, setLoading] = useState(false)
@@ -71,31 +134,76 @@ export default function MilestoneTemplateEditor({
     onChange([...value, emptyNode(value.length + 1)])
   }
 
+  const updateAssignee = (index: number, userId: string) => {
+    updateNode(index, {
+      planned_allocations: userId ? [{ user_id: userId, contribution_ratio: 1 }] : null,
+    })
+  }
+
+  const matchMembersToNodes = () => {
+    if (members.length === 0) return
+    onChange(value.map((node, index) => {
+      const member = pickBestMember(node, members, index)
+      return {
+        ...node,
+        planned_allocations: member ? [{ user_id: member.user_id, contribution_ratio: 1 }] : null,
+      }
+    }))
+  }
+
   return (
     <div className="rounded-lg p-3 space-y-3" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-          标准节点
-          {loading && <span className="ml-2 font-normal" style={{ color: 'var(--color-text-secondary)' }}>加载中...</span>}
+        <div>
+          <div className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            工作节点分工
+            {loading && <span className="ml-2 font-normal" style={{ color: 'var(--color-text-secondary)' }}>加载中...</span>}
+          </div>
+          <div className="mt-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+            每行对应一段具体工作，立项后写入负责人和积分。
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={addNode}
-          disabled={disabled}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50"
-          style={{ border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
-        >
-          <Plus size={12} />
-          增加节点
-        </button>
+        <div className="flex items-center gap-2">
+          {members.length > 0 && (
+            <button
+              type="button"
+              onClick={matchMembersToNodes}
+              disabled={disabled}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50"
+              style={{ border: '1px solid rgba(59,130,246,0.35)', color: 'var(--color-brand-blue)' }}
+            >
+              <Wand2 size={12} />
+              匹配成员
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={addNode}
+            disabled={disabled}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50"
+            style={{ border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+          >
+            <Plus size={12} />
+            增加节点
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2">
+        <div className="grid grid-cols-[44px_minmax(150px,1fr)_72px_112px_minmax(136px,0.9fr)_32px] gap-2 px-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+          <span>序号</span>
+          <span>工作内容</span>
+          <span>积分</span>
+          <span>截止</span>
+          <span>负责人</span>
+          <span />
+        </div>
         {value.map((node, index) => {
           const titleInvalid = !node.title.trim()
           const pointsInvalid = node.initial_points < 0
+          const assigneeId = node.planned_allocations?.[0]?.user_id || ''
           return (
-            <div key={`${node.node_order}-${index}`} className="grid grid-cols-[44px_1fr_72px_112px_32px] gap-2 items-center">
+            <div key={`${node.node_order}-${index}`} className="grid grid-cols-[44px_minmax(150px,1fr)_72px_112px_minmax(136px,0.9fr)_32px] gap-2 items-center">
               <input
                 type="number"
                 value={node.node_order}
@@ -137,6 +245,24 @@ export default function MilestoneTemplateEditor({
                 className="w-full rounded-md px-2 py-1.5 text-xs outline-none"
                 style={{ background: 'var(--color-bg-card)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
               />
+              <select
+                value={assigneeId}
+                disabled={disabled || members.length === 0}
+                onChange={(event) => updateAssignee(index, event.target.value)}
+                className="w-full rounded-md px-2 py-1.5 text-xs outline-none disabled:opacity-60"
+                style={{
+                  background: 'var(--color-bg-card)',
+                  border: `1px solid ${node.initial_points > 0 && !assigneeId && members.length > 0 ? '#d4a24e' : 'var(--color-border-subtle)'}`,
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                <option value="">{members.length > 0 ? '未指派负责人' : '先选项目成员'}</option>
+                {members.map((member) => (
+                  <option key={member.user_id} value={member.user_id}>
+                    {memberLabel(member)}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => removeNode(index)}
@@ -147,6 +273,11 @@ export default function MilestoneTemplateEditor({
               >
                 <Trash2 size={13} />
               </button>
+              {node.description && (
+                <div className="col-start-2 col-span-5 -mt-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                  分配建议：{node.description}
+                </div>
+              )}
             </div>
           )
         })}

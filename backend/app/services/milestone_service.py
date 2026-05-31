@@ -5,7 +5,7 @@ app/services/milestone_service.py — Phase 14 里程碑与贡献积分核心服
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
@@ -61,6 +61,15 @@ async def seed_project_milestones(
         db.add(milestone)
         created.append(milestone)
     await db.flush()
+
+    for milestone, node in zip(created, nodes):
+        if node.planned_allocations:
+            await propose_allocations(
+                db,
+                milestone.id,
+                AllocationProposalRequest(allocations=node.planned_allocations),
+                proposer=actor,
+            )
     return created
 
 
@@ -86,8 +95,8 @@ async def propose_allocations(
     milestone = await db.get(ProjectMilestone, milestone_id, with_for_update=True)
     if milestone is None or milestone.deleted_at is not None:
         raise ValueError("milestone 不存在")
-    if milestone.status != MilestoneStatus.in_review:
-        raise ValueError(f"milestone status={milestone.status},不在 in_review 状态")
+    if milestone.status not in (MilestoneStatus.pending, MilestoneStatus.in_review):
+        raise ValueError(f"milestone status={milestone.status},不在 pending/in_review 状态")
 
     await db.execute(
         delete(MilestoneAllocation)
@@ -139,6 +148,8 @@ async def approve_milestone(
         raise ValueError("milestone 不存在")
     if milestone.status != MilestoneStatus.in_review:
         raise ValueError(f"milestone status={milestone.status},不在 in_review")
+    if milestone.target_date is not None and milestone.target_date < date.today() and payload.final_points != 0:
+        raise ValueError("里程碑已超出目标完成时间，按规则不得分；final_points 必须为 0")
 
     delta = payload.final_points - milestone.initial_points
     if delta != 0 and (not payload.adjustment_reason or not payload.adjustment_reason.strip()):
