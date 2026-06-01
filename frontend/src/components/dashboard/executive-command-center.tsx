@@ -137,17 +137,28 @@ export function ExecutiveCommandCenter({
     <div className="space-y-8">
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         {[
-          { label: '今日提交率', value: `${submitRate}%`, sub: `${morningStats.total_reports || 0}/${totalPeople || 0} 人`, icon: FileCheck2, tone: submitRate >= 90 ? 'green' : submitRate >= 70 ? 'gold' : 'red' },
-          { label: '今日活跃', value: morningStats.total_reports || 0, sub: '已提交日报人数', icon: Users, tone: 'blue' },
-          { label: '未汇报', value: missingMembers.length, sub: '今天需要提醒', icon: Clock3, tone: missingMembers.length ? 'red' : 'green' },
-          { label: '红黄项目', value: redYellowProjects, sub: `红 ${overview.red_count || 0} / 黄 ${overview.yellow_count || 0}`, icon: Gauge, tone: redYellowProjects ? 'red' : 'green' },
-          { label: '未解卡点', value: riskAlerts.length, sub: '当前风险池', icon: AlertTriangle, tone: riskAlerts.length ? 'red' : 'green' },
-          { label: '日报均分', value: morningStats.avg_score ?? '-', sub: `合格 ${morningStats.pass_count || 0} / 退回 ${failedReports}`, icon: CheckCircle2, tone: failedReports ? 'gold' : 'green' },
+          { label: '今日提交率', value: `${submitRate}%`, sub: `${morningStats.total_reports || 0}/${totalPeople || 0} 人`, icon: FileCheck2, tone: submitRate >= 90 ? 'green' : submitRate >= 70 ? 'gold' : 'red', route: '#people-probe' },
+          { label: '今日活跃', value: morningStats.total_reports || 0, sub: '已提交日报人数', icon: Users, tone: 'blue', route: '#people-probe' },
+          { label: '未汇报', value: missingMembers.length, sub: '今天需要提醒', icon: Clock3, tone: missingMembers.length ? 'red' : 'green', route: '#people-probe' },
+          { label: '红黄项目', value: redYellowProjects, sub: `红 ${overview.red_count || 0} / 黄 ${overview.yellow_count || 0}`, icon: Gauge, tone: redYellowProjects ? 'red' : 'green', route: '/projects' },
+          { label: '未解卡点', value: riskAlerts.length, sub: '当前风险池', icon: AlertTriangle, tone: riskAlerts.length ? 'red' : 'green', route: '/dashboard' },
+          { label: '日报均分', value: morningStats.avg_score ?? '-', sub: `合格 ${morningStats.pass_count || 0} / 退回 ${failedReports}`, icon: CheckCircle2, tone: failedReports ? 'gold' : 'green', route: '#report-quality' },
         ].map((item) => {
           const Icon = item.icon
           const color = item.tone === 'red' ? '#ef4444' : item.tone === 'gold' ? '#d4a24e' : item.tone === 'blue' ? '#3b82f6' : '#22c55e'
           return (
-            <div key={item.label} className="stat-card p-4">
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => {
+                if (item.route.startsWith('#')) {
+                  document.querySelector(item.route)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                } else {
+                  router.push(item.route)
+                }
+              }}
+              className="stat-card p-4 text-left w-full transition-colors hover:opacity-80 cursor-pointer"
+            >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{item.label}</span>
                 <Icon size={15} style={{ color }} />
@@ -156,7 +167,7 @@ export function ExecutiveCommandCenter({
                 {item.value}
               </div>
               <div className="mt-2 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>{item.sub}</div>
-            </div>
+            </button>
           )
         })}
       </section>
