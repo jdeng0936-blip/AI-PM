@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
-import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateStage, batchRemoveProjectMembers, updateProject } from '@/api/projects'
+import { getProject, getProjectMembers, getGateReviews, addProjectMember, updateProjectMember, updateStage, batchRemoveProjectMembers, updateProject } from '@/api/projects'
 import { getUsers } from '@/api/users'
 import { getProjectSprints } from '@/api/sprints'
 import { trackLabel } from '@/lib/project-track'
@@ -29,6 +29,30 @@ const MS_STATUS_ICON: Record<string, string> = {
 
 const GATE_NAMES = ['立项评审 (G0)', '需求评审 (G1)', '设计评审 (G2)', '试产评审 (G3)', '量产评审 (G4)', '结项 (G5)']
 
+const MEMBER_ROLE_OPTIONS = [
+  { value: 'member', label: '成员' },
+  { value: 'owner', label: '项目负责人' },
+  { value: 'tech_lead', label: '技术负责人' },
+]
+
+const MEMBER_ROLE_LABEL: Record<string, string> = {
+  member: '成员',
+  owner: '项目负责人',
+  tech_lead: '技术负责人',
+}
+
+const MEMBER_TRACK_OPTIONS = [
+  { value: 'both', label: '全项目' },
+  { value: 'hardware', label: '硬件相关' },
+  { value: 'software', label: '软件相关' },
+]
+
+const MEMBER_TRACK_LABEL: Record<string, string> = {
+  both: '全项目',
+  hardware: '硬件相关',
+  software: '软件相关',
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [loading, setLoading] = useState(false)
@@ -42,7 +66,8 @@ export default function ProjectDetailPage() {
   const [allUsers, setAllUsers] = useState<any[]>([])
   const [showAddMember, setShowAddMember] = useState(false)
   const [addingMember, setAddingMember] = useState(false)
-  const [addMemberForm, setAddMemberForm] = useState({ user_id: '', role: '' })
+  const [addMemberForm, setAddMemberForm] = useState({ user_id: '', member_role: 'member', track: 'software', role: '' })
+  const [updatingMemberId, setUpdatingMemberId] = useState('')
   const [editingStage, setEditingStage] = useState<any>(null)
   const [editMilestones, setEditMilestones] = useState<any[]>([])
   const [savingMs, setSavingMs] = useState(false)
@@ -127,12 +152,13 @@ export default function ProjectDetailPage() {
       await addProjectMember(id, {
         project_id: id,
         user_id: addMemberForm.user_id,
-        track: 'software',
+        track: addMemberForm.track,
+        member_role: addMemberForm.member_role,
         role_in_project: addMemberForm.role || '成员',
       })
       toast.success('成员添加成功')
       setShowAddMember(false)
-      setAddMemberForm({ user_id: '', role: '' })
+      setAddMemberForm({ user_id: '', member_role: 'member', track: 'software', role: '' })
       fetchAll()
     } catch (e: any) {
       const detail = e?.response?.data?.detail
@@ -140,6 +166,21 @@ export default function ProjectDetailPage() {
       toast.error(msg)
     } finally {
       setAddingMember(false)
+    }
+  }
+
+  async function handleUpdateMember(member: any, patch: any) {
+    const memberId = String(member.id)
+    setUpdatingMemberId(memberId)
+    try {
+      await updateProjectMember(id, memberId, patch)
+      setMembers((prev) => prev.map((item) => (String(item.id) === memberId ? { ...item, ...patch } : item)))
+      toast.success('成员角色已更新')
+      fetchAll()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '成员角色更新失败')
+    } finally {
+      setUpdatingMemberId('')
     }
   }
 
@@ -546,7 +587,7 @@ export default function ProjectDetailPage() {
                         />
                       </th>
                     )}
-                    {['姓名', '部门', '角色', '加入时间'].map((h) => (
+                    {['姓名', '部门', '项目角色', '参与范围', '项目职责', '加入时间'].map((h) => (
                       <th key={h} className="text-left py-3 px-3 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{h}</th>
                     ))}
                   </tr>
@@ -578,6 +619,40 @@ export default function ProjectDetailPage() {
                           {m.name}
                         </td>
                         <td className="py-3 px-3 text-xs">{m.department}</td>
+                        <td className="py-3 px-3 text-xs">
+                          {canManageMembers ? (
+                            <select
+                              value={m.member_role || 'member'}
+                              disabled={updatingMemberId === mid}
+                              onChange={(e) => handleUpdateMember(m, { member_role: e.target.value })}
+                              className="rounded px-2 py-1 text-xs outline-none disabled:opacity-50"
+                              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                            >
+                              {MEMBER_ROLE_OPTIONS.map((role) => (
+                                <option key={role.value} value={role.value}>{role.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            MEMBER_ROLE_LABEL[m.member_role || 'member'] || '成员'
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-xs">
+                          {canManageMembers ? (
+                            <select
+                              value={m.track || 'software'}
+                              disabled={updatingMemberId === mid}
+                              onChange={(e) => handleUpdateMember(m, { track: e.target.value })}
+                              className="rounded px-2 py-1 text-xs outline-none disabled:opacity-50"
+                              style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                            >
+                              {MEMBER_TRACK_OPTIONS.map((track) => (
+                                <option key={track.value} value={track.value}>{track.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            MEMBER_TRACK_LABEL[m.track || 'software'] || m.track || '-'
+                          )}
+                        </td>
                         <td className="py-3 px-3 text-xs">{m.role_in_project || m.project_role || m.role || '-'}</td>
                         <td className="py-3 px-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{m.joined_at || '-'}</td>
                       </tr>
@@ -619,11 +694,37 @@ export default function ProjectDetailPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>项目角色</label>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>系统项目角色</label>
+                <select
+                  value={addMemberForm.member_role}
+                  onChange={e => setAddMemberForm({ ...addMemberForm, member_role: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                >
+                  {MEMBER_ROLE_OPTIONS.map((role) => (
+                    <option key={role.value} value={role.value}>{role.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>参与范围</label>
+                <select
+                  value={addMemberForm.track}
+                  onChange={e => setAddMemberForm({ ...addMemberForm, track: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
+                >
+                  {MEMBER_TRACK_OPTIONS.map((track) => (
+                    <option key={track.value} value={track.value}>{track.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>项目职责</label>
                 <input
                   value={addMemberForm.role}
                   onChange={e => setAddMemberForm({ ...addMemberForm, role: e.target.value })}
-                  placeholder="如：负责人、开发、测试、产品"
+                  placeholder="如：需求、开发、测试、产品"
                   className="w-full px-3 py-2 rounded-lg text-sm"
                   style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }}
                 />

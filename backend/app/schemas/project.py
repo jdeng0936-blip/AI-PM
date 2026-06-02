@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,10 @@ class ProjectMemberInit(BaseModel):
 
     user_id: uuid.UUID
     track: str = Field(..., description="hardware / software / both")
+    member_role: Literal["member", "owner", "tech_lead"] = Field(
+        "member",
+        description="项目角色:member 普通成员 / owner 项目负责人 / tech_lead 技术负责人",
+    )
     role_in_project: Optional[str] = Field(None, max_length=64)
 
 
@@ -128,6 +132,19 @@ class ProjectMemberAdd(BaseModel):
     project_id: uuid.UUID
     user_id: uuid.UUID
     track: str = Field(..., description="hardware / software / both")
+    member_role: Literal["member", "owner", "tech_lead"] = Field(
+        "member",
+        description="项目角色:member 普通成员 / owner 项目负责人 / tech_lead 技术负责人",
+    )
+    role_in_project: Optional[str] = Field(None, max_length=64)
+
+
+class ProjectMemberUpdate(BaseModel):
+    track: Optional[str] = Field(None, description="hardware / software / both")
+    member_role: Optional[Literal["member", "owner", "tech_lead"]] = Field(
+        None,
+        description="项目角色:member 普通成员 / owner 项目负责人 / tech_lead 技术负责人",
+    )
     role_in_project: Optional[str] = Field(None, max_length=64)
 
 
@@ -164,9 +181,16 @@ class ProjectOverviewItem(BaseModel):
     progress_pct: int
     planned_launch_date: Optional[date]
     days_to_deadline: Optional[int]
+    delivery_overdue_days: int = 0
     budget_usage_pct: Optional[float]
     contribution_total_points: int
     status: str
+    owner_names: list[str] = Field(default_factory=list)
+    members: list[dict] = Field(default_factory=list)
+    member_names: list[str] = Field(default_factory=list)
+    member_count: int = 0
+    milestone_summary: dict = Field(default_factory=dict)
+    current_node: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

@@ -54,49 +54,53 @@ const collaborationFactor: Record<ContributionCollaboration, number> = {
 
 const roleMix: Record<ContributionProjectKind, Array<{ role: string; pct: number }>> = {
   software: [
-    { role: '软件', pct: 45 },
-    { role: '测试', pct: 20 },
-    { role: '调试', pct: 15 },
-    { role: '项目负责人', pct: 10 },
-    { role: '文档/验收', pct: 10 },
+    { role: '需求文档', pct: 10 },
+    { role: '软件研发', pct: 40 },
+    { role: '功能测试', pct: 20 },
+    { role: '联调', pct: 15 },
+    { role: '交付上线', pct: 10 },
+    { role: '项目负责人', pct: 5 },
   ],
   hardware: [
-    { role: '硬件', pct: 35 },
-    { role: '测试', pct: 18 },
-    { role: '调试', pct: 18 },
-    { role: '结构', pct: 14 },
-    { role: '项目负责人', pct: 10 },
-    { role: '文档/验收', pct: 5 },
+    { role: '方案设计', pct: 12 },
+    { role: 'ID/结构设计', pct: 18 },
+    { role: '硬件设计', pct: 30 },
+    { role: '测试/调试', pct: 20 },
+    { role: '试产导入', pct: 10 },
+    { role: '客户验收', pct: 5 },
+    { role: '项目负责人', pct: 5 },
   ],
   structure: [
-    { role: '结构', pct: 40 },
-    { role: '硬件', pct: 15 },
-    { role: '测试', pct: 15 },
-    { role: '调试', pct: 15 },
-    { role: '项目负责人', pct: 10 },
-    { role: '文档/验收', pct: 5 },
+    { role: 'ID', pct: 18 },
+    { role: '结构设计', pct: 38 },
+    { role: '硬件配合', pct: 12 },
+    { role: '测试/调试', pct: 15 },
+    { role: '试产导入', pct: 10 },
+    { role: '项目负责人', pct: 7 },
   ],
   test_debug: [
-    { role: '测试', pct: 35 },
-    { role: '调试', pct: 30 },
-    { role: '软件', pct: 15 },
-    { role: '硬件', pct: 10 },
+    { role: '测试方案', pct: 20 },
+    { role: '功能测试', pct: 30 },
+    { role: '联调', pct: 25 },
+    { role: '验收测试', pct: 15 },
     { role: '项目负责人', pct: 10 },
   ],
   mixed: [
-    { role: '软件', pct: 28 },
-    { role: '硬件', pct: 22 },
-    { role: '结构', pct: 15 },
-    { role: '测试', pct: 15 },
-    { role: '调试', pct: 10 },
-    { role: '项目负责人', pct: 10 },
+    { role: '需求文档', pct: 8 },
+    { role: 'ID/结构设计', pct: 15 },
+    { role: '硬件设计', pct: 20 },
+    { role: '软件研发', pct: 25 },
+    { role: '测试/联调', pct: 17 },
+    { role: '交付验收', pct: 8 },
+    { role: '项目负责人', pct: 7 },
   ],
   support: [
-    { role: '软件', pct: 25 },
-    { role: '测试', pct: 20 },
-    { role: '调试', pct: 20 },
-    { role: '采购支持', pct: 15 },
-    { role: '生产支持', pct: 10 },
+    { role: '需求确认', pct: 12 },
+    { role: '研发/配置', pct: 25 },
+    { role: '测试/调试', pct: 20 },
+    { role: '交付上线', pct: 15 },
+    { role: '采购支持', pct: 10 },
+    { role: '生产/仓储支持', pct: 8 },
     { role: '项目负责人', pct: 10 },
   ],
 }
@@ -111,6 +115,15 @@ export function recommendContributionTotal(
 }
 
 function nodeWeight(node: MilestoneNodeIn, index: number, total: number) {
+  const text = `${node.title} ${node.description || ''}`
+  if (text.includes('需求') || text.includes('范围') || text.includes('文档')) return 0.12
+  if (text.includes('ID') || text.includes('设计') || text.includes('方案')) return 0.12
+  if (text.includes('研发') || text.includes('实现') || text.includes('MVP')) return 0.24
+  if (text.includes('样机')) return 0.18
+  if (text.includes('联调') || text.includes('自测')) return 0.12
+  if (text.includes('测试') || text.includes('验证')) return 0.16
+  if (text.includes('试产')) return 0.08
+  if (text.includes('交付') || text.includes('上线') || text.includes('验收')) return 0.08
   if (node.node_type === 'software_req') return 0.15
   if (node.node_type === 'software_mvp') return 0.35
   if (node.node_type === 'software_validate') return 0.25

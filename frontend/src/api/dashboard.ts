@@ -47,6 +47,111 @@ export interface PersonnelProbesResponse {
 export const getPersonnelProbes = (days: number) =>
   request.get<unknown, PersonnelProbesResponse>('/dashboard/personnel-probes', { params: { days } })
 
+export type ContributionPeriod = 'month' | 'quarter' | 'year' | 'all'
+export type ContributionRiskLevel = 'normal' | 'watch' | 'risk'
+
+export interface PeopleContributionItem {
+  user_id: string
+  name: string
+  department: string
+  job_title: string
+  role: string
+  earned_points: number
+  pending_points: number
+  project_count: number
+  milestone_count: number
+  completed_milestone_count: number
+  overdue_milestone_count: number
+  progress_pct: number
+  report_count: number
+  avg_report_score: number | null
+  open_risk_count: number
+  risk_level: ContributionRiskLevel
+}
+
+export interface PeopleContributionResponse {
+  period: ContributionPeriod
+  start_date: string | null
+  end_date: string
+  summary: {
+    people_count: number
+    earned_points: number
+    pending_points: number
+    overdue_milestone_count: number
+    risk_people_count: number
+  }
+  items: PeopleContributionItem[]
+}
+
+export interface PeopleContributionDetail {
+  period: ContributionPeriod
+  start_date: string | null
+  end_date: string
+  user: {
+    user_id: string
+    name: string
+    department: string
+    job_title: string
+    role: string
+  }
+  projects: Array<{
+    project_id: string
+    code: string
+    name: string
+    health_status: string
+    track: string
+    role_in_project: string | null
+    member_track: string
+  }>
+  milestones: Array<{
+    allocation_id: string
+    milestone_id: string
+    project_id: string
+    project_code: string
+    project_name: string
+    title: string
+    node_order: number
+    target_date: string | null
+    milestone_status: string
+    allocation_status: string
+    initial_points: number
+    final_points: number | null
+    overdue: boolean
+  }>
+  ledger: Array<{
+    ledger_id: string
+    milestone_id: string | null
+    milestone_title: string | null
+    project_id: string | null
+    project_name: string | null
+    direction: string
+    amount: number
+    occurred_at: string
+    reason: string
+  }>
+  reports: Array<{
+    report_id: string
+    report_date: string
+    project_id: string | null
+    ai_score: number | null
+    pass_check: boolean | null
+    tasks: string | null
+    progress: number | string | null
+    blocker: string | null
+  }>
+}
+
+export const getPeopleContribution = (params?: {
+  period?: ContributionPeriod
+  department?: string
+  project_id?: string
+}) => request.get<unknown, PeopleContributionResponse>('/dashboard/people-contribution', { params })
+
+export const getPeopleContributionDetail = (
+  userId: string,
+  params?: { period?: ContributionPeriod; project_id?: string },
+) => request.get<unknown, PeopleContributionDetail>(`/dashboard/people-contribution/${userId}`, { params })
+
 // V2.3 临时工单看板:本月 TOP N 员工工时 + 临时 vs 主干占比
 export const getTempTicketSummary = (params?: { month_start?: string; month_end?: string; top_n?: number }) =>
   request.get('/dashboard/temp-ticket-summary', { params })

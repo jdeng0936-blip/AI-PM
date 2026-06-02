@@ -216,7 +216,7 @@ export default function UsersPage() {
     setSubmitting(true)
     try {
       if (isEditing) {
-        await updateUser(editingId, { name: form.name, phone: form.phone || undefined, email: form.email || undefined, department: form.department, role: form.role })
+        await updateUser(editingId, { name: form.name, wechat_userid: form.wechat_userid, phone: form.phone || undefined, email: form.email || undefined, department: form.department, role: form.role })
         toast.success('用户信息已更新')
       } else {
         const res: any = await createUser({
@@ -448,13 +448,13 @@ export default function UsersPage() {
             <div className="space-y-4">
               {[
                 { label: '姓名', key: 'name', placeholder: '请输入姓名' },
-                { label: '企微ID', key: 'wechat_userid', placeholder: '如 wx_zhangsan', disabled: isEditing },
+                { label: '企微ID', key: 'wechat_userid', placeholder: '如 wx_zhangsan' },
                 { label: '手机号', key: 'phone', placeholder: '可选' },
                 { label: '邮箱', key: 'email', placeholder: '用于接收邮件通知 (可选)' },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="block text-xs mb-1.5 font-medium" style={{ color: 'var(--color-text-secondary)' }}>{f.label}</label>
-                  <input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} disabled={f.disabled} className="w-full px-3 py-2 rounded-lg text-sm outline-none disabled:opacity-50" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }} />
+                  <input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} className="w-full px-3 py-2 rounded-lg text-sm outline-none disabled:opacity-50" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-primary)' }} />
                 </div>
               ))}
               <div>

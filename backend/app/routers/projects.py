@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import get_current_user, require_role
+from app.models.milestone_allocation import AllocationStatus, MilestoneAllocation
 from app.models.project import Project, ProjectHealthStatus, ProjectStatus
 from app.models.project_followup import ProjectFollowUp
-from app.models.project_member import ProjectMember
+from app.models.project_member import MemberProjectRole, ProjectMember
+from app.models.project_milestone import MilestoneStatus, ProjectMilestone
 from app.models.project_stage import STAGE_DEFINITIONS_BY_TRACK, ProjectStage
 from app.models.sprint import Sprint, SprintStatus
 from app.models.user import User, UserRole
@@ -36,6 +38,7 @@ from app.schemas.project import (
     ProjectFollowUpOut,
     ProjectMemberAdd,
     ProjectMemberInit,  # T-1105 新增
+    ProjectMemberUpdate,
     ProjectUpdate,
     StageUpdate,
 )
@@ -46,6 +49,10 @@ router = APIRouter(prefix="/api/v1/projects", tags=["Projects (IPD)"])
 stages_router = APIRouter(prefix="/api/v1/stages", tags=["Stages"])
 
 _mgr = require_role(UserRole.manager, UserRole.admin)
+
+
+def _enum_value(value):
+    return getattr(value, "value", value)
 
 
 def _project_visible_condition(current_user: User):
@@ -369,6 +376,7 @@ async def create_project(
                     project_id=project.id,
                     user_id=m.user_id,
                     track=m.track,
+                    member_role=MemberProjectRole(m.member_role),
                     role_in_project=m.role_in_project,
                     tenant_id=creator.tenant_id,
                     created_by=creator.id,
@@ -589,7 +597,108 @@ async def projects_overview(
 
         today = date.today()
         days_to_deadline = (p.planned_launch_date - today).days if p.planned_launch_date else None
+        delivery_overdue_days = abs(days_to_deadline) if days_to_deadline is not None and days_to_deadline < 0 else 0
         budget_pct = float(p.budget_spent / p.budget_total * 100) if p.budget_total and p.budget_spent else None
+        member_rows = (
+            await db.execute(
+                select(ProjectMember, User.name, User.department, User.job_title)
+                .join(User, ProjectMember.user_id == User.id)
+                .where(
+                    and_(
+                        ProjectMember.project_id == p.id,
+                        ProjectMember.left_at.is_(None),
+                        ProjectMember.tenant_id == current_user.tenant_id,
+                        User.tenant_id == current_user.tenant_id,
+                    )
+                )
+                .order_by(ProjectMember.joined_at.asc())
+            )
+        ).all()
+        member_items = [
+            {
+                "user_id": str(row.ProjectMember.user_id),
+                "name": row.name,
+                "department": row.department,
+                "job_title": row.job_title,
+                "track": _enum_value(row.ProjectMember.track),
+                "role_in_project": row.ProjectMember.role_in_project,
+                "member_role": _enum_value(row.ProjectMember.member_role),
+            }
+            for row in member_rows
+        ]
+
+        def is_project_owner(row) -> bool:
+            member = row.ProjectMember
+            if member.member_role in (MemberProjectRole.owner, MemberProjectRole.tech_lead):
+                return True
+            role_text = (member.role_in_project or "").lower()
+            return any(token in role_text for token in ("负责人", "项目经理", "技术负责人", "owner", "lead", "pm"))
+
+        owner_rows = [row for row in member_rows if is_project_owner(row)]
+        owner_names = [row.name for row in owner_rows]
+
+        milestone_rows = (
+            (
+                await db.execute(
+                    select(ProjectMilestone)
+                    .where(
+                        and_(
+                            ProjectMilestone.project_id == p.id,
+                            ProjectMilestone.tenant_id == current_user.tenant_id,
+                            ProjectMilestone.deleted_at.is_(None),
+                        )
+                    )
+                    .order_by(ProjectMilestone.node_order.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        active_milestones = [m for m in milestone_rows if m.status != MilestoneStatus.void]
+        open_milestones = [
+            m for m in active_milestones if m.status in (MilestoneStatus.pending, MilestoneStatus.in_review)
+        ]
+        overdue_milestones = [m for m in open_milestones if m.target_date and m.target_date < today]
+        current_node = None
+        if open_milestones:
+            current_node = sorted(
+                open_milestones,
+                key=lambda m: (
+                    0 if m in overdue_milestones else 1 if m.status == MilestoneStatus.in_review else 2,
+                    m.target_date or date.max,
+                    m.node_order,
+                ),
+            )[0]
+
+        current_node_payload = None
+        if current_node:
+            node_days_left = (current_node.target_date - today).days if current_node.target_date else None
+            node_overdue_days = abs(node_days_left) if node_days_left is not None and node_days_left < 0 else 0
+            allocation_rows = (
+                await db.execute(
+                    select(User.name)
+                    .join(MilestoneAllocation, MilestoneAllocation.user_id == User.id)
+                    .where(
+                        and_(
+                            MilestoneAllocation.milestone_id == current_node.id,
+                            MilestoneAllocation.status != AllocationStatus.reverted,
+                            MilestoneAllocation.tenant_id == current_user.tenant_id,
+                            User.tenant_id == current_user.tenant_id,
+                        )
+                    )
+                    .order_by(User.department.asc(), User.name.asc())
+                )
+            ).all()
+            node_owner_names = [row.name for row in allocation_rows]
+            current_node_payload = {
+                "id": str(current_node.id),
+                "title": current_node.title,
+                "status": _enum_value(current_node.status),
+                "target_date": current_node.target_date,
+                "days_left": node_days_left,
+                "overdue_days": node_overdue_days,
+                "owner_names": node_owner_names,
+            }
 
         items.append(
             {
@@ -605,6 +714,7 @@ async def projects_overview(
                 "progress_pct": stage.progress_pct if stage else 0,
                 "planned_launch_date": p.planned_launch_date,
                 "days_to_deadline": days_to_deadline,
+                "delivery_overdue_days": delivery_overdue_days,
                 "budget_total": (
                     str(p.budget_total)
                     if p.budget_total and current_user.role in (UserRole.admin, UserRole.manager)
@@ -618,6 +728,18 @@ async def projects_overview(
                 "contribution_total_points": p.contribution_total_points,
                 "status": p.status,
                 "is_temporary": p.is_temporary,
+                "owner_names": owner_names,
+                "members": member_items,
+                "member_names": [member["name"] for member in member_items],
+                "member_count": len(member_items),
+                "milestone_summary": {
+                    "total": len(active_milestones),
+                    "approved": sum(1 for m in active_milestones if m.status == MilestoneStatus.approved),
+                    "in_review": sum(1 for m in active_milestones if m.status == MilestoneStatus.in_review),
+                    "pending": sum(1 for m in active_milestones if m.status == MilestoneStatus.pending),
+                    "overdue": len(overdue_milestones),
+                },
+                "current_node": current_node_payload,
             }
         )
 
@@ -940,6 +1062,7 @@ async def add_project_member(
         project_id=project_id,
         user_id=data.user_id,
         track=data.track,
+        member_role=MemberProjectRole(data.member_role),
         role_in_project=data.role_in_project,
         tenant_id=_user.tenant_id,
         created_by=_user.id,
@@ -947,6 +1070,44 @@ async def add_project_member(
     db.add(member)
     await db.commit()
     return {"message": "成员已加入项目", "member_id": str(member.id)}
+
+
+@router.patch("/{project_id}/members/{member_id}")
+async def update_project_member(
+    project_id: uuid.UUID,
+    member_id: uuid.UUID,
+    data: ProjectMemberUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(_mgr),
+):
+    member = (
+        await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.id == member_id,
+                ProjectMember.project_id == project_id,
+                ProjectMember.left_at.is_(None),
+                ProjectMember.tenant_id == _user.tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise HTTPException(404, "项目成员不存在")
+
+    if data.track is not None:
+        member.track = data.track
+    if data.member_role is not None:
+        member.member_role = MemberProjectRole(data.member_role)
+    if data.role_in_project is not None:
+        member.role_in_project = data.role_in_project.strip() or None
+
+    await db.commit()
+    return {
+        "message": "成员角色已更新",
+        "member_id": str(member.id),
+        "member_role": _enum_value(member.member_role),
+        "track": _enum_value(member.track),
+        "role_in_project": member.role_in_project,
+    }
 
 
 # V2.5 Stage 2:批量移出项目成员(软退场 — SET left_at = today())
@@ -1027,6 +1188,7 @@ async def list_project_members(
             "department": r.department,
             "track": r.ProjectMember.track,
             "role_in_project": r.ProjectMember.role_in_project,
+            "member_role": _enum_value(r.ProjectMember.member_role),
             "joined_at": str(r.ProjectMember.joined_at),
         }
         for r in result.all()

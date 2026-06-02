@@ -9,7 +9,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,10 @@ from app.database import get_db
 from app.middleware.rbac import require_role
 from app.models.audit_log import AuditLog
 from app.models.daily_report import DailyReport
+from app.models.milestone_allocation import AllocationStatus, MilestoneAllocation
 from app.models.project import Project
+from app.models.project_member import ProjectMember
+from app.models.project_milestone import MilestoneStatus, ProjectMilestone
 from app.models.risk_alert import RiskAlert
 from app.models.sprint_task import SprintTask, TaskStatus
 from app.models.user import User, UserRole
@@ -69,6 +72,31 @@ def _probe_note(
     if status == "normal":
         return "节奏正常"
     return "建议关注"
+
+
+def _period_start(period: str) -> date | None:
+    today = date.today()
+    if period == "all":
+        return None
+    if period == "month":
+        return today.replace(day=1)
+    if period == "quarter":
+        quarter_month = ((today.month - 1) // 3) * 3 + 1
+        return today.replace(month=quarter_month, day=1)
+    if period == "year":
+        return today.replace(month=1, day=1)
+    return today.replace(day=1)
+
+
+def _period_start_at(period: str) -> datetime | None:
+    start = _period_start(period)
+    if start is None:
+        return None
+    return datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _enum_value(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
 
 
 @router.get("/morning-briefing")
@@ -213,8 +241,7 @@ async def get_personnel_probes(
 
     report_rows = (
         await db.execute(
-            select(DailyReport)
-            .where(
+            select(DailyReport).where(
                 DailyReport.tenant_id == current_user.tenant_id,
                 DailyReport.deleted_at.is_(None),
                 DailyReport.report_date >= start_date,
@@ -244,8 +271,7 @@ async def get_personnel_probes(
 
     risk_rows = (
         await db.execute(
-            select(RiskAlert)
-            .where(
+            select(RiskAlert).where(
                 RiskAlert.tenant_id == current_user.tenant_id,
                 RiskAlert.deleted_at.is_(None),
                 RiskAlert.status == "unresolved",
@@ -262,8 +288,7 @@ async def get_personnel_probes(
 
     ledger_rows = (
         await db.execute(
-            select(UserPointsLedger)
-            .where(
+            select(UserPointsLedger).where(
                 UserPointsLedger.tenant_id == current_user.tenant_id,
                 UserPointsLedger.occurred_at >= start_at,
                 UserPointsLedger.user_id.in_(list(user_map.keys())) if user_map else False,
@@ -281,8 +306,7 @@ async def get_personnel_probes(
 
     overdue_rows = (
         await db.execute(
-            select(SprintTask)
-            .where(
+            select(SprintTask).where(
                 SprintTask.tenant_id == current_user.tenant_id,
                 SprintTask.deleted_at.is_(None),
                 SprintTask.assignee_id.in_(list(user_map.keys())) if user_map else False,
@@ -372,6 +396,368 @@ async def get_personnel_probes(
         "end_date": today,
         "summary": summary,
         "items": probes,
+    }
+
+
+@router.get("/people-contribution")
+async def get_people_contribution(
+    period: str = Query(default="month", pattern="^(month|quarter|year|all)$"),
+    department: Optional[str] = Query(default=None),
+    project_id: Optional[uuid.UUID] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(_mgr_or_admin),
+):
+    """
+    总经理人员贡献与进度总览。
+
+    聚合口径:
+    - 已入账积分: user_points_ledger 在 period 内的净额
+    - 待验收积分: 当前 pending 的 milestone allocation 初始积分
+    - 进度: 当前未作废贡献节点的 approved/allocation 总数
+    - 风险: 当前未解决风险 + 逾期贡献节点
+    """
+    period_start = _period_start(period)
+    period_start_at = _period_start_at(period)
+    today = date.today()
+
+    user_query = select(User).where(
+        User.tenant_id == current_user.tenant_id,
+        User.is_active.is_(True),
+        User.role != UserRole.admin,
+    )
+    if department:
+        user_query = user_query.where(User.department == department)
+    if project_id:
+        project_member_user_ids = (
+            select(ProjectMember.user_id)
+            .join(Project, ProjectMember.project_id == Project.id)
+            .where(
+                ProjectMember.project_id == project_id,
+                ProjectMember.left_at.is_(None),
+                ProjectMember.tenant_id == current_user.tenant_id,
+                Project.tenant_id == current_user.tenant_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+        user_query = user_query.where(User.id.in_(project_member_user_ids))
+    users = (await db.execute(user_query.order_by(User.department.asc(), User.name.asc()))).scalars().all()
+    user_ids = [user.id for user in users]
+
+    stats = {
+        user.id: {
+            "earned_points": 0,
+            "pending_points": 0,
+            "project_ids": set(),
+            "milestone_count": 0,
+            "completed_milestone_count": 0,
+            "overdue_milestone_count": 0,
+            "report_count": 0,
+            "score_sum": 0,
+            "score_count": 0,
+            "open_risk_count": 0,
+        }
+        for user in users
+    }
+
+    if user_ids:
+        project_member_query = (
+            select(ProjectMember.user_id, ProjectMember.project_id)
+            .join(
+                Project,
+                ProjectMember.project_id == Project.id,
+            )
+            .where(
+                ProjectMember.user_id.in_(user_ids),
+                ProjectMember.left_at.is_(None),
+                ProjectMember.tenant_id == current_user.tenant_id,
+                Project.tenant_id == current_user.tenant_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+        if project_id:
+            project_member_query = project_member_query.where(ProjectMember.project_id == project_id)
+        for row in (await db.execute(project_member_query)).all():
+            stats[row.user_id]["project_ids"].add(row.project_id)
+
+        allocation_query = (
+            select(MilestoneAllocation, ProjectMilestone)
+            .join(ProjectMilestone, MilestoneAllocation.milestone_id == ProjectMilestone.id)
+            .join(Project, ProjectMilestone.project_id == Project.id)
+            .where(
+                MilestoneAllocation.user_id.in_(user_ids),
+                MilestoneAllocation.status != AllocationStatus.reverted,
+                MilestoneAllocation.tenant_id == current_user.tenant_id,
+                ProjectMilestone.deleted_at.is_(None),
+                Project.tenant_id == current_user.tenant_id,
+                Project.deleted_at.is_(None),
+            )
+        )
+        if project_id:
+            allocation_query = allocation_query.where(Project.id == project_id)
+        for allocation, milestone in (await db.execute(allocation_query)).all():
+            item = stats[allocation.user_id]
+            item["milestone_count"] += 1
+            if allocation.status == AllocationStatus.approved:
+                item["completed_milestone_count"] += 1
+            if allocation.status == AllocationStatus.pending:
+                item["pending_points"] += allocation.initial_points
+            if (
+                milestone.target_date
+                and milestone.target_date < today
+                and milestone.status in (MilestoneStatus.pending, MilestoneStatus.in_review)
+            ):
+                item["overdue_milestone_count"] += 1
+
+        ledger_query = select(UserPointsLedger).where(
+            UserPointsLedger.user_id.in_(user_ids),
+            UserPointsLedger.tenant_id == current_user.tenant_id,
+        )
+        if period_start_at:
+            ledger_query = ledger_query.where(UserPointsLedger.occurred_at >= period_start_at)
+        if project_id:
+            ledger_query = ledger_query.join(
+                ProjectMilestone, UserPointsLedger.milestone_id == ProjectMilestone.id
+            ).where(ProjectMilestone.project_id == project_id)
+        for row in (await db.execute(ledger_query)).scalars():
+            stats[row.user_id]["earned_points"] += row.amount
+
+        report_query = select(DailyReport).where(
+            DailyReport.user_id.in_(user_ids),
+            DailyReport.tenant_id == current_user.tenant_id,
+            DailyReport.deleted_at.is_(None),
+        )
+        if period_start:
+            report_query = report_query.where(DailyReport.report_date >= period_start)
+        if project_id:
+            report_query = report_query.where(DailyReport.project_id == project_id)
+        for report in (await db.execute(report_query)).scalars():
+            item = stats[report.user_id]
+            item["report_count"] += 1
+            if report.ai_score is not None:
+                item["score_sum"] += report.ai_score
+                item["score_count"] += 1
+
+        risk_query = select(RiskAlert).where(
+            RiskAlert.user_id.in_(user_ids),
+            RiskAlert.tenant_id == current_user.tenant_id,
+            RiskAlert.deleted_at.is_(None),
+            RiskAlert.status == "unresolved",
+        )
+        for alert in (await db.execute(risk_query)).scalars():
+            stats[alert.user_id]["open_risk_count"] += 1
+
+    rows = []
+    for user in users:
+        item = stats[user.id]
+        milestone_count = item["milestone_count"]
+        progress_pct = round(item["completed_milestone_count"] / milestone_count * 100, 1) if milestone_count else 0
+        avg_score = round(item["score_sum"] / item["score_count"], 1) if item["score_count"] else None
+        risk_level = "normal"
+        if item["open_risk_count"] > 0 or item["overdue_milestone_count"] >= 2:
+            risk_level = "risk"
+        elif item["overdue_milestone_count"] > 0 or item["pending_points"] > 0:
+            risk_level = "watch"
+
+        rows.append(
+            {
+                "user_id": str(user.id),
+                "name": user.name,
+                "department": user.department,
+                "job_title": user.job_title,
+                "role": _enum_value(user.role),
+                "earned_points": item["earned_points"],
+                "pending_points": item["pending_points"],
+                "project_count": len(item["project_ids"]),
+                "milestone_count": milestone_count,
+                "completed_milestone_count": item["completed_milestone_count"],
+                "overdue_milestone_count": item["overdue_milestone_count"],
+                "progress_pct": progress_pct,
+                "report_count": item["report_count"],
+                "avg_report_score": avg_score,
+                "open_risk_count": item["open_risk_count"],
+                "risk_level": risk_level,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: ({"risk": 0, "watch": 1, "normal": 2}[row["risk_level"]], -row["pending_points"], row["name"])
+    )
+    return {
+        "period": period,
+        "start_date": period_start,
+        "end_date": today,
+        "summary": {
+            "people_count": len(rows),
+            "earned_points": sum(row["earned_points"] for row in rows),
+            "pending_points": sum(row["pending_points"] for row in rows),
+            "overdue_milestone_count": sum(row["overdue_milestone_count"] for row in rows),
+            "risk_people_count": sum(1 for row in rows if row["risk_level"] == "risk"),
+        },
+        "items": rows,
+    }
+
+
+@router.get("/people-contribution/{user_id}")
+async def get_people_contribution_detail(
+    user_id: uuid.UUID,
+    period: str = Query(default="month", pattern="^(month|quarter|year|all)$"),
+    project_id: Optional[uuid.UUID] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(_mgr_or_admin),
+):
+    period_start = _period_start(period)
+    period_start_at = _period_start_at(period)
+    target = (
+        await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.tenant_id == current_user.tenant_id,
+                User.role != UserRole.admin,
+            )
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(404, "用户不存在")
+
+    project_query = (
+        select(ProjectMember, Project)
+        .join(Project, ProjectMember.project_id == Project.id)
+        .where(
+            ProjectMember.user_id == user_id,
+            ProjectMember.left_at.is_(None),
+            ProjectMember.tenant_id == current_user.tenant_id,
+            Project.tenant_id == current_user.tenant_id,
+            Project.deleted_at.is_(None),
+        )
+        .order_by(Project.code.asc())
+    )
+    if project_id:
+        project_query = project_query.where(Project.id == project_id)
+    project_rows = (await db.execute(project_query)).all()
+
+    milestone_query = (
+        select(MilestoneAllocation, ProjectMilestone, Project)
+        .join(ProjectMilestone, MilestoneAllocation.milestone_id == ProjectMilestone.id)
+        .join(Project, ProjectMilestone.project_id == Project.id)
+        .where(
+            MilestoneAllocation.user_id == user_id,
+            MilestoneAllocation.status != AllocationStatus.reverted,
+            MilestoneAllocation.tenant_id == current_user.tenant_id,
+            ProjectMilestone.deleted_at.is_(None),
+            Project.tenant_id == current_user.tenant_id,
+            Project.deleted_at.is_(None),
+        )
+        .order_by(Project.code.asc(), ProjectMilestone.node_order.asc())
+    )
+    if project_id:
+        milestone_query = milestone_query.where(Project.id == project_id)
+    milestone_rows = (await db.execute(milestone_query)).all()
+
+    ledger_query = (
+        select(UserPointsLedger, ProjectMilestone, Project)
+        .outerjoin(ProjectMilestone, UserPointsLedger.milestone_id == ProjectMilestone.id)
+        .outerjoin(Project, ProjectMilestone.project_id == Project.id)
+        .where(
+            UserPointsLedger.user_id == user_id,
+            UserPointsLedger.tenant_id == current_user.tenant_id,
+        )
+        .order_by(UserPointsLedger.occurred_at.desc())
+        .limit(50)
+    )
+    if period_start_at:
+        ledger_query = ledger_query.where(UserPointsLedger.occurred_at >= period_start_at)
+    if project_id:
+        ledger_query = ledger_query.where(ProjectMilestone.project_id == project_id)
+    ledger_rows = (await db.execute(ledger_query)).all()
+
+    report_query = (
+        select(DailyReport)
+        .where(
+            DailyReport.user_id == user_id,
+            DailyReport.tenant_id == current_user.tenant_id,
+            DailyReport.deleted_at.is_(None),
+        )
+        .order_by(DailyReport.report_date.desc(), DailyReport.created_at.desc())
+        .limit(20)
+    )
+    if period_start:
+        report_query = report_query.where(DailyReport.report_date >= period_start)
+    if project_id:
+        report_query = report_query.where(DailyReport.project_id == project_id)
+    report_rows = (await db.execute(report_query)).scalars().all()
+
+    return {
+        "period": period,
+        "start_date": period_start,
+        "end_date": date.today(),
+        "user": {
+            "user_id": str(target.id),
+            "name": target.name,
+            "department": target.department,
+            "job_title": target.job_title,
+            "role": _enum_value(target.role),
+        },
+        "projects": [
+            {
+                "project_id": str(project.id),
+                "code": project.code,
+                "name": project.name,
+                "health_status": _enum_value(project.health_status),
+                "track": _enum_value(project.track),
+                "role_in_project": member.role_in_project,
+                "member_track": _enum_value(member.track),
+            }
+            for member, project in project_rows
+        ],
+        "milestones": [
+            {
+                "allocation_id": str(allocation.id),
+                "milestone_id": str(milestone.id),
+                "project_id": str(project.id),
+                "project_code": project.code,
+                "project_name": project.name,
+                "title": milestone.title,
+                "node_order": milestone.node_order,
+                "target_date": milestone.target_date,
+                "milestone_status": _enum_value(milestone.status),
+                "allocation_status": _enum_value(allocation.status),
+                "initial_points": allocation.initial_points,
+                "final_points": allocation.final_points,
+                "overdue": bool(
+                    milestone.target_date
+                    and milestone.target_date < date.today()
+                    and milestone.status in (MilestoneStatus.pending, MilestoneStatus.in_review)
+                ),
+            }
+            for allocation, milestone, project in milestone_rows
+        ],
+        "ledger": [
+            {
+                "ledger_id": str(ledger.id),
+                "milestone_id": str(ledger.milestone_id) if ledger.milestone_id else None,
+                "milestone_title": milestone.title if milestone else None,
+                "project_id": str(project.id) if project else None,
+                "project_name": project.name if project else None,
+                "direction": _enum_value(ledger.direction),
+                "amount": ledger.amount,
+                "occurred_at": ledger.occurred_at,
+                "reason": ledger.reason,
+            }
+            for ledger, milestone, project in ledger_rows
+        ],
+        "reports": [
+            {
+                "report_id": str(report.id),
+                "report_date": report.report_date,
+                "project_id": str(report.project_id) if report.project_id else None,
+                "ai_score": report.ai_score,
+                "pass_check": report.pass_check,
+                "tasks": (report.parsed_content or {}).get("tasks"),
+                "progress": (report.parsed_content or {}).get("progress"),
+                "blocker": (report.parsed_content or {}).get("blocker"),
+            }
+            for report in report_rows
+        ],
     }
 
 
@@ -470,7 +856,9 @@ async def batch_restore_risk_alerts(
     """V2.5 Stage 3:管理员从回收站批量恢复软删的预警(SET deleted_at = NULL)。"""
     result = await db.execute(
         update(RiskAlert)
-        .where(and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_not(None), RiskAlert.tenant_id == user.tenant_id))
+        .where(
+            and_(RiskAlert.id.in_(body.ids), RiskAlert.deleted_at.is_not(None), RiskAlert.tenant_id == user.tenant_id)
+        )
         .values(deleted_at=None)
         .returning(RiskAlert.id)
     )

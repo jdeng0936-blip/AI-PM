@@ -24,16 +24,47 @@ const TRACK_OPTIONS: Array<{ value: 'hardware' | 'software' | 'both'; label: str
   { value: 'software', label: '软件相关' },
 ]
 
+const MEMBER_ROLE_OPTIONS: Array<{ value: NonNullable<ProjectMemberInit['member_role']>; label: string }> = [
+  { value: 'member', label: '成员' },
+  { value: 'owner', label: '项目负责人' },
+  { value: 'tech_lead', label: '技术负责人' },
+]
+
 const PROJECT_ROLE_OPTIONS = [
   '项目负责人',
+  '产品/需求',
+  '需求文档',
+  'ID',
+  '工业设计',
+  'UI/UX 设计',
+  '方案设计',
+  '结构设计',
+  '硬件设计',
+  'BOM/采购',
+  '软件研发',
+  '前端研发',
+  '后端研发',
+  '嵌入式研发',
+  '算法/AI',
+  '研发',
+  '联调',
+  '测试方案',
+  '功能测试',
+  '自动化测试',
+  '验收测试',
+  '测试/调试',
+  '试产导入',
+  '生产支持',
+  '交付上线',
+  '客户验收',
+  '运维支持',
+  '文档/验收',
   '软件',
   '硬件',
   '结构',
   '测试',
   '调试',
-  '文档/验收',
   '采购支持',
-  '生产支持',
   '仓储支持',
 ]
 
@@ -89,6 +120,7 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
       {
         user_id: user.id,
         track: 'both',
+        member_role: 'member',
         role_in_project: '',
         name: user.name,
         department: user.department,
@@ -128,8 +160,9 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
           className="max-h-56 space-y-2 overflow-y-auto rounded-lg p-2"
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}
         >
-          <div className="grid grid-cols-[minmax(96px,1fr)_92px_minmax(120px,1.2fr)_28px] items-center gap-2 px-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+          <div className="grid grid-cols-[minmax(96px,1fr)_104px_92px_minmax(120px,1.2fr)_28px] items-center gap-2 px-1 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
             <span>成员</span>
+            <span>项目角色</span>
             <span>参与范围</span>
             <span>项目职责</span>
             <span />
@@ -137,7 +170,7 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
           {selectedRows.map((row) => (
             <div
               key={row.user_id}
-              className="grid grid-cols-[minmax(96px,1fr)_92px_minmax(120px,1.2fr)_28px] items-center gap-2 text-xs"
+              className="grid grid-cols-[minmax(96px,1fr)_104px_92px_minmax(120px,1.2fr)_28px] items-center gap-2 text-xs"
             >
               <div className="min-w-0">
                 <div className="truncate font-medium" style={{ color: 'var(--color-text-primary)' }}>
@@ -147,6 +180,24 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
                   {row.user?.department || row.department || '未填部门'}
                 </div>
               </div>
+              <select
+                value={row.member_role || 'member'}
+                onChange={(e) =>
+                  handleUpdate(row.user_id, { member_role: e.target.value as ProjectMemberInit['member_role'] })
+                }
+                className="h-8 rounded-lg px-2 text-xs outline-none"
+                style={{
+                  background: 'var(--color-bg-card)',
+                  border: '1px solid var(--color-border-subtle)',
+                  color: 'var(--color-text-primary)',
+                }}
+              >
+                {MEMBER_ROLE_OPTIONS.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
               <select
                 value={row.track}
                 onChange={(e) =>
@@ -191,8 +242,6 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
           ))}
         </div>
       )}
-
-      {children}
 
       <datalist id="project-role-options">
         {PROJECT_ROLE_OPTIONS.map((role) => (
@@ -256,6 +305,8 @@ export default function MemberPicker({ value, onChange, children, maxMembers = 5
           </div>
         </div>
       )}
+
+      {children}
     </div>
   )
 }

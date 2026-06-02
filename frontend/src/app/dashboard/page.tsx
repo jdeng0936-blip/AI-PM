@@ -20,8 +20,14 @@ import {
   getRiskAlerts,
   getTempTicketSummary,
   getDeletionGovernance,
+  getPeopleContribution,
+  getPeopleContributionDetail,
   batchDeleteRiskAlerts,
   batchRestoreRiskAlerts,
+  type ContributionPeriod,
+  type PeopleContributionDetail,
+  type PeopleContributionItem,
+  type PeopleContributionResponse,
   type PersonnelProbesResponse,
 } from '@/api/dashboard'
 import {
@@ -115,6 +121,13 @@ function shortDate(value?: string) {
   return value.slice(5).replace('-', '/')
 }
 
+const contributionPeriodLabel: Record<ContributionPeriod, string> = {
+  month: '本月',
+  quarter: '本季',
+  year: '今年',
+  all: '全部',
+}
+
 type DashboardTask = (MyActiveTaskItem & { source: 'sprint' }) | {
   id: string
   title: string
@@ -157,6 +170,11 @@ export default function DashboardPage() {
   const [myTotalPoints, setMyTotalPoints] = useState<number | null>(null)
   const [probeDays, setProbeDays] = useState(7)
   const [personnelProbes, setPersonnelProbes] = useState<PersonnelProbesResponse | null>(null)
+  const [contributionPeriod, setContributionPeriod] = useState<ContributionPeriod>('month')
+  const [peopleContribution, setPeopleContribution] = useState<PeopleContributionResponse | null>(null)
+  const [selectedContributionUser, setSelectedContributionUser] = useState<PeopleContributionItem | null>(null)
+  const [contributionDetail, setContributionDetail] = useState<PeopleContributionDetail | null>(null)
+  const [contributionDetailLoading, setContributionDetailLoading] = useState(false)
   // V2.3 临时工单看板数据
   const [tempSummary, setTempSummary] = useState<any>(null)
 
@@ -204,7 +222,7 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       let nextProjects: any[] = []
-      const [ov, br, ra, tt, gov, activeWork, followUps, myContribution, probes] = await Promise.allSettled([
+      const [ov, br, ra, tt, gov, activeWork, followUps, myContribution, probes, contribution] = await Promise.allSettled([
         getProjectsOverview(),
         isAdmin ? getMorningBriefing() : Promise.resolve(null),
         isAdmin ? getRiskAlerts() : Promise.resolve([]),
@@ -214,6 +232,7 @@ export default function DashboardPage() {
         showLightManagerView ? getPendingFollowUps() : Promise.resolve(null),
         showLightManagerView ? getMyContribution('all') : Promise.resolve(null),
         isAdmin ? getPersonnelProbes(probeDays) : Promise.resolve(null),
+        isAdmin ? getPeopleContribution({ period: contributionPeriod }) : Promise.resolve(null),
       ])
       if (ov.status === 'fulfilled') {
         const data = ov.value as any
@@ -280,6 +299,11 @@ export default function DashboardPage() {
       } else if (!isAdmin) {
         setPersonnelProbes(null)
       }
+      if (contribution.status === 'fulfilled' && contribution.value) {
+        setPeopleContribution(contribution.value as PeopleContributionResponse)
+      } else if (!isAdmin) {
+        setPeopleContribution(null)
+      }
 
       if (showHeavySections) {
         const targetProjectId = nextProjects[0]?.project_id as string | undefined
@@ -302,7 +326,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, probeDays, showHeavySections, showLightManagerView])
+  }, [contributionPeriod, isAdmin, probeDays, showHeavySections, showLightManagerView])
 
   useEffect(() => {
     fetchAll()
@@ -653,6 +677,34 @@ export default function DashboardPage() {
     [riskAlerts, showLightManagerView],
   )
 
+  const handleCommandCenterNavigate = useCallback((route: string) => {
+    if (route.startsWith('#')) {
+      if (route === '#risk-pool' && isAdmin) {
+        setShowAdminAdvanced(true)
+      }
+      window.setTimeout(() => {
+        document.querySelector(route)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 50)
+      return
+    }
+    router.push(route)
+  }, [isAdmin, router])
+
+  async function openContributionDetail(person: PeopleContributionItem) {
+    setSelectedContributionUser(person)
+    setContributionDetail(null)
+    setContributionDetailLoading(true)
+    try {
+      const detail = await getPeopleContributionDetail(person.user_id, { period: contributionPeriod })
+      setContributionDetail(detail)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || '加载人员贡献详情失败')
+      setSelectedContributionUser(null)
+    } finally {
+      setContributionDetailLoading(false)
+    }
+  }
+
   const myTaskRows = useMemo(() => {
     const sprintRows = myActiveProjects.flatMap((project) =>
       project.tasks.map((task): { project: MyActiveProjectItem; task: DashboardTask; days_left: number | null } => ({
@@ -885,6 +937,11 @@ export default function DashboardPage() {
           probes={personnelProbes}
           probeDays={probeDays}
           onProbeDaysChange={setProbeDays}
+          peopleContribution={peopleContribution}
+          contributionPeriod={contributionPeriod}
+          onContributionPeriodChange={setContributionPeriod}
+          onContributionPersonClick={openContributionDetail}
+          onNavigate={handleCommandCenterNavigate}
         />
       </div>
       <div className="mb-8 flex justify-center">
@@ -1434,7 +1491,7 @@ export default function DashboardPage() {
           </div>
 
           {/* 风险阻碍池 */}
-          <div className="animate-in" style={{ animationDelay: '0.5s' }}>
+          <div id="risk-pool" className="scroll-mt-6 animate-in" style={{ animationDelay: '0.5s' }}>
             <div className="section-title">
               {showLightManagerView ? '待处理风险' : '风险阻碍池'}
               {managerRiskAlerts.length > 0 && (
@@ -1557,6 +1614,178 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+      )}
+
+      {selectedContributionUser && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-black/50"
+          onClick={() => {
+            setSelectedContributionUser(null)
+            setContributionDetail(null)
+          }}
+        >
+          <div
+            className="h-full w-full max-w-3xl overflow-y-auto p-6"
+            style={{ background: 'var(--color-bg-card)', borderLeft: '1px solid var(--color-border-subtle)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  {selectedContributionUser.name} 的贡献证据链
+                </h2>
+                <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                  {selectedContributionUser.department || '未填部门'} · {selectedContributionUser.job_title || selectedContributionUser.role} · {contributionPeriodLabel[contributionPeriod]}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedContributionUser(null)
+                  setContributionDetail(null)
+                }}
+                className="rounded-md px-3 py-1.5 text-xs"
+                style={{ border: '1px solid var(--color-border-subtle)', color: 'var(--color-text-secondary)' }}
+              >
+                关闭
+              </button>
+            </div>
+
+            {contributionDetailLoading ? (
+              <div className="py-12 text-center text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                加载中...
+              </div>
+            ) : contributionDetail ? (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {[
+                    ['参与项目', contributionDetail.projects.length],
+                    ['贡献节点', contributionDetail.milestones.length],
+                    ['积分流水', contributionDetail.ledger.length],
+                    ['最近日报', contributionDetail.reports.length],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg p-3" style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                      <div className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>{label}</div>
+                      <div className="mt-1 text-xl font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <section>
+                  <div className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>参与项目</div>
+                  <div className="space-y-2">
+                    {contributionDetail.projects.length === 0 ? (
+                      <div className="rounded-lg p-3 text-xs" style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                        暂无参与项目。
+                      </div>
+                    ) : contributionDetail.projects.map((project) => (
+                      <button
+                        key={project.project_id}
+                        type="button"
+                        onClick={() => router.push(`/project/${project.project_id}`)}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition-colors hover:bg-[var(--color-bg-hover)]"
+                        style={{ border: '1px solid var(--color-border-subtle)' }}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                            {project.code} · {project.name}
+                          </span>
+                          <span className="mt-1 block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                            {trackLabel(project.track)} · {project.role_in_project || project.member_track}
+                          </span>
+                        </span>
+                        <ArrowRight size={14} color="#4b5563" />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>负责节点</div>
+                  <div className="space-y-2">
+                    {contributionDetail.milestones.length === 0 ? (
+                      <div className="rounded-lg p-3 text-xs" style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                        暂无贡献节点。
+                      </div>
+                    ) : contributionDetail.milestones.map((item) => (
+                      <div key={item.allocation_id} className="rounded-lg p-3" style={{ border: `1px solid ${item.overdue ? '#ef4444' : 'var(--color-border-subtle)'}` }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                              {item.project_code} · {item.title}
+                            </div>
+                            <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                              {item.project_name} · 截止 {item.target_date ? shortDate(item.target_date) : '-'} · {item.milestone_status}
+                            </div>
+                          </div>
+                          <div className="text-right text-xs tabular-nums">
+                            <div style={{ color: item.allocation_status === 'approved' ? '#22c55e' : '#d4a24e' }}>
+                              {item.final_points ?? item.initial_points} 分
+                            </div>
+                            <div className="mt-1" style={{ color: item.overdue ? '#ef4444' : 'var(--color-text-muted)' }}>
+                              {item.overdue ? '逾期' : item.allocation_status}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>积分流水</div>
+                  <div className="space-y-2">
+                    {contributionDetail.ledger.length === 0 ? (
+                      <div className="rounded-lg p-3 text-xs" style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                        当前周期暂无入账流水。
+                      </div>
+                    ) : contributionDetail.ledger.map((entry) => (
+                      <div key={entry.ledger_id} className="flex items-start justify-between gap-3 rounded-lg p-3" style={{ border: '1px solid var(--color-border-subtle)' }}>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm" style={{ color: 'var(--color-text-primary)' }}>
+                            {entry.project_name || '手工调整'} · {entry.milestone_title || entry.reason}
+                          </div>
+                          <div className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                            {new Date(entry.occurred_at).toLocaleDateString('zh-CN')} · {entry.reason}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: entry.amount >= 0 ? '#22c55e' : '#ef4444' }}>
+                          {entry.amount > 0 ? '+' : ''}{entry.amount}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-2 text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>最近日报</div>
+                  <div className="space-y-2">
+                    {contributionDetail.reports.length === 0 ? (
+                      <div className="rounded-lg p-3 text-xs" style={{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
+                        当前周期暂无日报。
+                      </div>
+                    ) : contributionDetail.reports.slice(0, 8).map((report) => (
+                      <div key={report.report_id} className="rounded-lg p-3" style={{ border: '1px solid var(--color-border-subtle)' }}>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span style={{ color: 'var(--color-text-primary)' }}>{report.report_date}</span>
+                          <span style={{ color: scoreColor(report.ai_score) }}>AI {report.ai_score ?? '-'}</span>
+                        </div>
+                        <div className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                          {report.tasks || '未解析任务'}
+                        </div>
+                        {report.blocker && (
+                          <div className="mt-1 text-xs" style={{ color: '#ef4444' }}>
+                            卡点：{report.blocker}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            ) : null}
+          </div>
+        </div>
       )}
 
       {/* 新建项目弹窗 */}

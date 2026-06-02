@@ -312,22 +312,92 @@ async def test_member_project_role_enum_values_serialize() -> None:
     assert {role.value for role in MemberProjectRole} == {"tech_lead", "owner", "member"}
 
 
-async def test_standard_template_software_returns_4_nodes() -> None:
+async def test_standard_template_software_returns_full_process_nodes() -> None:
     nodes = get_standard_template(ProjectTrack.software, is_temporary=False)
-    assert [node.title for node in nodes] == ["需求文档完成", "MVP 完成", "功能验证通过", "正式上线/客户验收"]
+    assert [node.title for node in nodes] == [
+        "需求确认与范围冻结",
+        "需求文档/原型评审",
+        "UI/UX 设计完成",
+        "研发实现完成",
+        "联调自测通过",
+        "测试验证通过",
+        "交付上线/客户验收",
+    ]
     assert sum(node.suggested_initial_points for node in nodes) == 100
 
 
-async def test_standard_template_dual_returns_7_nodes_with_offset_order() -> None:
+async def test_standard_template_dual_returns_full_process_nodes() -> None:
     nodes = get_standard_template(ProjectTrack.dual, is_temporary=False)
-    assert len(nodes) == 7
-    assert [node.node_order for node in nodes] == [1, 2, 3, 4, 5, 6, 7]
+    assert [node.title for node in nodes] == [
+        "ID/需求定义完成",
+        "需求文档/范围冻结",
+        "方案设计评审通过",
+        "软件研发完成",
+        "硬件/结构样机完成",
+        "软硬联调通过",
+        "测试验证通过",
+        "试产导入完成",
+        "交付上线/客户验收",
+    ]
+    assert [node.node_order for node in nodes] == list(range(1, 10))
+    assert sum(node.suggested_initial_points for node in nodes) == 100
 
 
 async def test_standard_template_temporary_overrides_track() -> None:
     nodes = get_standard_template(ProjectTrack.dual, is_temporary=True)
     assert len(nodes) == 1
     assert nodes[0].node_type == MilestoneNodeType.temporary_done
+
+
+async def test_people_contribution_dashboard_lists_members(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _cleanup_phase14_test_data(db_session)
+    admin, tech, _, _, milestone = await _phase14_seed_ready_review(db_session, suffix="people_dash")
+    allocation = MilestoneAllocation(
+        id=uuid.uuid4(),
+        milestone_id=milestone.id,
+        user_id=tech.id,
+        contribution_ratio=Decimal("1.0000"),
+        initial_points=120,
+        status=AllocationStatus.pending,
+        tenant_id=TENANT_ID,
+        created_by=admin.id,
+    )
+    ledger = UserPointsLedger(
+        id=uuid.uuid4(),
+        user_id=tech.id,
+        milestone_id=milestone.id,
+        allocation_id=allocation.id,
+        direction=LedgerDirection.income,
+        amount=30,
+        reason="test income",
+        tenant_id=TENANT_ID,
+        created_by=admin.id,
+    )
+    db_session.add_all([allocation, ledger])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/dashboard/people-contribution", headers=_phase14_headers(admin))
+    assert response.status_code == 200
+    payload = response.json()
+    tech_row = next(item for item in payload["items"] if item["user_id"] == str(tech.id))
+    assert tech_row["earned_points"] == 30
+    assert tech_row["pending_points"] == 120
+    assert tech_row["project_count"] == 1
+    assert tech_row["milestone_count"] == 1
+
+    detail = await client.get(
+        f"/api/v1/dashboard/people-contribution/{tech.id}",
+        headers=_phase14_headers(admin),
+    )
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["user"]["user_id"] == str(tech.id)
+    assert len(detail_payload["projects"]) == 1
+    assert detail_payload["milestones"][0]["initial_points"] == 120
+    assert detail_payload["ledger"][0]["amount"] == 30
 
 
 async def test_seed_project_milestones_single_transaction(db_session: AsyncSession) -> None:

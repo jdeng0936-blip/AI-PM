@@ -47,6 +47,7 @@ from passlib.context import CryptContext  # noqa: E402
 from sqlalchemy import delete, select  # noqa: E402
 
 from app.database import AsyncSessionLocal, Base, engine  # noqa: E402
+from app.models.audit_log import AuditLog  # noqa: E402
 from app.models.capacity import CapacityLevel, CapacitySnapshot  # noqa: E402
 from app.models.daily_report import DailyReport  # noqa: E402
 from app.models.gate_review import GateDecision, GateReview  # noqa: E402
@@ -298,8 +299,10 @@ PROJECTS = [
 
 
 async def get_user_id_by_name(db, name: str) -> Optional[str]:
-    """容忍重名:取最早创建的同名用户(LIMIT 1)。"""
-    r = await db.execute(select(User.id).where(User.name == name).order_by(User.created_at).limit(1))
+    """容忍重名:优先取当前启用的最新同名用户。"""
+    r = await db.execute(
+        select(User.id).where(User.name == name).order_by(User.is_active.desc(), User.created_at.desc()).limit(1)
+    )
     return r.scalars().first()
 
 
@@ -1942,9 +1945,13 @@ async def reset_demo_data():
         await db.execute(delete(ProjectStage))
         await db.execute(delete(Project))
         await db.execute(delete(KnowledgeItem))
-        # 仅删 EXTRA_USERS,保留 seed_admin
+        # 仅删 EXTRA_USERS,保留 seed_admin;按姓名兼容历史 demo 重复账号。
         wechat_ids = [u["wechat_userid"] for u in EXTRA_USERS]
-        await db.execute(delete(User).where(User.wechat_userid.in_(wechat_ids)))
+        names = [u["name"] for u in EXTRA_USERS]
+        demo_user_filter = (User.wechat_userid.in_(wechat_ids)) | (User.name.in_(names))
+        demo_user_ids = select(User.id).where(demo_user_filter)
+        await db.execute(delete(AuditLog).where(AuditLog.user_id.in_(demo_user_ids)))
+        await db.execute(delete(User).where(demo_user_filter))
         await db.commit()
     print("  ✅ 已清空 demo 数据(seed_admin 8 个用户保留)\n")
 

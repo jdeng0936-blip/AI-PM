@@ -181,10 +181,28 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    # 唯一性校验(排除自身):企微ID / 手机号 / 邮箱,避免改重导致 DB IntegrityError 500
+    if req.wechat_userid is not None and req.wechat_userid != user.wechat_userid:
+        dup = await db.execute(select(User).where(User.wechat_userid == req.wechat_userid, User.id != user_id))
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"企微ID '{req.wechat_userid}' 已存在")
+    if req.phone is not None and req.phone != user.phone:
+        dup = await db.execute(select(User).where(User.phone == req.phone, User.id != user_id))
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"手机号 '{req.phone}' 已被使用")
+    if req.email is not None and req.email != user.email:
+        dup = await db.execute(select(User).where(User.email == req.email, User.id != user_id))
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"邮箱 '{req.email}' 已被使用")
+
     if req.name is not None:
         user.name = req.name
+    if req.wechat_userid is not None:
+        user.wechat_userid = req.wechat_userid
     if req.phone is not None:
         user.phone = req.phone
+    if req.email is not None:
+        user.email = req.email
     if req.department is not None:
         user.department = req.department
     if req.job_title is not None:

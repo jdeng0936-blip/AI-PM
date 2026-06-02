@@ -32,14 +32,14 @@ const memberTrackLabel: Record<ProjectMemberInit['track'], string> = {
 }
 
 const nodeRoleHints: Partial<Record<MilestoneNodeIn['node_type'], string[]>> = {
-  software_req: ['文档/验收', '项目负责人', '软件'],
-  software_mvp: ['软件', '项目负责人'],
-  software_validate: ['测试', '调试', '软件'],
-  software_launch: ['文档/验收', '调试', '项目负责人'],
-  hardware_review: ['硬件', '结构', '项目负责人'],
-  hardware_proto: ['硬件', '结构'],
-  hardware_finalize: ['测试', '调试', '生产支持', '硬件'],
-  temporary_done: ['项目负责人', '软件', '硬件', '测试', '调试'],
+  software_req: ['需求文档', '产品/需求', '文档/验收', '项目负责人', '软件研发'],
+  software_mvp: ['软件研发', '前端研发', '后端研发', '研发', '项目负责人'],
+  software_validate: ['功能测试', '测试/调试', '联调', '测试', '软件研发'],
+  software_launch: ['交付上线', '客户验收', '文档/验收', '运维支持', '项目负责人'],
+  hardware_review: ['方案设计', '硬件设计', '结构设计', 'ID', '项目负责人'],
+  hardware_proto: ['ID', '工业设计', '结构设计', '硬件设计', 'BOM/采购', '硬件'],
+  hardware_finalize: ['验收测试', '试产导入', '交付上线', '客户验收', '生产支持', '硬件'],
+  temporary_done: ['项目负责人', '产品/需求', '需求文档', '研发', '设计', '测试/调试', '交付上线'],
 }
 
 function memberLabel(member: ProjectMemberInit) {
@@ -53,7 +53,9 @@ function memberMatchText(member: ProjectMemberInit) {
     member.name,
     member.department,
     member.role_in_project,
-    member.track === 'both' ? '全项目 软件 硬件 测试 调试 项目负责人' : memberTrackLabel[member.track],
+    member.track === 'both'
+      ? '全项目 项目负责人 产品/需求 需求文档 ID 工业设计 方案设计 研发 设计 软件 硬件 结构 测试 调试 交付上线 客户验收'
+      : memberTrackLabel[member.track],
   ]
     .filter(Boolean)
     .join(' ')
@@ -62,12 +64,22 @@ function memberMatchText(member: ProjectMemberInit) {
 function nodeKeywords(node: MilestoneNodeIn) {
   const hints = [...(nodeRoleHints[node.node_type] || [])]
   const text = `${node.title} ${node.description || ''}`
-  if (text.includes('文档') || text.includes('需求')) hints.unshift('文档/验收')
-  if (text.includes('测试') || text.includes('验证')) hints.unshift('测试')
-  if (text.includes('调试') || text.includes('联调')) hints.unshift('调试')
-  if (text.includes('硬件') || text.includes('PCB') || text.includes('BOM')) hints.unshift('硬件')
-  if (text.includes('结构')) hints.unshift('结构')
-  if (text.includes('软件') || text.includes('MVP') || text.includes('功能')) hints.unshift('软件')
+  if (text.includes('需求')) hints.unshift('需求文档', '产品/需求')
+  if (text.includes('文档')) hints.unshift('文档/验收', '需求文档')
+  if (text.includes('ID') || text.includes('工业设计')) hints.unshift('ID', '工业设计')
+  if (text.includes('设计') || text.includes('方案') || text.includes('评审')) hints.unshift('方案设计', '设计')
+  if (text.includes('测试') || text.includes('验证')) hints.unshift('功能测试', '测试')
+  if (text.includes('调试') || text.includes('联调')) hints.unshift('联调', '测试/调试', '调试')
+  if (text.includes('交付') || text.includes('上线') || text.includes('验收') || text.includes('发布')) {
+    hints.unshift('交付上线', '客户验收', '文档/验收')
+  }
+  if (text.includes('硬件') || text.includes('PCB')) hints.unshift('硬件设计', '硬件')
+  if (text.includes('BOM') || text.includes('采购')) hints.unshift('BOM/采购', '采购支持')
+  if (text.includes('结构')) hints.unshift('结构设计', '结构')
+  if (text.includes('软件') || text.includes('MVP') || text.includes('功能') || text.includes('研发')) {
+    hints.unshift('软件研发', '研发', '软件')
+  }
+  if (text.includes('试产') || text.includes('生产')) hints.unshift('试产导入', '生产支持')
   return Array.from(new Set(hints))
 }
 

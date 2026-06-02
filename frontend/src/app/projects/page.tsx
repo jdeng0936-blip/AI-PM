@@ -170,6 +170,23 @@ export default function ProjectsPage() {
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
 
+  function handleProjectMembersChange(next: ProjectMemberInit[]) {
+    const memberIds = new Set(next.map((member) => member.user_id))
+    setProjectForm((current) => ({
+      ...current,
+      members: next,
+      milestone_nodes: current.milestone_nodes.map((node) => {
+        const plannedAllocations = node.planned_allocations?.filter((allocation) =>
+          memberIds.has(allocation.user_id),
+        )
+        return {
+          ...node,
+          planned_allocations: plannedAllocations?.length ? plannedAllocations : null,
+        }
+      }),
+    }))
+  }
+
   async function handleCreateProject() {
     if (!projectForm.name) {
       toast.error('项目名称必填')
@@ -189,9 +206,22 @@ export default function ProjectsPage() {
         toast.error('里程碑节点名称必填,积分不可为负数')
         return
       }
+      const unassignedNode = projectForm.members.length > 0 && projectForm.milestone_nodes.some((node) =>
+        node.initial_points > 0 && !(node.planned_allocations && node.planned_allocations.length > 0)
+      )
+      if (unassignedNode) {
+        toast.error('请为有积分的贡献节点指定负责人')
+        return
+      }
     }
     setSubmitting(true)
     try {
+      const apiMembers = projectForm.members.map((member) => ({
+        user_id: member.user_id,
+        track: member.track,
+        member_role: member.member_role || 'member',
+        role_in_project: member.role_in_project?.trim() || undefined,
+      }))
       // 临时工单项目只传精简字段；项目截止时间仍为必填
       const payload: any = projectForm.is_temporary
         ? {
@@ -203,7 +233,7 @@ export default function ProjectsPage() {
             track: projectForm.track, // 临时项目也允许选择轨道 (如日常支撑)
             seed_milestones: false,
             // T-1105:临时项目也支持立项指派成员
-            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+            ...(apiMembers.length > 0 ? { members: apiMembers } : {}),
           }
         : {
             // T-1105:主干项目 payload 展开,显式列出字段以便注入 members
@@ -215,7 +245,7 @@ export default function ProjectsPage() {
             budget_total: projectForm.budget_total,
             is_temporary: false,
             seed_milestones: false,
-            ...(projectForm.members.length > 0 ? { members: projectForm.members } : {}),
+            ...(apiMembers.length > 0 ? { members: apiMembers } : {}),
           }
       const created = await createProject(payload) as any
       if (projectForm.seed_milestones && created?.project_id) {
@@ -923,7 +953,7 @@ export default function ProjectsPage() {
               {/* T-1105 立项指派成员选择器(可选,主干 + 临时项目共享) */}
               <MemberPicker
                 value={projectForm.members}
-                onChange={(next) => setProjectForm({ ...projectForm, members: next })}
+                onChange={handleProjectMembersChange}
               />
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
@@ -940,6 +970,7 @@ export default function ProjectsPage() {
                     isTemporary={projectForm.is_temporary}
                     value={projectForm.milestone_nodes}
                     onChange={(nodes) => setProjectForm((current) => ({ ...current, milestone_nodes: nodes }))}
+                    members={projectForm.members}
                     disabled={submitting}
                   />
                 )}

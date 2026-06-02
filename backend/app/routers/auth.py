@@ -32,16 +32,70 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain: str, hashed: str | None) -> bool:
     """校验密码。开发绕过必须显式开启 ENABLE_DEV_AUTH_BYPASS。"""
-    dev_bypass_enabled = settings.aipm_env == "dev" and settings.enable_dev_auth_bypass
-    if dev_bypass_enabled and plain == "dev":
+    if is_dev_auth_bypass_password(plain):
         return True
     if not hashed:
-        return dev_bypass_enabled
+        return is_dev_auth_bypass_enabled()
     return pwd_context.verify(plain, hashed)
 
 
 def hash_password(plain: str) -> str:
     return pwd_context.hash(plain)
+
+
+def is_dev_auth_bypass_enabled() -> bool:
+    return settings.aipm_env == "dev" and settings.enable_dev_auth_bypass
+
+
+def is_dev_auth_bypass_password(plain: str) -> bool:
+    return is_dev_auth_bypass_enabled() and plain == "dev"
+
+
+async def find_login_user(db: AsyncSession, username: str) -> User | None:
+    """
+    Resolve demo-friendly login names deterministically.
+
+    Some local demo databases may contain legacy inactive rows whose
+    wechat_userid equals a display name such as "张毅". Prefer active exact
+    identifiers, then active display-name matches, and only fall back to
+    inactive rows so the caller can return the normal disabled-account error.
+    """
+    active_exact = await db.execute(
+        select(User)
+        .where(
+            or_(
+                User.wechat_userid == username,
+                User.phone == username,
+            ),
+            User.is_active.is_(True),
+        )
+        .order_by(User.created_at.desc())
+        .limit(1)
+    )
+    user = active_exact.scalars().first()
+    if user:
+        return user
+
+    active_name = await db.execute(
+        select(User).where(User.name == username, User.is_active.is_(True)).order_by(User.created_at.desc()).limit(1)
+    )
+    user = active_name.scalars().first()
+    if user:
+        return user
+
+    inactive_match = await db.execute(
+        select(User)
+        .where(
+            or_(
+                User.wechat_userid == username,
+                User.phone == username,
+                User.name == username,
+            )
+        )
+        .order_by(User.created_at.desc())
+        .limit(1)
+    )
+    return inactive_match.scalars().first()
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -54,16 +108,7 @@ async def login(
     用户名+密码登录。
     支持 wechat_userid / phone / name 匹配。
     """
-    result = await db.execute(
-        select(User).where(
-            or_(
-                User.wechat_userid == req.username,
-                User.phone == req.username,
-                User.name == req.username,
-            )
-        )
-    )
-    user = result.scalar_one_or_none()
+    user = await find_login_user(db, req.username)
 
     if not user:
         raise HTTPException(
@@ -82,6 +127,9 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="密码错误",
         )
+
+    if user.must_change_password and is_dev_auth_bypass_password(req.password):
+        user.must_change_password = False
 
     # 更新最近登录时间
     user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)

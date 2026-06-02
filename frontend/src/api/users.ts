@@ -36,6 +36,7 @@ export const createUser = (data: {
 
 export const updateUser = (userId: string, data: {
   name?: string
+  wechat_userid?: string
   phone?: string
   email?: string
   department?: string

@@ -44,13 +44,16 @@ class UserCreate(BaseModel):
     department: str = Field("", max_length=64)
     job_title: str = Field("", max_length=50, description="岗位：技术部长/研发工程师/采购经理 等")
     role: str = Field("employee", description="employee / manager / admin")
-    password: Optional[str] = Field(None, min_length=8, max_length=64, description="可选初始密码；为空时生成随机临时密码")
+    password: Optional[str] = Field(
+        None, min_length=8, max_length=64, description="可选初始密码；为空时生成随机临时密码"
+    )
 
 
 class UserUpdate(BaseModel):
     """修改用户信息"""
 
     name: Optional[str] = Field(None, max_length=32)
+    wechat_userid: Optional[str] = Field(None, max_length=64)
     phone: Optional[str] = Field(None, max_length=20)
     email: Optional[str] = Field(None, max_length=128)
     department: Optional[str] = Field(None, max_length=64)
